@@ -193,3 +193,111 @@ export function generateMonorepoFileTree(count = 5000): FileTreeNode[] {
   }
   return result;
 }
+
+export const INITIAL_ACTION_JOBS: import("../index").ActionJobStep[] = [
+  {
+    id: "job-check",
+    name: "cargo fmt & clippy (--all-targets)",
+    status: "success",
+    duration: "14s",
+    runner: "corp-runner-linux-01",
+  },
+  {
+    id: "job-test",
+    name: "cargo test --workspace (gitoxide + sqlx)",
+    status: "success",
+    duration: "38s",
+    runner: "corp-runner-linux-02",
+  },
+  {
+    id: "job-ui",
+    name: "pnpm --filter @gitust/design-system build",
+    status: "success",
+    duration: "4s",
+    runner: "corp-runner-linux-01",
+  },
+  {
+    id: "job-docker",
+    name: "Build Single-Binary Enterprise Container",
+    status: "running",
+    duration: "19s...",
+    runner: "corp-runner-linux-03",
+  },
+];
+
+export function generateActionLogs(count = 10000): import("../index").ActionLogLine[] {
+  const sampleLines: { level: import("../index").ActionLogLine["level"]; text: string }[] = [
+    { level: "info", text: "[runner:corp-runner-linux-01] Pulling internal registry image gitust/rust-builder:1.85..." },
+    { level: "info", text: "   Compiling gitust-core v0.1.0 (/workspace/crates/gitust-core)" },
+    { level: "info", text: "   Compiling gitust-git v0.1.0 (/workspace/crates/gitust-git) [gix zero-copy enabled]" },
+    { level: "info", text: "   Compiling gitust-actions v0.1.0 (/workspace/crates/gitust-actions)" },
+    { level: "info", text: "   Compiling gitust-server v0.1.0 (/workspace/crates/gitust-server)" },
+    { level: "success", text: "test git_engine::packfile::zero_copy_tree_lookup ... ok (0.18ms)" },
+    { level: "success", text: "test auth::enterprise_sso::verify_oidc_token ... ok (0.42ms)" },
+    { level: "warn", text: "warning: rate-limit threshold near 85% on internal mirror cache" },
+  ];
+
+  const logs: import("../index").ActionLogLine[] = [];
+  for (let i = 0; i < count; i++) {
+    const item = sampleLines[i % sampleLines.length]!;
+    const sec = Math.floor(i / 180)
+      .toString()
+      .padStart(2, "0");
+    const ms = (i % 1000).toString().padStart(3, "0");
+    logs.push({
+      index: i,
+      timestamp: `00:01:${sec}.${ms}`,
+      level: item.level,
+      text: `${item.text} (step #${i + 1})`,
+    });
+  }
+  return logs;
+}
+
+export const INITIAL_ENTERPRISE_USERS: import("../index").EnterpriseUser[] = [
+  {
+    id: 1,
+    username: "yuseungjae",
+    email: "seungjae@company.internal",
+    department: "Core Platform",
+    role: "Site Admin",
+    twoFactorEnabled: true,
+    status: "active",
+  },
+  {
+    id: 2,
+    username: "sec-ops-lead",
+    email: "security@company.internal",
+    department: "InfoSec & Audit",
+    role: "Site Admin",
+    twoFactorEnabled: true,
+    status: "active",
+  },
+  {
+    id: 3,
+    username: "infra-devops",
+    email: "devops@company.internal",
+    department: "CI/CD & Runners",
+    role: "Maintainer",
+    twoFactorEnabled: true,
+    status: "active",
+  },
+  {
+    id: 4,
+    username: "backend-rust",
+    email: "rust-dev@company.internal",
+    department: "Product Engineering",
+    role: "Developer",
+    twoFactorEnabled: true,
+    status: "active",
+  },
+  {
+    id: 5,
+    username: "contractor-temp",
+    email: "ext.partner@company.internal",
+    department: "External Vendor",
+    role: "Developer",
+    twoFactorEnabled: false,
+    status: "suspended",
+  },
+];

@@ -333,3 +333,174 @@
   font-size: var(--ds-font-size-xs);
   color: var(--ds-fg-primary);
 }
+
+/* ============================================================================
+ * 6. Gitust Actions CI/CD Pipeline & Virtualized Log Streamer
+ * ============================================================================ */
+.ds-actions-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: var(--ds-space-3);
+  align-items: start;
+}
+
+.ds-actions-sidebar {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ds-border-default);
+  border-radius: var(--ds-radius-md);
+  background-color: var(--ds-bg-primary);
+  overflow: hidden;
+}
+
+.ds-actions-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--ds-row-height-default);
+  padding: 0 var(--ds-space-3);
+  background-color: var(--ds-bg-secondary);
+  border-bottom: 1px solid var(--ds-border-default);
+  font-size: var(--ds-font-size-xs);
+  font-weight: 600;
+}
+
+.ds-actions-job-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 var(--ds-space-3);
+  border-bottom: 1px solid var(--ds-border-subtle);
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--ds-font-size-xs);
+  transition: background-color var(--ds-duration-instant) var(--ds-ease-out);
+}
+
+.ds-actions-job-row:last-child {
+  border-bottom: none;
+}
+
+.ds-actions-job-row:hover {
+  background-color: var(--ds-bg-hover);
+}
+
+.ds-actions-job-row[data-active="true"] {
+  background-color: var(--ds-bg-selected);
+  box-shadow: inset 2px 0 0 var(--ds-accent-primary);
+  color: var(--ds-fg-primary);
+  font-weight: 500;
+}
+
+.ds-log-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--ds-code-line-height);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--ds-space-3);
+  white-space: pre;
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-font-size-xs);
+}
+
+.ds-log-row:hover {
+  background-color: var(--ds-bg-hover);
+}
+
+.ds-log-row[data-level="error"] {
+  background-color: var(--ds-diff-del-bg);
+  color: var(--ds-diff-del-fg);
+}
+
+.ds-log-row[data-level="warn"] {
+  background-color: var(--ds-warning-bg);
+  color: var(--ds-warning-fg);
+}
+
+.ds-log-row[data-level="success"] {
+  color: var(--ds-success-fg);
+}
+
+/* ============================================================================
+ * 7. Enterprise Auth, SSO & Site Admin Console
+ * ============================================================================ */
+.ds-admin-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: var(--ds-space-4);
+  align-items: start;
+}
+
+.ds-card {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--ds-bg-primary);
+  border: 1px solid var(--ds-border-default);
+  border-radius: var(--ds-radius-md);
+  overflow: hidden;
+}
+
+.ds-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--ds-row-height-default);
+  padding: 0 var(--ds-space-3);
+  background-color: var(--ds-bg-secondary);
+  border-bottom: 1px solid var(--ds-border-default);
+  font-size: var(--ds-font-size-xs);
+  font-weight: 600;
+}
+
+.ds-card-body {
+  padding: var(--ds-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+.ds-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--ds-space-2) 0;
+  border-bottom: 1px solid var(--ds-border-subtle);
+}
+
+.ds-toggle-row:last-child {
+  border-bottom: none;
+}
+
+.ds-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 18px;
+  border-radius: var(--ds-radius-full);
+  background-color: var(--ds-bg-tertiary);
+  border: 1px solid var(--ds-border-strong);
+  cursor: pointer;
+  padding: 2px;
+  transition: background-color var(--ds-duration-instant) var(--ds-ease-out);
+}
+
+.ds-switch[data-checked="true"] {
+  background-color: var(--ds-accent-primary);
+  border-color: var(--ds-accent-primary);
+}
+
+.ds-switch-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--ds-radius-full);
+  background-color: #fff;
+  transition: transform var(--ds-duration-instant) var(--ds-ease-out);
+}
+
+.ds-switch[data-checked="true"] .ds-switch-thumb {
+  transform: translateX(16px);
+}

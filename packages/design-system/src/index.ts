@@ -64,4 +64,15 @@ export {
   type IssueListViewProps,
   type IssueItem,
 } from "./patterns/IssueListView";
+export {
+  ActionsPipelineView,
+  type ActionsPipelineViewProps,
+  type ActionJobStep,
+  type ActionLogLine,
+} from "./patterns/ActionsPipelineView";
+export {
+  EnterpriseAdminView,
+  type EnterpriseAdminViewProps,
+  type EnterpriseUser,
+} from "./patterns/EnterpriseAdminView";
 export { ActiveChordHUD } from "./patterns/ActiveChordHUD";

@@ -8,12 +8,16 @@ import {
   Show,
 } from "solid-js";
 import {
+  ActionJobStep,
+  ActionsPipelineView,
   ActiveChordHUD,
   Avatar,
   Badge,
   Button,
   CommandPalette,
   Dialog,
+  EnterpriseAdminView,
+  EnterpriseUser,
   getTheme,
   ICON_DEFS,
   Icon,
@@ -31,12 +35,21 @@ import {
   VirtualFileTree,
 } from "../index";
 import {
+  generateActionLogs,
   generateLargeDiff,
   generateMonorepoFileTree,
+  INITIAL_ACTION_JOBS,
+  INITIAL_ENTERPRISE_USERS,
   INITIAL_ISSUES,
 } from "./mock-data";
 
-type WorkbenchTab = "issues" | "diff" | "tree" | "primitives";
+type WorkbenchTab =
+  | "issues"
+  | "diff"
+  | "actions"
+  | "admin"
+  | "tree"
+  | "primitives";
 
 const ALL_ICON_NAMES = Object.keys(ICON_DEFS) as IconName[];
 
@@ -52,6 +65,17 @@ export const WorkbenchApp: Component = () => {
     null
   );
 
+  // Gitust Actions CI/CD State
+  const [actionJobs, setActionJobs] =
+    createSignal<ActionJobStep[]>(INITIAL_ACTION_JOBS);
+  const [activeJobId, setActiveJobId] = createSignal("job-docker");
+  const actionLogs = createMemo(() => generateActionLogs(10000));
+
+  // Enterprise Self-Hosted Admin & IAM State
+  const [enterpriseUsers, setEnterpriseUsers] = createSignal<EnterpriseUser[]>(
+    INITIAL_ENTERPRISE_USERS
+  );
+
   let filterInputRef: HTMLInputElement | undefined;
 
   // Pre-generate 10,000 diff lines & 5,000 file tree paths
@@ -65,7 +89,7 @@ export const WorkbenchApp: Component = () => {
     setOptimisticToast(msg);
     setTimeout(() => {
       setOptimisticToast((cur) => (cur === msg ? null : cur));
-    }, 1800);
+    }, 2000);
   };
 
   // Optimistic 0ms status toggle
@@ -102,6 +126,47 @@ export const WorkbenchApp: Component = () => {
     showQuickFeedback(`Created Issue #${newId} instantaneously (< 1ms)`);
   };
 
+  const rerunAllActionJobs = () => {
+    setActionJobs((prev) =>
+      prev.map((j) => ({ ...j, status: "success", duration: "12s (cached)" }))
+    );
+    showQuickFeedback(
+      "Gitust Actions: Dispatched workflow re-run to corp-runner-linux-01 (0ms Optimistic)"
+    );
+  };
+
+  const toggleEnterpriseUserRole = (userId: number) => {
+    const roles: EnterpriseUser["role"][] = [
+      "Developer",
+      "Maintainer",
+      "Site Admin",
+    ];
+    setEnterpriseUsers((prev) =>
+      prev.map((u) => {
+        if (u.id !== userId) return u;
+        const nextRole =
+          roles[(roles.indexOf(u.role) + 1) % roles.length] ?? "Developer";
+        showQuickFeedback(
+          `IAM Role Updated: @${u.username} → ${nextRole} (0ms Optimistic)`
+        );
+        return { ...u, role: nextRole };
+      })
+    );
+  };
+
+  const toggleEnterpriseUserStatus = (userId: number) => {
+    setEnterpriseUsers((prev) =>
+      prev.map((u) => {
+        if (u.id !== userId) return u;
+        const nextStatus = u.status === "active" ? "suspended" : "active";
+        showQuickFeedback(
+          `Account Status Updated: @${u.username} → ${nextStatus.toUpperCase()} (0ms Optimistic)`
+        );
+        return { ...u, status: nextStatus };
+      })
+    );
+  };
+
   onMount(() => {
     const cleanups = [
       shortcutManager.register({
@@ -128,6 +193,22 @@ export const WorkbenchApp: Component = () => {
         keys: "g d",
         description: "120fps O(1) DOM sliced PR diff engine",
         handler: () => setActiveTab("diff"),
+      }),
+      shortcutManager.register({
+        id: "nav.actions",
+        title: "Go to Gitust Actions CI/CD & Live Log Stream",
+        category: "Navigation",
+        keys: "g a",
+        description: "GitHub/Gitea Actions workflow pipeline & 10k-line console",
+        handler: () => setActiveTab("actions"),
+      }),
+      shortcutManager.register({
+        id: "nav.admin",
+        title: "Go to Enterprise Auth, SSO & Site Admin Console",
+        category: "Navigation",
+        keys: "g s",
+        description: "Self-hosted on-premise IAM, domain lock, and user roles",
+        handler: () => setActiveTab("admin"),
       }),
       shortcutManager.register({
         id: "nav.tree",
@@ -189,6 +270,14 @@ export const WorkbenchApp: Component = () => {
         handler: () => createOptimisticIssue(),
       }),
       shortcutManager.register({
+        id: "actions.rerun",
+        title: "Re-run CI/CD Workflow Jobs",
+        category: "Actions",
+        keys: "r",
+        description: "Trigger instant re-run on self-hosted runner",
+        handler: () => rerunAllActionJobs(),
+      }),
+      shortcutManager.register({
         id: "filter.focus",
         title: "Focus Instant Filter Bar",
         category: "Actions",
@@ -233,9 +322,22 @@ export const WorkbenchApp: Component = () => {
     },
     {
       id: "diff",
-      label: "Virtualized Diff (10k)",
+      label: "Diff (10k)",
       shortcut: "g d",
       icon: <Icon name="diff" size={14} />,
+    },
+    {
+      id: "actions",
+      label: "CI/CD Actions",
+      count: actionJobs().length,
+      shortcut: "g a",
+      icon: <Icon name="play" size={14} />,
+    },
+    {
+      id: "admin",
+      label: "Enterprise Admin & Auth",
+      shortcut: "g s",
+      icon: <Icon name="shield-check" size={14} />,
     },
     {
       id: "tree",
@@ -245,7 +347,7 @@ export const WorkbenchApp: Component = () => {
     },
     {
       id: "primitives",
-      label: "Tokens, Icons & Primitives",
+      label: "Tokens & Icons",
       shortcut: "g p",
       icon: <Icon name="sliders" size={14} />,
     },
@@ -315,16 +417,16 @@ export const WorkbenchApp: Component = () => {
               class="ds-mono"
               style={{ "font-size": "var(--ds-font-size-sm)" }}
             >
-              design-system
+              enterprise-self-hosted
             </span>
           </div>
 
           <Badge variant="accent" dot>
-            Phase 1 Workbench
+            Private On-Premise
           </Badge>
           <Badge variant="success" mono>
             <Icon name="zap" size={11} />
-            <span>&lt;16ms Frame Budget</span>
+            <span>&lt;16ms Frame</span>
           </Badge>
         </div>
 
@@ -546,7 +648,98 @@ export const WorkbenchApp: Component = () => {
           />
         </Show>
 
-        {/* TAB 3: 5,000-File Virtualized Monorepo File Tree */}
+        {/* TAB 3: Gitust Actions CI/CD Pipeline & 10,000-Line Log Streamer */}
+        <Show when={activeTab() === "actions"}>
+          <div
+            style={{
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "space-between",
+            }}
+          >
+            <div>
+              <h1
+                style={{
+                  "font-size": "var(--ds-font-size-lg)",
+                  "font-weight": 600,
+                }}
+              >
+                Gitust Actions — Self-Hosted CI/CD Pipeline & Live Console
+              </h1>
+              <p
+                style={{
+                  "font-size": "var(--ds-font-size-xs)",
+                  color: "var(--ds-fg-secondary)",
+                }}
+              >
+                100% compatible with <code class="ds-mono">.github/workflows/*.yml</code>{" "}
+                & Gitea <code class="ds-mono">act_runner</code>. Streams 10,000+
+                console lines at 120fps. Press <Kbd keys="r" /> to re-run jobs.
+              </p>
+            </div>
+            <Badge variant="success" mono>
+              <Icon name="server" size={12} />
+              <span>Private Runner Pool: Active</span>
+            </Badge>
+          </div>
+
+          <ActionsPipelineView
+            workflowName="ci-enterprise-release.yml"
+            commitSha="5072e0a"
+            branch="main"
+            jobs={actionJobs()}
+            activeJobId={activeJobId()}
+            onSelectJob={setActiveJobId}
+            onRerunAll={rerunAllActionJobs}
+            logs={actionLogs()}
+            height={440}
+          />
+        </Show>
+
+        {/* TAB 4: Enterprise Self-Hosted Admin, Auth & SSO Console */}
+        <Show when={activeTab() === "admin"}>
+          <div
+            style={{
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "space-between",
+            }}
+          >
+            <div>
+              <h1
+                style={{
+                  "font-size": "var(--ds-font-size-lg)",
+                  "font-weight": 600,
+                }}
+              >
+                Enterprise Self-Hosted Auth, SSO & Site Admin Console
+              </h1>
+              <p
+                style={{
+                  "font-size": "var(--ds-font-size-xs)",
+                  color: "var(--ds-fg-secondary)",
+                }}
+              >
+                Built for corporate on-premise deployments: control invite-only
+                registration, email domain whitelist, OIDC/LDAP SSO, 2FA, and
+                organization roles with 0ms Optimistic UI.
+              </p>
+            </div>
+            <Badge variant="accent" mono>
+              <Icon name="lock" size={12} />
+              <span>Single-Binary On-Premise Mode</span>
+            </Badge>
+          </div>
+
+          <EnterpriseAdminView
+            users={enterpriseUsers()}
+            onToggleRole={toggleEnterpriseUserRole}
+            onToggleStatus={toggleEnterpriseUserStatus}
+            onPolicyFeedback={showQuickFeedback}
+          />
+        </Show>
+
+        {/* TAB 5: 5,000-File Virtualized Monorepo File Tree */}
         <Show when={activeTab() === "tree"}>
           <div
             style={{
@@ -588,7 +781,7 @@ export const WorkbenchApp: Component = () => {
           />
         </Show>
 
-        {/* TAB 4: Design Tokens, Vector Icon Sprite Sheet & Primitives Showcase */}
+        {/* TAB 6: Design Tokens, Vector Icon Sprite Sheet & Primitives Showcase */}
         <Show when={activeTab() === "primitives"}>
           <div
             style={{
@@ -633,7 +826,7 @@ export const WorkbenchApp: Component = () => {
                   </p>
                 </div>
                 <Badge variant="success" mono>
-                  {ALL_ICON_NAMES.length} Icons · ~1.1 KB Gzip
+                  {ALL_ICON_NAMES.length} Icons · ~1.3 KB Gzip
                 </Badge>
               </div>
 
@@ -855,10 +1048,10 @@ export const WorkbenchApp: Component = () => {
                   Diff: <Kbd keys="g d" />
                 </span>
                 <span>
-                  Files: <Kbd keys="g t" />
+                  Actions: <Kbd keys="g a" />
                 </span>
                 <span>
-                  Palette: <Kbd keys="mod+k" />
+                  Admin: <Kbd keys="g s" />
                 </span>
               </div>
             </section>

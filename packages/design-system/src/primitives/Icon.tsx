@@ -25,7 +25,13 @@ export type IconName =
   | "shield-check"
   | "keyboard"
   | "diff"
-  | "sliders";
+  | "sliders"
+  | "play"
+  | "rotate-ccw"
+  | "users"
+  | "lock"
+  | "key"
+  | "server";
 
 interface IconDef {
   /** SVG inner elements (path, circle, etc.) on a 16x16 viewBox */
@@ -197,6 +203,45 @@ export const ICON_DEFS: Record<IconName, IconDef> = {
       "M5.5 3v3",
       "M10.5 6.5v3",
       "M7 10v3",
+    ],
+  },
+  play: {
+    paths: ["M4.5 3.25 12.5 8l-8 4.75V3.25Z"],
+  },
+  "rotate-ccw": {
+    paths: [
+      "M2.5 4v3.5H6",
+      "M3 7.5A5.5 5.5 0 1 1 4.2 12",
+    ],
+  },
+  users: {
+    paths: [
+      "M6 7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z",
+      "M1.75 13.5c0-2.1 1.9-3.75 4.25-3.75s4.25 1.65 4.25 3.75",
+      "M11 3.2a2.2 2.2 0 0 1 0 4.1",
+      "M14.25 13.5c0-1.65-1.15-3.05-2.75-3.5",
+    ],
+  },
+  lock: {
+    paths: [
+      "M3.5 7.5h9a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1Z",
+      "M5.25 7.5V5.25a2.75 2.75 0 0 1 5.5 0V7.5",
+    ],
+  },
+  key: {
+    paths: [
+      "M10.5 8.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+      "m8.2 7.8-5.7 5.7",
+      "m4 12 1.5 1.5",
+      "m6 10 1.5 1.5",
+    ],
+  },
+  server: {
+    paths: [
+      "M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-3Z",
+      "M2.5 9.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-3Z",
+      "M5 5h.5",
+      "M5 11h.5",
     ],
   },
 };

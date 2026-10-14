@@ -2,12 +2,14 @@
 
 ## 1. Project Vision & Identity
 
-**Gitust**는 오픈소스 셀프호스팅 Git 서비스인 [Gitea](https://github.com/go-gitea/gitea)의 모든 도메인 기능과 철학(가벼움, 단일 바이너리 배포 가능성, 완전한 기능 패리티)을 계승하면서, 다음 **두 가지 핵심 차별점**으로 완전히 새롭게 구축하는 프로젝트입니다.
+**Gitust**는 불특정 다수를 위한 퍼블릭 클라우드 SaaS가 아니라, **기업이나 조직이 보안·망분리·컴플라이언스·자체 코드 자산 보호를 위해 자사 온프레미스(On-Premise) 서버나 프라이빗 클라우드에 가장 쉽고 빠르게 구축하는 "기업 전용 초고속 프라이빗 GitHub (Self-Hosted Enterprise Git Platform)"**입니다.
+
+오픈소스 셀프호스팅 Git 서비스인 [Gitea](https://github.com/go-gitea/gitea)의 모든 엔터프라이즈 도메인 기능(자체 회원가입/로그인 제어, 사내 조직/팀 권한 관리, 사이트 관리자(Site Admin) 시스템, 내장 CI/CD Actions, 단일 바이너리 배포)을 완벽히 계승하면서, 다음 **두 가지 핵심 차별점**으로 새롭게 구축합니다.
 
 1. **Design System First & "Speed is a Feature" (Superhuman-Grade UI/UX)**
    - Gitea의 기존 레거시 템플릿/UI(Fomantic-UI + jQuery/Vue 혼용)를 복제하지 않습니다.
    - 본격적인 화면 개발에 앞서 **우리만의 독자적인 디자인 시스템(Design System)**을 가장 먼저 구축합니다.
-   - 이메일 클라이언트 **Superhuman**이 증명했듯 **"속도는 곧 핵심 기능(Speed is a Feature)"**입니다. 모든 인터랙션은 **100ms(이상적으로는 50ms) 이내**에 반응해야 하며, 키보드 퍼스트(Keyboard-First) 네비게이션, 낙관적 업데이트(Optimistic UI), 프리페칭(Prefetching), 제로 레이아웃 시프트(Zero CLS)를 기본 원칙으로 삼습니다.
+   - 이메일 클라이언트 **Superhuman**이 증명했듯 **"속도는 곧 핵심 기능(Speed is a Feature)"**입니다. 모든 인터랙션은 **100ms(이상적으로는 16ms/1프레임) 이내**에 반응해야 하며, 키보드 퍼스트(Keyboard-First) 네비게이션, 낙관적 업데이트(Optimistic UI), 프리페칭(Prefetching), 제로 레이아웃 시프트(Zero CLS)를 기본 원칙으로 삼습니다.
 2. **Written in Idiomatic Rust (Zero-Cost, Memory-Safe, Blazing Fast)**
    - Go 언어로 작성된 Gitea를 **100% Rust**로 재창조합니다.
    - Go 코드를 기계적으로 1:1 번역(Line-by-line port)하는 것을 엄격히 금지합니다. Gitea의 도메인 모델, 엣지 케이스, Git 처리 방식만 참고하되, 설계와 구현은 **Rust의 타입 시스템, 소유권(Ownership), 비동기 런타임(`tokio`), 제로 코스트 추상화**를 극대화하는 **Idiomatic Rust** 방식으로 작성합니다.
@@ -19,14 +21,14 @@
 이 저장소에서 작업하는 모든 AI 에이전트는 코드를 작성하거나 아키텍처를 제안할 때 반드시 아래의 5대 원칙을 준수해야 합니다.
 
 ### Principle 1: Speed is the Ultimate Feature (< 100ms Rule)
-- **Instant Feedback**: 사용자의 클릭이나 키 입력 후 네트워크 응답을 기다리며 스피너(Spinner)를 보여주는 것은 실패한 UX입니다. 가능한 모든 상태 변경(이슈 생성/닫기, 라벨 변경, 코멘트 작성, 스타 토글 등)은 **Optimistic UI** 또는 **Local-First 캐시**로 즉시(0~16ms 내) 화면에 반영되어야 합니다.
-- **Keyboard-First Everything**: 마우스 없이 모든 워크플로우(레포지토리 이동, 코드 검색, PR 리뷰, 파일 트리 탐색, 브랜치 전환, 이슈 필터링)를 완수할 수 있어야 합니다. 전역 Command Palette (`Cmd/Ctrl + K`)와 시퀀스 단축키(`g` -> `i` 이슈 이동, `g` -> `p` PR 이동, `j`/`k` 리스트 이동 등)를 디자인 시스템 코어에 내장합니다.
+- **Instant Feedback**: 사용자의 클릭이나 키 입력 후 네트워크 응답을 기다리며 스피너(Spinner)를 보여주는 것은 실패한 UX입니다. 가능한 모든 상태 변경(이슈 생성/닫기, 라벨 변경, 코멘트 작성, 사용자 권한 변경, CI 재실행 등)은 **Optimistic UI** 또는 **Local-First 캐시**로 즉시(0~16ms 내) 화면에 반영되어야 합니다.
+- **Keyboard-First Everything**: 마우스 없이 모든 워크플로우(레포지토리 이동, 코드 검색, PR 리뷰, 파일 트리 탐색, 브랜치 전환, 이슈 필터링, CI/CD 로그 탐색, 관리자 콘솔 제어)를 완수할 수 있어야 합니다. 전역 Command Palette (`Cmd/Ctrl + K`)와 시퀀스 단축키(`g i` 이슈, `g d` 디프, `g a` Actions CI/CD, `g s` Admin/보안 등)를 디자인 시스템 코어에 내장합니다.
 - **Zero Bloat**: 무거운 런타임, 불필요한 리렌더링, 거대한 번들 사이즈를 거부합니다. 프론트엔드와 백엔드 모두 가장 가볍고 빠른 선택지를 우선합니다.
 
 ### Principle 2: Design System First (No Ad-hoc UI)
-- **선(先) 디자인 시스템, 후(後) 페이지 개발**: 개별 페이지(이슈 목록, PR 디프 뷰 등)를 만들 때 일회성 스타일이나 하드코딩된 색상/간격을 절대 사용하지 마십시오.
+- **선(先) 디자인 시스템, 후(後) 페이지 개발**: 개별 페이지(이슈 목록, PR 디프 뷰, CI/CD 파이프라인, 관리자 콘솔 등)를 만들 때 일회성 스타일이나 하드코딩된 색상/간격을 절대 사용하지 마십시오.
 - 모든 UI 컴포넌트는 `packages/design-system`(또는 해당 워크스페이스)에 **디자인 토큰(Tokens) -> 기본 프리미티브(Primitives) -> 복합 패턴(Patterns)** 순서로 먼저 정의되고 검증되어야 합니다.
-- **고밀도(High-Density) & 고가독성**: 개발자 도구 특성상 한 화면에 많은 정보(코드 라인, 커밋 해시, CI 상태, 파일 트리)가 표시되어야 합니다. 화려하지만 공간을 낭비하는 마케팅용 UI가 아니라, Linear 및 Superhuman처럼 정교한 타이포그래피와 높은 정보 밀도를 가진 UI를 지향합니다.
+- **고밀도(High-Density) & 고가독성**: 개발자 도구 및 엔터프라이즈 콘솔 특성상 한 화면에 많은 정보(코드 라인, 커밋 해시, CI 파이프라인 상태, 빌드 로그, 사내 사용자/권한 테이블)가 표시되어야 합니다. Linear 및 Superhuman처럼 정교한 타이포그래피와 높은 정보 밀도를 가진 UI를 지향합니다.
 
 ### Principle 3: Idiomatic Rust over Go Translation
 - Gitea의 Go 코드는 **"무엇을(What) 해결해야 하는가"**에 대한 레퍼런스일 뿐, **"어떻게(How) 작성할 것인가"**의 정답이 아닙니다.
@@ -39,9 +41,12 @@
 - 순수 Rust 기반의 [`gitoxide` (`gix`)](https://github.com/Byron/gitoxide)를 최우선으로 활용하여 인프로세스(In-process)에서 제로 카피로 Git 객체(Commit, Tree, Blob, Tag, Packfile)를 읽고 처리합니다.
 - `gix`에서 아직 지원하지 않는 복잡한 쓰기 작업(예: 특정 머지 전략, 훅 실행을 동반한 receive-pack 등)에 한해서만 격리된 비동기 `git` CLI 프로세스 풀 또는 `git2`를 제한적으로 사용하며, 이를 추상화 계층(`crates/gitust-git`) 뒤에 숨깁니다.
 
-### Principle 5: Single-Binary & Lightweight Heritage
-- Gitea의 가장 큰 장점인 "설치와 운영의 간편함"을 유지합니다.
-- 프로덕션 빌드 시 프론트엔드 정적 자산과 디자인 시스템 에셋은 Rust 바이너리에 임베딩(`rust-embed` 등)하거나 초경량 단일 컨테이너로 배포할 수 있는 구조를 유지해야 합니다.
+### Principle 5: Enterprise Self-Hosted Ready & Single-Binary Heritage
+- **간편한 사내 구축**: 기업 보안팀이나 인프라팀이 외부 의존성 없이 단일 바이너리(또는 단일 컨테이너) 하나로 사내 서버에 즉시 구축할 수 있어야 합니다.
+- **엔터프라이즈 필수 통제권 기본 내장**:
+  1. **Auth & 가입 정책 제어**: 사내 정책에 따른 회원가입 허용/차단(Invite-only), 허용 이메일 도메인 화이트리스트(`@company.com`), 2FA/Passkey, SSO(OIDC/OAuth2/LDAP), SSH/GPG 키 및 PAT 관리.
+  2. **Site Admin Console**: 전체 사용자/조직/레포지토리 통제, 셀프호스팅 러너(Runner) 관리, 보안 감사 로그(Audit Log) 조회.
+  3. **Built-in CI/CD (`Gitust Actions`)**: 별도의 Jenkins나 외부 CI 툴을 구축할 필요 없이, GitHub Actions / Gitea Actions 워크플로우(`.github/workflows/*.yml`)와 100% 호환되는 내장 CI/CD 파이프라인 및 실시간 로그 스트리밍을 제공합니다.
 
 ---
 
@@ -126,6 +131,8 @@ gitust/
    - **Virtualized File Tree**: 수만 개의 파일이 있는 모노레포도 지연 없이 열리고 검색되는 트리 뷰.
    - **Virtualized Code & Diff Viewer**: Unified / Split 뷰, 인라인 코멘트 스레드, 구문 강조를 16ms 프레임 예산 내에서 렌더링하는 컴포넌트.
    - **Instant Filter Bar**: 이슈/PR 목록을 타이핑과 동시에 로컬 필터링/자동완성하는 슈퍼휴먼 스타일 검색 바.
+   - **Gitust Actions CI/CD Pipeline & Virtualized Log Streamer**: 워크플로우 DAG/스텝 상태 시각화 및 수만 줄의 실시간 빌드 콘솔 로그를 120fps로 스트리밍/검색하는 가상화 로그 뷰어.
+   - **Enterprise Auth, SSO & Site Admin Patterns**: 사내 로그인/회원가입 제어(Invite-only, 도메인 제한, SSO), 사용자/권한 매트릭스, 셀프호스팅 러너 상태, 보안 감사 로그(Audit Log)를 0ms Optimistic UI로 제어하는 엔터프라이즈 관리 패턴.
 
 ### Phase 2: Rust Core & Git Plumbing Engine
 1. Workspace 초기화 및 `gitust-core`, `gitust-git`, `gitust-db` 스캐폴딩.

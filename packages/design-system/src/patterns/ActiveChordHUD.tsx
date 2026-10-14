@@ -10,8 +10,9 @@ export const ActiveChordHUD: Component = () => {
           <span>Waiting for second key of chord:</span>
           <Kbd keys={prefix()} />
           <span style={{ color: "var(--ds-fg-muted)" }}>
-            (try <Kbd keys="i" />, <Kbd keys="d" />, <Kbd keys="a" />,{" "}
-            <Kbd keys="s" />, <Kbd keys="t" />, <Kbd keys="p" />)
+            (try <Kbd keys="w" />, <Kbd keys="i" />, <Kbd keys="d" />,{" "}
+            <Kbd keys="a" />, <Kbd keys="s" />, <Kbd keys="t" />,{" "}
+            <Kbd keys="p" />)
           </span>
         </div>
       )}

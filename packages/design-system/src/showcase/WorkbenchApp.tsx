@@ -11,6 +11,9 @@ import {
   ActionJobStep,
   ActionsPipelineView,
   ActiveChordHUD,
+  AgentProvider,
+  AgentSandboxTask,
+  AgentSwarmView,
   Avatar,
   Badge,
   Button,
@@ -39,11 +42,13 @@ import {
   generateLargeDiff,
   generateMonorepoFileTree,
   INITIAL_ACTION_JOBS,
+  INITIAL_AGENT_SWARM_TASKS,
   INITIAL_ENTERPRISE_USERS,
   INITIAL_ISSUES,
 } from "./mock-data";
 
 type WorkbenchTab =
+  | "swarm"
   | "issues"
   | "diff"
   | "actions"
@@ -54,9 +59,15 @@ type WorkbenchTab =
 const ALL_ICON_NAMES = Object.keys(ICON_DEFS) as IconName[];
 
 export const WorkbenchApp: Component = () => {
-  const [activeTab, setActiveTab] = createSignal<WorkbenchTab>("issues");
+  const [activeTab, setActiveTab] = createSignal<WorkbenchTab>("swarm");
   const [cmdOpen, setCmdOpen] = createSignal(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = createSignal(false);
+
+  // Agent Swarm & Sandbox Fleet Store
+  const [swarmTasks, setSwarmTasks] = createSignal<AgentSandboxTask[]>(
+    INITIAL_AGENT_SWARM_TASKS
+  );
+  const [focusedSwarmIdx, setFocusedSwarmIdx] = createSignal(0);
 
   // Superhuman-style Local-First / Optimistic Issue Store
   const [issues, setIssues] = createSignal<IssueItem[]>(INITIAL_ISSUES);
@@ -89,7 +100,70 @@ export const WorkbenchApp: Component = () => {
     setOptimisticToast(msg);
     setTimeout(() => {
       setOptimisticToast((cur) => (cur === msg ? null : cur));
-    }, 2000);
+    }, 2200);
+  };
+
+  // Agent Swarm Actions (0ms Optimistic)
+  const approveAndMergeSwarmTask = (id: number) => {
+    const t0 = performance.now();
+    setSwarmTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        const dt = (performance.now() - t0).toFixed(2);
+        showQuickFeedback(
+          `Fast-Forward Merged ${t.branch} (${t.agent}) into main in ${dt}ms (gix In-Memory Ref Update)`
+        );
+        return { ...t, sandboxStatus: "merged", updatedAt: "just now" };
+      })
+    );
+  };
+
+  const discardSwarmTask = (id: number) => {
+    setSwarmTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        showQuickFeedback(
+          `Discarded CoW Worktree ${t.branch} & freed sandbox in 0.1ms`
+        );
+        return { ...t, sandboxStatus: "discarded", updatedAt: "just now" };
+      })
+    );
+  };
+
+  const spawnBatchAgentSwarm = () => {
+    const t0 = performance.now();
+    const providers: AgentProvider[] = [
+      "Claude Code",
+      "Cursor Agent",
+      "Codex Swarm",
+    ];
+    const baseId = Math.max(...swarmTasks().map((t) => t.id)) + 1;
+    const batch: AgentSandboxTask[] = Array.from({ length: 10 }, (_, idx) => {
+      const id = baseId + idx;
+      const agent = providers[idx % providers.length]!;
+      return {
+        id,
+        agent,
+        branch: `agent/${agent.toLowerCase().split(" ")[0]}/parallel-task-${id}`,
+        baseBranch: "main",
+        forkLatencyMs: Number((0.25 + (idx % 4) * 0.04).toFixed(2)),
+        promptSummary: `Parallel sandbox task #${id}: zero-copy refactor & unit test verification`,
+        sandboxStatus: "verified",
+        compileTimeMs: 68 + (idx * 7) % 35,
+        testsPassed: 24,
+        testsTotal: 24,
+        filesChanged: 2 + (idx % 3),
+        additions: 48 + idx * 9,
+        deletions: 12 + idx * 2,
+        updatedAt: "just now",
+      };
+    });
+
+    setSwarmTasks((prev) => [...batch, ...prev]);
+    const dt = (performance.now() - t0).toFixed(2);
+    showQuickFeedback(
+      `Spawned +10 Zero-Copy Agent Branches & Verified Sandboxes in ${dt}ms`
+    );
   };
 
   // Optimistic 0ms status toggle
@@ -174,9 +248,17 @@ export const WorkbenchApp: Component = () => {
         title: "Open Command Palette",
         category: "Actions",
         keys: "mod+k",
-        description: "Search all commands, files, and navigation actions",
+        description: "Search all commands, agent branches, and actions",
         allowInInput: true,
         handler: () => setCmdOpen((v) => !v),
+      }),
+      shortcutManager.register({
+        id: "nav.swarm",
+        title: "Go to Agent Swarm & Sandbox Fleet",
+        category: "Navigation",
+        keys: "g w",
+        description: "Orchestrate Claude Code / Cursor parallel branches & sandboxes",
+        handler: () => setActiveTab("swarm"),
       }),
       shortcutManager.register({
         id: "nav.issues",
@@ -233,7 +315,11 @@ export const WorkbenchApp: Component = () => {
         keys: "j",
         description: "Select next row in active list",
         handler: () => {
-          if (activeTab() === "issues") {
+          if (activeTab() === "swarm") {
+            setFocusedSwarmIdx((i) =>
+              Math.min(swarmTasks().length - 1, i + 1)
+            );
+          } else if (activeTab() === "issues") {
             setFocusedIssueIdx((i) => Math.min(issues().length - 1, i + 1));
           }
         },
@@ -245,10 +331,46 @@ export const WorkbenchApp: Component = () => {
         keys: "k",
         description: "Select previous row in active list",
         handler: () => {
-          if (activeTab() === "issues") {
+          if (activeTab() === "swarm") {
+            setFocusedSwarmIdx((i) => Math.max(0, i - 1));
+          } else if (activeTab() === "issues") {
             setFocusedIssueIdx((i) => Math.max(0, i - 1));
           }
         },
+      }),
+      shortcutManager.register({
+        id: "swarm.approve",
+        title: "Approve & Fast-Forward Merge Focused Agent Branch",
+        category: "Actions",
+        keys: "a",
+        description: "Instant 0ms in-memory merge of verified agent sandbox",
+        handler: () => {
+          if (activeTab() === "swarm") {
+            const task = swarmTasks()[focusedSwarmIdx()];
+            if (task) approveAndMergeSwarmTask(task.id);
+          }
+        },
+      }),
+      shortcutManager.register({
+        id: "swarm.discard",
+        title: "Discard Focused Agent Branch & Sandbox",
+        category: "Actions",
+        keys: "x",
+        description: "Drop CoW worktree snapshot immediately",
+        handler: () => {
+          if (activeTab() === "swarm") {
+            const task = swarmTasks()[focusedSwarmIdx()];
+            if (task) discardSwarmTask(task.id);
+          }
+        },
+      }),
+      shortcutManager.register({
+        id: "swarm.spawn",
+        title: "Spawn +10 Parallel Agent Sandbox Branches",
+        category: "Actions",
+        keys: "s",
+        description: "Benchmark <1ms CoW worktree fork for coding agents",
+        handler: () => spawnBatchAgentSwarm(),
       }),
       shortcutManager.register({
         id: "issue.toggle",
@@ -313,6 +435,13 @@ export const WorkbenchApp: Component = () => {
   });
 
   const tabs = createMemo<TabItem<WorkbenchTab>[]>(() => [
+    {
+      id: "swarm",
+      label: "Agent Swarm & Sandboxes",
+      count: swarmTasks().length,
+      shortcut: "g w",
+      icon: <Icon name="bot" size={14} />,
+    },
     {
       id: "issues",
       label: "Issues & PRs",
@@ -417,12 +546,12 @@ export const WorkbenchApp: Component = () => {
               class="ds-mono"
               style={{ "font-size": "var(--ds-font-size-sm)" }}
             >
-              enterprise-self-hosted
+              agent-native-git
             </span>
           </div>
 
           <Badge variant="accent" dot>
-            Private On-Premise
+            Agent + Sandbox Engine
           </Badge>
           <Badge variant="success" mono>
             <Icon name="zap" size={11} />
@@ -569,6 +698,55 @@ export const WorkbenchApp: Component = () => {
           )}
         </Show>
 
+        {/* TAB 0: Agent Swarm & Micro-Sandbox Fleet Control */}
+        <Show when={activeTab() === "swarm"}>
+          <div
+            style={{
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "space-between",
+            }}
+          >
+            <div>
+              <h1
+                style={{
+                  "font-size": "var(--ds-font-size-lg)",
+                  "font-weight": 600,
+                }}
+              >
+                Agent Swarm &amp; Micro-Sandbox Execution Engine
+              </h1>
+              <p
+                style={{
+                  "font-size": "var(--ds-font-size-xs)",
+                  color: "var(--ds-fg-secondary)",
+                }}
+              >
+                Claude Code, Cursor &amp; Codex agents spawn isolated{" "}
+                <code class="ds-mono">gitoxide</code> CoW branches in{" "}
+                <strong>&lt;1ms</strong> and run isolated sandbox builds in{" "}
+                <strong>&lt;100ms</strong>. Triage with <Kbd keys="j" /> /{" "}
+                <Kbd keys="k" />, press <Kbd keys="a" /> to merge,{" "}
+                <Kbd keys="x" /> to discard, or <Kbd keys="s" /> to spawn +10
+                sandboxes.
+              </p>
+            </div>
+            <Badge variant="merged" mono>
+              <Icon name="cpu" size={12} />
+              <span>Enterprise Sandbox Cluster Ready</span>
+            </Badge>
+          </div>
+
+          <AgentSwarmView
+            tasks={swarmTasks()}
+            focusedIndex={focusedSwarmIdx()}
+            onFocusIndexChange={setFocusedSwarmIdx}
+            onApproveMerge={approveAndMergeSwarmTask}
+            onDiscardBranch={discardSwarmTask}
+            onSpawnBatchSwarm={spawnBatchAgentSwarm}
+          />
+        </Show>
+
         {/* TAB 1: Superhuman Issue & PR List */}
         <Show when={activeTab() === "issues"}>
           <div
@@ -585,7 +763,7 @@ export const WorkbenchApp: Component = () => {
                   "font-weight": 600,
                 }}
               >
-                Keyboard-First Issues & Pull Requests
+                Keyboard-First Issues &amp; Pull Requests
               </h1>
               <p
                 style={{
@@ -627,7 +805,7 @@ export const WorkbenchApp: Component = () => {
                 "font-weight": 600,
               }}
             >
-              Virtualized Code & Diff Viewer (10,000 Lines Stress Test)
+              Virtualized Code &amp; Diff Viewer (10,000 Lines Stress Test)
             </h1>
             <p
               style={{
@@ -664,7 +842,7 @@ export const WorkbenchApp: Component = () => {
                   "font-weight": 600,
                 }}
               >
-                Gitust Actions — Self-Hosted CI/CD Pipeline & Live Console
+                Gitust Actions — Self-Hosted CI/CD Pipeline &amp; Live Console
               </h1>
               <p
                 style={{
@@ -672,9 +850,10 @@ export const WorkbenchApp: Component = () => {
                   color: "var(--ds-fg-secondary)",
                 }}
               >
-                100% compatible with <code class="ds-mono">.github/workflows/*.yml</code>{" "}
-                & Gitea <code class="ds-mono">act_runner</code>. Streams 10,000+
-                console lines at 120fps. Press <Kbd keys="r" /> to re-run jobs.
+                100% compatible with{" "}
+                <code class="ds-mono">.github/workflows/*.yml</code> &amp; Gitea{" "}
+                <code class="ds-mono">act_runner</code>. Streams 10,000+ console
+                lines at 120fps. Press <Kbd keys="r" /> to re-run jobs.
               </p>
             </div>
             <Badge variant="success" mono>
@@ -685,7 +864,7 @@ export const WorkbenchApp: Component = () => {
 
           <ActionsPipelineView
             workflowName="ci-enterprise-release.yml"
-            commitSha="5072e0a"
+            commitSha="5edd70a"
             branch="main"
             jobs={actionJobs()}
             activeJobId={activeJobId()}
@@ -712,7 +891,7 @@ export const WorkbenchApp: Component = () => {
                   "font-weight": 600,
                 }}
               >
-                Enterprise Self-Hosted Auth, SSO & Site Admin Console
+                Enterprise Self-Hosted Auth, SSO &amp; Site Admin Console
               </h1>
               <p
                 style={{
@@ -764,7 +943,7 @@ export const WorkbenchApp: Component = () => {
                 }}
               >
                 Instant client-side filtering and GPU-instanced SVG icons across
-                5,000 Rust & TypeScript source paths.
+                5,000 Rust &amp; TypeScript source paths.
               </p>
             </div>
             <Badge variant="info" mono>
@@ -826,7 +1005,7 @@ export const WorkbenchApp: Component = () => {
                   </p>
                 </div>
                 <Badge variant="success" mono>
-                  {ALL_ICON_NAMES.length} Icons · ~1.3 KB Gzip
+                  {ALL_ICON_NAMES.length} Icons · ~1.4 KB Gzip
                 </Badge>
               </div>
 
@@ -890,7 +1069,7 @@ export const WorkbenchApp: Component = () => {
               }}
             >
               <h2 style={{ "font-size": "var(--ds-font-size-md)" }}>
-                Buttons & Shortcut Pills
+                Buttons &amp; Shortcut Pills
               </h2>
               <div
                 style={{
@@ -961,7 +1140,7 @@ export const WorkbenchApp: Component = () => {
               }}
             >
               <h2 style={{ "font-size": "var(--ds-font-size-md)" }}>
-                Semantic & Git Domain Badges
+                Semantic &amp; Git Domain Badges
               </h2>
               <div
                 style={{
@@ -1024,7 +1203,7 @@ export const WorkbenchApp: Component = () => {
               }}
             >
               <h2 style={{ "font-size": "var(--ds-font-size-md)" }}>
-                High-Density Inputs & Chords
+                High-Density Inputs &amp; Chords
               </h2>
               <Input
                 icon={<Icon name="search" size={14} />}
@@ -1041,6 +1220,9 @@ export const WorkbenchApp: Component = () => {
                   color: "var(--ds-fg-secondary)",
                 }}
               >
+                <span>
+                  Swarm: <Kbd keys="g w" />
+                </span>
                 <span>
                   Issues: <Kbd keys="g i" />
                 </span>

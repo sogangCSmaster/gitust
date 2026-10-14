@@ -75,4 +75,10 @@ export {
   type EnterpriseAdminViewProps,
   type EnterpriseUser,
 } from "./patterns/EnterpriseAdminView";
+export {
+  AgentSwarmView,
+  type AgentSwarmViewProps,
+  type AgentSandboxTask,
+  type AgentProvider,
+} from "./patterns/AgentSwarmView";
 export { ActiveChordHUD } from "./patterns/ActiveChordHUD";

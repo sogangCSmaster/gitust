@@ -31,7 +31,10 @@ export type IconName =
   | "users"
   | "lock"
   | "key"
-  | "server";
+  | "server"
+  | "bot"
+  | "cpu"
+  | "layers";
 
 interface IconDef {
   /** SVG inner elements (path, circle, etc.) on a 16x16 viewBox */
@@ -242,6 +245,37 @@ export const ICON_DEFS: Record<IconName, IconDef> = {
       "M2.5 9.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-3Z",
       "M5 5h.5",
       "M5 11h.5",
+    ],
+  },
+  bot: {
+    paths: [
+      "M8 2v2",
+      "M3.5 4h9a1 1 0 0 1 1 1v6.5a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 2.5 11.5V5a1 1 0 0 1 1-1Z",
+      "M6 8v1",
+      "M10 8v1",
+      "M1.25 8h1.25",
+      "M13.5 8h1.25",
+    ],
+  },
+  cpu: {
+    paths: [
+      "M4.5 4.5h7v7h-7v-7Z",
+      "M6.5 6.5h3v3h-3v-3Z",
+      "M6 2v2.5",
+      "M10 2v2.5",
+      "M6 11.5V14",
+      "M10 11.5V14",
+      "M2 6h2.5",
+      "M2 10h2.5",
+      "M11.5 6H14",
+      "M11.5 10H14",
+    ],
+  },
+  layers: {
+    paths: [
+      "M8 2 1.75 5.25 8 8.5l6.25-3.25L8 2Z",
+      "m1.75 8.25 6.25 3.25 6.25-3.25",
+      "m1.75 11.25 6.25 3.25 6.25-3.25",
     ],
   },
 };

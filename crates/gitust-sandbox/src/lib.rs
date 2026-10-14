@@ -116,14 +116,20 @@ impl MicrosandboxExecutor {
             let stdout_fut = async {
                 let mut buf = Vec::new();
                 if let Some(ref mut out) = stdout_pipe {
-                    let _ = out.take(MAX_SANDBOX_STREAM_BYTES).read_to_end(&mut buf).await;
+                    let _ = out
+                        .take(MAX_SANDBOX_STREAM_BYTES)
+                        .read_to_end(&mut buf)
+                        .await;
                 }
                 buf
             };
             let stderr_fut = async {
                 let mut buf = Vec::new();
                 if let Some(ref mut err) = stderr_pipe {
-                    let _ = err.take(MAX_SANDBOX_STREAM_BYTES).read_to_end(&mut buf).await;
+                    let _ = err
+                        .take(MAX_SANDBOX_STREAM_BYTES)
+                        .read_to_end(&mut buf)
+                        .await;
                 }
                 buf
             };

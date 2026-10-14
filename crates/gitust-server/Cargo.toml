@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 gitust-core.workspace = true
+gitust-db.workspace = true
 gitust-git.workspace = true
 gitust-sandbox.workspace = true
 gitust-sync.workspace = true
@@ -16,4 +17,11 @@ serde.workspace = true
 tracing.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
+http-body-util.workspace = true
+serde_json.workspace = true
+
 

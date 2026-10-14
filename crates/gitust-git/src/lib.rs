@@ -66,11 +66,12 @@ impl GitEngine {
         if let Some(shared) = self.shared_repo.get() {
             return Ok(shared.to_thread_local());
         }
-        let opened =
-            gix::ThreadSafeRepository::open(&self.repo_path).map_err(|e| GitEngineError::OpenRepo {
+        let opened = gix::ThreadSafeRepository::open(&self.repo_path).map_err(|e| {
+            GitEngineError::OpenRepo {
                 path: self.repo_path.display().to_string(),
                 message: e.to_string(),
-            })?;
+            }
+        })?;
         let local = opened.to_thread_local();
         let _ = self.shared_repo.set(opened);
         Ok(local)

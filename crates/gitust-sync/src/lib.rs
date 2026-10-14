@@ -46,9 +46,11 @@ impl BiDirectionalSyncConfig {
             || normalized.contains("//")
             || normalized.contains("@{")
             || normalized.ends_with(".lock")
-            || normalized
-                .chars()
-                .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+            || normalized.chars().any(|c| {
+                c.is_control()
+                    || c.is_whitespace()
+                    || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+            })
         {
             return false;
         }

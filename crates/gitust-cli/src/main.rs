@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use gitust_core::{AgentKind, RepoId, WorktreeId};
+use gitust_db::AuthStore;
 use gitust_git::GitEngine;
 use gitust_sandbox::{builtin_mcp_tools, MicrosandboxExecutor};
 use gitust_sync::BiDirectionalSyncConfig;
@@ -22,7 +23,35 @@ struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+enum AdminCommands {
+    /// Create the initial Site Administrator account (CLI-only bootstrap; web bootstrap is strictly disabled)
+    Create {
+        /// Initial Site Administrator username
+        #[arg(long)]
+        username: String,
+
+        /// Initial Site Administrator corporate email (must match allowed domain, default @company.internal)
+        #[arg(long)]
+        email: String,
+
+        /// Initial Site Administrator password (min 10 characters, hashed with Argon2id; supports GITUST_ADMIN_PASSWORD env)
+        #[arg(long, env = "GITUST_ADMIN_PASSWORD", hide_env_values = true)]
+        password: String,
+
+        /// Path to the persistent on-premise Auth Database file
+        #[arg(long, default_value = ".gitust/auth-db.json")]
+        auth_db: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum Commands {
+    /// Site Administrator CLI management (`gitust admin create`)
+    Admin {
+        #[command(subcommand)]
+        action: AdminCommands,
+    },
+
     /// Start the all-in-one Gitust server (Git + Web UI + Microsandbox + MCP + GitHub Two-Way Sync)
     Serve {
         /// Bind address for the HTTP/REST/MCP server
@@ -34,11 +63,12 @@ enum Commands {
         repo: PathBuf,
 
         /// Upstream GitHub repository URL for real-time bi-directional mirroring
-        #[arg(
-            long,
-            default_value = "https://github.com/sogangCSmaster/gitust.git"
-        )]
+        #[arg(long, default_value = "https://github.com/sogangCSmaster/gitust.git")]
         sync_github: String,
+
+        /// Path to the persistent on-premise Auth Database file
+        #[arg(long, default_value = ".gitust/auth-db.json")]
+        auth_db: PathBuf,
     },
 
     /// Start or inspect the built-in MCP (Model Context Protocol) server for Claude Code / Cursor
@@ -51,9 +81,7 @@ enum Commands {
     /// Spawn a <1ms CoW worktree and execute a command inside an isolated on-premise Microsandbox
     Sandbox {
         /// Command string to run inside the isolated sandbox
-        #[arg(
-            default_value = "echo 'Gitust On-Premise Microsandbox Ready (0 Cloud Leakage)'"
-        )]
+        #[arg(default_value = "echo 'Gitust On-Premise Microsandbox Ready (0 Cloud Leakage)'")]
         cmd: String,
 
         /// Repository path
@@ -96,12 +124,32 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Admin { action } => match action {
+            AdminCommands::Create {
+                username,
+                email,
+                password,
+                auth_db,
+            } => {
+                let store = AuthStore::open_persistent(&auth_db)?;
+                let admin = store.bootstrap_initial_admin_cli(&username, &email, &password)?;
+                println!(
+                    "✓ Bootstrapped initial SiteAdmin '{}' ({}) [id: {}] in {}",
+                    admin.username,
+                    admin.email,
+                    admin.id.0,
+                    auth_db.display()
+                );
+            }
+        },
         Commands::Serve {
             bind,
             repo,
             sync_github,
+            auth_db,
         } => {
-            gitust_server::serve(bind, repo, sync_github).await?;
+            let auth_store = AuthStore::open_persistent(&auth_db)?;
+            gitust_server::serve(bind, repo, sync_github, auth_store).await?;
         }
         Commands::Mcp { list_tools } => {
             let tools = builtin_mcp_tools();

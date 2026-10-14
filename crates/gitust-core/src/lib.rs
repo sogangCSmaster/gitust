@@ -58,11 +58,110 @@ impl Default for SandboxRunId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct UserId(pub Uuid);
+
+impl UserId {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for UserId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TeamId(pub Uuid);
+
+impl TeamId {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for TeamId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct InviteId(pub Uuid);
+
+impl InviteId {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for InviteId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SessionId(pub Uuid);
+
+impl SessionId {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for SessionId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PatId(pub Uuid);
+
+impl PatId {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for PatId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SshKeyId(pub Uuid);
+
+impl SshKeyId {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for SshKeyId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CommitSha(pub String);
 
+/// Default expiration window for single-use invite links (72 hours per `AGENTS.md`).
+pub const DEFAULT_INVITE_EXPIRY_HOURS: i64 = 72;
+
 // ============================================================================
-// Core Domain Errors
+// Core Domain & Authorization Errors
 // ============================================================================
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -76,7 +175,9 @@ pub enum DomainError {
     #[error("malformed email address: '{0}'")]
     MalformedEmail(String),
 
-    #[error("registration rejected by enterprise policy: email '{0}' is outside allowed domain '@{1}'")]
+    #[error(
+        "registration rejected by enterprise policy: email '{0}' is outside allowed domain '@{1}'"
+    )]
     DomainLockViolation(String, String),
 
     #[error("public registration is disabled (Enterprise Invite-Only mode active)")]
@@ -84,6 +185,63 @@ pub enum DomainError {
 
     #[error("invalid operation for current state: {0}")]
     InvalidStateTransition(String),
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum AuthError {
+    #[error("initial site admin has already been bootstrapped; use an admin invite link instead")]
+    AdminAlreadyBootstrapped,
+
+    #[error("public sign-up is strictly disabled; accounts can only be created via a Site Admin invite link")]
+    PublicSignupDisabled,
+
+    #[error("invalid or unknown invite/reset token")]
+    InvalidToken,
+
+    #[error("invite/reset token has already been used (one-time use enforced)")]
+    TokenAlreadyUsed,
+
+    #[error("invite/reset token has expired")]
+    TokenExpired,
+
+    #[error("invite/reset token was revoked by an administrator")]
+    TokenRevoked,
+
+    #[error("token purpose mismatch")]
+    TokenPurposeMismatch,
+
+    #[error("invalid credentials")]
+    InvalidCredentials,
+
+    #[error("account is deactivated; all sessions, SSH keys, and tokens are invalidated")]
+    AccountDeactivated,
+
+    #[error("too many failed login attempts; rate limit exceeded, try again later")]
+    RateLimitExceeded,
+
+    #[error("authentication required")]
+    Unauthenticated,
+
+    #[error("forbidden: site administrator privileges required")]
+    AdminPrivilegeRequired,
+
+    #[error("forbidden (BOLA/IDOR): cannot access or mutate another user's resource")]
+    ForbiddenResourceOwnership,
+
+    #[error("forbidden: user does not belong to the team owning this repository")]
+    ForbiddenRepositoryAccess,
+
+    #[error("cannot deactivate the last active site administrator")]
+    CannotDeactivateLastAdmin,
+
+    #[error("username or email already exists")]
+    DuplicateUser,
+
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("internal storage error: {0}")]
+    StorageError(String),
 }
 
 // ============================================================================
@@ -156,7 +314,7 @@ impl AgentWorktree {
 }
 
 // ============================================================================
-// Enterprise Self-Hosted IAM, Auth & Security Policy
+// Enterprise Self-Hosted IAM, Invite-Only Auth & Security Policy
 // ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,11 +324,93 @@ pub enum EnterpriseRole {
     Developer,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AccountStatus {
+    Active,
+    Suspended,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InviteTokenPurpose {
+    AccountInvite,
+    PasswordReset,
+}
+
+/// Safe public representation of a user account (never contains password hashes).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserPublicProfile {
+    pub id: UserId,
+    pub username: String,
+    pub email: String,
+    pub role: EnterpriseRole,
+    pub status: AccountStatus,
+    pub team_ids: Vec<TeamId>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Safe public representation of an invite or password-reset link metadata (never contains raw token or hash).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvitePublicView {
+    pub id: InviteId,
+    pub purpose: InviteTokenPurpose,
+    pub target_email: String,
+    pub assigned_role: EnterpriseRole,
+    pub created_by: UserId,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub used_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+/// Safe public metadata for a Personal Access Token (PAT) used for HTTPS Git access.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersonalAccessTokenView {
+    pub id: PatId,
+    pub owner_id: UserId,
+    pub name: String,
+    pub token_prefix: String,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub revoked: bool,
+}
+
+/// Safe public metadata for an SSH public key used for `russh` Git access.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SshPublicKeyView {
+    pub id: SshKeyId,
+    pub owner_id: UserId,
+    pub title: String,
+    pub fingerprint_sha256: String,
+    pub created_at: DateTime<Utc>,
+    pub revoked: bool,
+}
+
+/// Team-scoped repository metadata for RBAC / BOLA enforcement.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepositoryRecord {
+    pub id: RepoId,
+    pub name: String,
+    pub owner_team_id: TeamId,
+    pub is_private: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Verified principal returned after authenticating a Session, PAT, or SSH Key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthenticatedPrincipal {
+    pub user_id: UserId,
+    pub username: String,
+    pub role: EnterpriseRole,
+    pub team_ids: Vec<TeamId>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnterpriseSecurityPolicy {
     /// Strict On-Premise Privacy Mode: 0 bytes of source code leave the internal network.
     pub strict_on_premise_privacy: bool,
-    /// Disable public sign-up (only Site Admin invites or corporate OIDC/LDAP allowed).
+    /// Disable public sign-up (only Site Admin invites allowed in Phase 2~3).
     pub invite_only: bool,
     /// Mandatory hardware 2FA / Passkey & SSH commit signature verification.
     pub require_2fa_and_signed_commits: bool,

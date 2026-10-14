@@ -166,7 +166,8 @@ Phase 2부터는 **사내 GitHub로 실제 사용**하는 것을 목표로, GitH
 - 프로덕션 UI에는 절대 유니코드 이모지를 쓰지 말고 `<Icon name="..." />` 벡터 스프라이트 프리미티브를 사용하십시오.
 
 ### 7.3 Git Branch & Commit Workflow (Single-Developer Trunk-Based `main`)
-- 이 프로젝트는 1인 개발 체제로 진행되므로 **불필요한 피처 브랜치(Feature Branch)나 PR을 분리하지 않고 항상 `main` 브랜치에서 직접 작업, 커밋, 푸시(`git push origin main`)**합니다.
+- 이 프로젝트는 1인 개발 체제로 진행되므로 **불필요한 피처 브랜치(Feature Branch)나 PR을 분리하지 않고 항상 `main` 브랜치에서 직접 작업**합니다.
+- 단, **각 Step의 개발이 끝났을 때 바로 `git commit` / `git push`를 하지 말고, 반드시 먼저 7.5의 리뷰 에이전트(Subagent) 감사를 거쳐 지적 사항을 모두 해결한 뒤에 커밋·푸시**합니다.
 
 ### 7.4 Verification Gates (기능 완료 조건)
 기능을 구현하기 전에 통과해야 할 테스트를 먼저 작성하고, 아래 해당 항목을 통과해야 완료로 봅니다.
@@ -176,6 +177,13 @@ Phase 2부터는 **사내 GitHub로 실제 사용**하는 것을 목표로, GitH
 - **동기화**: 미러 결과가 원본 GitHub 저장소의 ref·커밋과 일치하는지 비교 검증합니다.
 - **백업/복구**: Phase 3부터 백업에서 실제로 복구하는 리허설 테스트를 둡니다.
 - **성능**: 6장 수치를 주장하는 변경은 벤치마크 결과를 함께 남깁니다.
+
+### 7.5 Mandatory Per-Step Subagent Review Gate (Step별 필수 리뷰 에이전트 감사)
+각 Step 개발이 끝날 때마다 **`git commit` / `git push` 전에 반드시 리뷰 Subagent를 스폰(`invoke_subagent`)하여 아래 4대 관점에서 전수 코드 리뷰**를 받고, 발견된 P0/P1 이슈를 모두 수정해야 합니다.
+1. **속도 (Blazing Speed)**: 락 경합(Lock Contention), 비동기 런타임 내 블로킹 I/O 및 CPU 병목, N+1 쿼리, 불필요한 메모리 할당/복사 여부.
+2. **안정성 (Stability & Edge Cases)**: `unwrap()`/`expect()` 제거, 동시성 레이스 컨디션(TOCTOU), 타임아웃/리소스 누수, 경계값 및 엣지케이스 처리 여부.
+3. **스파게티 코드 방지 (Clean Architecture)**: 크레이트/모듈 간 책임 분리, God struct/함수 방지, 타입 시스템을 통한 불변식 강제 여부.
+4. **보안 & IDOR/BOLA (Authorization & Isolation)**: 타 유저/타 팀 리소스 무단 접근·수정(IDOR/BOLA), 일반 유저의 관리자 API 호출(BFLA), 비활성 계정/만료 토큰 우회, 타이밍 공격 및 민감 정보 노출 여부.
 
 ---
 

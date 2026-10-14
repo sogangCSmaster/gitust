@@ -1,0 +1,335 @@
+/* ============================================================================
+ * GITUST DESIGN SYSTEM — HIGH-PERFORMANCE DOMAIN PATTERNS
+ * 1. Command Palette (Cmd+K)
+ * 2. Virtualized File Tree & Virtualized Diff Viewer
+ * 3. Instant Filter Bar & Keyboard-Navigable Issue/PR List (j/k/x/o)
+ * 4. Speed Telemetry HUD & Active Chord Indicator
+ * ============================================================================ */
+
+/* --- 1. Command Palette (Cmd+K) --- */
+.ds-cmd-dialog {
+  margin: 12vh auto auto auto;
+  padding: 0;
+  border: 1px solid var(--ds-border-strong);
+  border-radius: var(--ds-radius-lg);
+  background-color: var(--ds-bg-elevated);
+  color: var(--ds-fg-primary);
+  box-shadow: var(--ds-shadow-command);
+  max-width: 580px;
+  width: calc(100vw - 32px);
+  overflow: hidden;
+}
+
+.ds-cmd-header {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2-5);
+  height: 46px;
+  padding: 0 var(--ds-space-3);
+  border-bottom: 1px solid var(--ds-border-default);
+}
+
+.ds-cmd-input {
+  flex: 1;
+  height: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ds-fg-primary);
+  font-family: var(--ds-font-sans);
+  font-size: var(--ds-font-size-lg);
+}
+
+.ds-cmd-input::placeholder {
+  color: var(--ds-fg-muted);
+}
+
+.ds-cmd-list {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: var(--ds-space-1-5);
+  overscroll-behavior: contain;
+}
+
+.ds-cmd-category {
+  padding: var(--ds-space-2) var(--ds-space-2-5) var(--ds-space-1);
+  font-size: var(--ds-font-size-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ds-fg-muted);
+}
+
+.ds-cmd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--ds-row-height-default);
+  padding: 0 var(--ds-space-2-5);
+  border-radius: var(--ds-radius-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ds-cmd-item[data-active="true"] {
+  background-color: var(--ds-bg-selected);
+  color: var(--ds-fg-primary);
+}
+
+.ds-cmd-item-left {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2-5);
+  min-width: 0;
+}
+
+.ds-cmd-item-title {
+  font-size: var(--ds-font-size-sm);
+  font-weight: 500;
+}
+
+.ds-cmd-item-desc {
+  font-size: var(--ds-font-size-xs);
+  color: var(--ds-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-cmd-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  background-color: var(--ds-bg-secondary);
+  border-top: 1px solid var(--ds-border-subtle);
+  font-size: var(--ds-font-size-xs);
+  color: var(--ds-fg-muted);
+}
+
+/* --- 2. Virtualized Code & Diff Viewer --- */
+.ds-diff-container {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ds-border-default);
+  border-radius: var(--ds-radius-md);
+  background-color: var(--ds-bg-primary);
+  overflow: hidden;
+}
+
+.ds-diff-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--ds-row-height-default);
+  padding: 0 var(--ds-space-3);
+  background-color: var(--ds-bg-secondary);
+  border-bottom: 1px solid var(--ds-border-default);
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-font-size-xs);
+}
+
+.ds-diff-viewport {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: auto;
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-font-size-xs);
+  line-height: var(--ds-code-line-height);
+  overscroll-behavior: contain;
+}
+
+.ds-diff-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.ds-diff-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--ds-code-line-height);
+  display: flex;
+  align-items: center;
+  white-space: pre;
+  cursor: pointer;
+}
+
+.ds-diff-row:hover {
+  filter: brightness(1.12);
+}
+
+.ds-diff-row[data-type="add"] {
+  background-color: var(--ds-diff-add-bg);
+  color: var(--ds-diff-add-fg);
+}
+
+.ds-diff-row[data-type="del"] {
+  background-color: var(--ds-diff-del-bg);
+  color: var(--ds-diff-del-fg);
+}
+
+.ds-diff-row[data-type="hunk"] {
+  background-color: var(--ds-diff-hunk-bg);
+  color: var(--ds-diff-hunk-fg);
+}
+
+.ds-diff-row[data-selected="true"] {
+  outline: 1px solid var(--ds-border-focus);
+  outline-offset: -1px;
+}
+
+.ds-diff-gutter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 48px;
+  padding-right: var(--ds-space-2);
+  color: var(--ds-fg-subtle);
+  user-select: none;
+  flex-shrink: 0;
+  border-right: 1px solid var(--ds-border-subtle);
+}
+
+.ds-diff-row[data-type="add"] .ds-diff-gutter {
+  background-color: var(--ds-diff-add-gutter);
+  color: var(--ds-diff-add-fg);
+}
+
+.ds-diff-row[data-type="del"] .ds-diff-gutter {
+  background-color: var(--ds-diff-del-gutter);
+  color: var(--ds-diff-del-fg);
+}
+
+.ds-diff-sign {
+  display: inline-flex;
+  justify-content: center;
+  width: 22px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.ds-diff-code {
+  padding-right: var(--ds-space-4);
+}
+
+/* --- 3. Virtualized File Tree --- */
+.ds-tree-container {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ds-border-default);
+  border-radius: var(--ds-radius-md);
+  background-color: var(--ds-bg-primary);
+  overflow: hidden;
+}
+
+.ds-tree-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--ds-space-2-5);
+  font-size: var(--ds-font-size-xs);
+  color: var(--ds-fg-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ds-tree-row:hover {
+  background-color: var(--ds-bg-hover);
+  color: var(--ds-fg-primary);
+}
+
+.ds-tree-row[data-active="true"] {
+  background-color: var(--ds-bg-selected);
+  color: var(--ds-fg-primary);
+  font-weight: 500;
+}
+
+/* --- 4. Superhuman Issue / PR List (j/k/x/o) --- */
+.ds-issue-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ds-border-default);
+  border-radius: var(--ds-radius-md);
+  background-color: var(--ds-bg-primary);
+  overflow: hidden;
+}
+
+.ds-issue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--ds-row-height-default);
+  padding: 0 var(--ds-space-3);
+  border-bottom: 1px solid var(--ds-border-subtle);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--ds-duration-instant) var(--ds-ease-out);
+}
+
+.ds-issue-row:last-child {
+  border-bottom: none;
+}
+
+.ds-issue-row:hover {
+  background-color: var(--ds-bg-hover);
+}
+
+.ds-issue-row[data-focused="true"] {
+  background-color: var(--ds-bg-selected);
+  box-shadow: inset 2px 0 0 var(--ds-accent-primary);
+}
+
+.ds-issue-left {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2-5);
+  min-width: 0;
+  flex: 1;
+}
+
+.ds-issue-id {
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-font-size-xs);
+  color: var(--ds-fg-muted);
+  width: 52px;
+  flex-shrink: 0;
+}
+
+.ds-issue-title {
+  font-size: var(--ds-font-size-sm);
+  font-weight: 500;
+  color: var(--ds-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-issue-right {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  flex-shrink: 0;
+}
+
+/* --- 5. Speed HUD & Chord Floating Pill --- */
+.ds-chord-floater {
+  position: fixed;
+  bottom: var(--ds-space-4);
+  right: var(--ds-space-4);
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  background-color: var(--ds-bg-elevated);
+  border: 1px solid var(--ds-accent-border);
+  border-radius: var(--ds-radius-md);
+  box-shadow: var(--ds-shadow-lg);
+  font-size: var(--ds-font-size-xs);
+  color: var(--ds-fg-primary);
+}

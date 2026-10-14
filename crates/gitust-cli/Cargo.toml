@@ -1,0 +1,22 @@
+[package]
+name = "gitust-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gitust"
+path = "src/main.rs"
+
+[dependencies]
+gitust-core.workspace = true
+gitust-git.workspace = true
+gitust-sandbox.workspace = true
+gitust-sync.workspace = true
+gitust-server.workspace = true
+tokio.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

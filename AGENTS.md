@@ -6,20 +6,20 @@
 
 1. **Cursor Origin / OpenAI Cloud Agents의 치명적 한계**:
    - 클라우드 백그라운드 에이전트를 쓰려면 **'Privacy Mode'를 강제로 꺼야 하고, 기업의 핵심 소스 코드 전체가 외부 클라우드 VM으로 전송**되어야 합니다. 또한 클라우드 VM 분당 과금과 동시 실행 할당량(Quota) 제한 때문에 사내 유휴 서버가 있어도 마음껏 에이전트를 돌리지 못합니다.
-2. **오픈소스 생태계의 파편화 (MP3 플레이어 + 피처폰 + PDA 시절)**:
-   - 똑똑한 개발자들이 각자 **① Gitea/Forgejo (사내 Git 서버)**, **② Container Use (Dagger 기반 에이전트 컨테이너 워크트리 격리 MCP)**, **③ Microsandbox (`msb` — Rust/libkrun 기반 초경량 격리 실행기)**를 따로따로 만들어 놓았지만, 기업이 사내에 한 방에 깔아서 쓸 수 있도록 이를 **하나로 묶어낸 올인원 제품**이 없습니다.
+2. **오픈소스 생태계의 파편화와 언어적 한계 (Go/Dagger의 무거움)**:
+   - 기존에는 **① Gitea/Forgejo (Go 언어 기반 사내 Git 서버)**, **② Container Use (Go/Dagger 기반 에이전트 컨테이너 격리 MCP)**, **③ Microsandbox (격리 실행기)**가 전부 따로 놀았을 뿐 아니라, Go GC나 무거운 컨테이너 데몬 때문에 우리가 원하는 극한의 속도(`<1ms` 브랜치 포크, `<16ms` 응답)를 내지 못합니다.
 
-**Gitust는 이 세 가지를 단 하나의 Rust 단일 바이너리(`gitust`)와 Superhuman급 16ms UI로 통합한 "설치 파일 하나로 끝나는 에이전트 시대의 사내 Git & Microsandbox CI 서버"입니다.**
+**Gitust는 외부 Go 바이너리(Gitea/Forgejo, Dagger 등)를 절대 가져다 쓰지 않고, 이 세 가지 도메인(Git 서버 + 에이전트 워크트리 격리 + 초고속 샌드박스 CI)을 처음부터 끝까지 100% 순수 Rust(`gitust` 단일 바이너리)와 Superhuman급 16ms UI로 직접 재작성하여 세계 최고의 속도를 내는 올인원 플랫폼입니다.**
 
 ---
 
 ## 2. The 4 Pillars of Gitust (핵심 4대 기둥)
 
-### Pillar 1: All-in-One Rust Fusion (검증된 오픈소스 코어의 완벽한 결합)
-밑바닥부터 바퀴를 재발명하지 않고, 생태계 최고의 Rust 오픈소스 코어들을 단일 바이너리로 융합합니다.
-- **Git Engine (`gitoxide` / `gix` + `russh`)**: Gitea/Forgejo처럼 심플한 자체 Git 서버 + `<1ms` 제로 카피(CoW) 멀티 브랜치 스냅샷 생성.
-- **Agent Isolation (`Container Use` 아키텍처 내장)**: Claude Code나 Cursor가 내장 MCP/CLI로 붙는 순간 에이전트마다 완벽히 격리된 브랜치와 컨테이너/워크트리 환경을 자동 할당.
-- **Sub-100ms Execution & CI (`microsandbox` / `libkrun` + OCI Runtime)**: 코드가 푸시되거나 에이전트가 검증을 요청하면 무거운 레거시 CI Cold-boot 없이 `<100ms~200ms` 내에 격리된 Microsandbox에서 빌드·테스트·정적분석을 즉시 수행.
+### Pillar 1: 100% Pure Rust From-Scratch Engine (타협 없는 최고 속도)
+Gitea/Forgejo나 Container-Use의 개념과 장점만 흡수하되, 모든 코어 엔진은 **100% 순수 Rust로 직접 작성**하여 극한의 성능을 뽑아냅니다.
+- **Pure Rust Git Server (`crates/gitust-git`)**: Go 기반 Gitea를 완전히 대체하여, 순수 Rust(`gix` + `russh` + OS 네이티브 CoW 시스템 콜)로 자체 Git 서버와 `<1ms` 제로 카피 멀티 브랜치/워크트리 스냅샷 엔진을 직접 구현합니다.
+- **Pure Rust Agent Isolation & MCP (`crates/gitust-sandbox`)**: 무거운 Dagger/Docker 데몬 없이, Claude Code나 Cursor가 내장 Rust MCP/CLI로 붙는 순간 에이전트마다 완벽히 격리된 CoW 브랜치와 워크트리 환경을 `<1ms`에 자동 할당합니다.
+- **Sub-100ms Rust Sandbox & CI Runner (`crates/gitust-sandbox` & `crates/gitust-actions`)**: 코드가 푸시되거나 에이전트가 검증을 요청하면 레거시 CI Cold-boot 없이 Rust 네이티브 격리 런타임에서 `<100ms` 내에 빌드·테스트·정적분석을 즉시 수행합니다.
 
 ### Pillar 2: 100% On-Premise Privacy & Unlimited Local Quota (Zero Cloud Leakage)
 - **Privacy Mode 100% 유지**: 회사 소스 코드가 단 1바이트도 외부 클라우드 VM으로 나가지 않습니다.

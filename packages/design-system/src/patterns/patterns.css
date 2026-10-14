@@ -137,6 +137,7 @@
   font-size: var(--ds-font-size-xs);
   line-height: var(--ds-code-line-height);
   overscroll-behavior: contain;
+  contain: strict;
 }
 
 .ds-diff-spacer {
@@ -153,10 +154,12 @@
   align-items: center;
   white-space: pre;
   cursor: pointer;
+  contain: layout style paint;
 }
 
 .ds-diff-row:hover {
-  filter: brightness(1.12);
+  outline: 1px solid var(--ds-border-strong);
+  outline-offset: -1px;
 }
 
 .ds-diff-row[data-type="add"] {
@@ -236,6 +239,7 @@
   color: var(--ds-fg-secondary);
   cursor: pointer;
   user-select: none;
+  contain: layout style paint;
 }
 
 .ds-tree-row:hover {
@@ -404,6 +408,7 @@
   white-space: pre;
   font-family: var(--ds-font-mono);
   font-size: var(--ds-font-size-xs);
+  contain: layout style paint;
 }
 
 .ds-log-row:hover {

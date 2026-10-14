@@ -1,4 +1,10 @@
-import { Component, createMemo, createSignal, For } from "solid-js";
+import {
+  Component,
+  createMemo,
+  createSelector,
+  createSignal,
+  For,
+} from "solid-js";
 import { Badge } from "../primitives/Badge";
 
 export type DiffLineType = "context" | "add" | "del" | "hunk";
@@ -29,6 +35,7 @@ export const VirtualDiffViewer: Component<VirtualDiffViewerProps> = (props) => {
 
   const [scrollTop, setScrollTop] = createSignal(0);
   const [selectedLine, setSelectedLine] = createSignal<number | null>(null);
+  const isLineSelected = createSelector(selectedLine);
 
   const totalHeight = createMemo(() => props.lines.length * rowHeight());
 
@@ -42,13 +49,22 @@ export const VirtualDiffViewer: Component<VirtualDiffViewerProps> = (props) => {
     return { additions, deletions };
   });
 
-  const visibleSlice = createMemo(() => {
+  const visibleCount = createMemo(
+    () => Math.ceil(viewportHeight() / rowHeight()) + overscan * 2
+  );
+
+  const startIdx = createMemo(() => {
     const total = props.lines.length;
     const rh = rowHeight();
-    const startIdx = Math.max(0, Math.floor(scrollTop() / rh) - overscan);
-    const visibleCount = Math.ceil(viewportHeight() / rh) + overscan * 2;
-    const endIdx = Math.min(total, startIdx + visibleCount);
-    return props.lines.slice(startIdx, endIdx);
+    const rawStart = Math.max(0, Math.floor(scrollTop() / rh) - overscan);
+    const maxStart = Math.max(0, total - visibleCount());
+    return Math.min(rawStart, maxStart);
+  });
+
+  const visibleSlice = createMemo(() => {
+    const start = startIdx();
+    const end = Math.min(props.lines.length, start + visibleCount());
+    return props.lines.slice(start, end);
   });
 
   return (
@@ -101,7 +117,7 @@ export const VirtualDiffViewer: Component<VirtualDiffViewerProps> = (props) => {
               <div
                 class="ds-diff-row"
                 data-type={line.type}
-                data-selected={selectedLine() === line.index}
+                data-selected={isLineSelected(line.index)}
                 style={{
                   transform: `translateY(${line.index * rowHeight()}px)`,
                 }}

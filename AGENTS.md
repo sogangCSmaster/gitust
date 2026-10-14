@@ -55,8 +55,14 @@ Gitea/Forgejo나 Container-Use의 개념과 장점만 흡수하되, 모든 코�
 3. **Idiomatic Rust & Open-Source Core Composition**
    - Go 코드를 기계적으로 1:1 번역하지 않고, Rust의 타입 시스템(`Newtype`, `enum`, `Result<T, E>`)과 `tokio` 비동기 런타임으로 설계합니다. 프로덕션 경로에서 `unwrap()`/`expect()` 사용을 금지합니다.
    - `gitoxide`(`gix`), `microsandbox`(`msb`), `axum`, `sqlx`, `russh`, `tantivy`, `clap` 등 검증된 Rust 크레이트를 유기적으로 결합합니다.
-4. **Enterprise Self-Hosted Ready (Auth, Admin, Actions)**
-   - 사내 구축을 위해 **회원가입/로그인 제어(Invite-only, 사내 도메인 제한, SSO/OIDC/LDAP, 2FA)**, **Site Admin 콘솔**, **GitHub Actions 호환 내장 CI/CD (`Gitust Actions`)**를 기본 포함합니다.
+4. **Enterprise Self-Hosted Ready (Auth, Admin, Actions) — 단계적 제공**
+   - 사내 구축을 위한 **로그인 제어**, **Site Admin 콘솔**, **내장 CI/CD (`Gitust Actions`)**는 아래 로드맵(5장)의 단계 순서대로 제공합니다.
+   - 인증은 **관리자 초대 링크(Invite-only)**로 시작하고, SSO/OIDC/LDAP·2FA는 엔터프라이즈 단계에서 추가합니다.
+   - CI/CD는 `sandbox run` → **Checks** → **GitHub Actions 호환** 순서로 쌓습니다.
+   - 현재 단계에 없는 항목을 앞당겨 구현하지 않습니다.
+5. **Verification First (검증이 완료 조건)**
+   - 이 프로젝트는 바이브코딩으로 개발되므로, 자동 검증이 유일한 품질 보증입니다. 기능은 7.4의 검증을 통과해야 완료로 봅니다.
+   - 측정하지 않은 성능 수치를 코드 주석·README·UI 문구에 사실처럼 쓰지 않습니다.
 
 ---
 
@@ -73,7 +79,7 @@ gitust/
 │   ├── gitust-git/            # gitoxide(gix) 래퍼, <1ms CoW 멀티 브랜치/워크트리 스냅샷, Diff/Blame 엔진
 │   ├── gitust-sandbox/        # [핵심] Microsandbox + Container-Use 통합 에이전트 격리 실행 엔진
 │   ├── gitust-sync/           # [핵심] 기존 GitHub/GitLab 저장소와의 실시간 양방향 동기화(Two-Way Live Sync) 엔진
-│   ├── gitust-actions/        # GitHub Actions / Gitea Actions 호환 사내 CI/CD 파이프라인 & 스케줄러
+│   ├── gitust-actions/        # Checks(Phase 3) → GitHub Actions 호환 CI/CD 파이프라인 & 스케줄러(Phase 4)
 │   ├── gitust-db/             # SQLx 기반 데이터베이스 스키마, 마이그레이션, DataLoader 리포지토리
 │   └── gitust-search/         # Tantivy 기반 코드/심볼/이슈 <5ms 초고속 검색 엔진
 ├── packages/
@@ -100,17 +106,46 @@ gitust/
    - **Gitust Actions CI/CD Pipeline & 10,000-Line Live Log Streamer (`g a`)**.
    - **Enterprise Self-Hosted Auth, SSO & Site Admin Console (`g s`)**.
 
-### Phase 2: Rust All-in-One Core (`gitust` CLI + `gix` + `microsandbox` + `github-sync`)
-1. Cargo Workspace 초기화 및 `gitust-cli`, `gitust-core`, `gitust-git`, `gitust-sandbox`, `gitust-sync`, `gitust-server` 구축.
-2. `gitoxide`(`gix`) 기반 `<1ms` CoW 에이전트 워크트리 격리(`container-use` 패턴) 및 `microsandbox` 실행 연동.
-3. 기존 GitHub 저장소와의 실시간 양방향 동기화(`gitust sync`) 및 내장 MCP 서버(`gitust mcp`) 구현.
-4. 엔터프라이즈 인증/인가(Invite-only, SSO, Site Admin) 및 단일 바이너리 패키징.
+Phase 2부터는 **사내 GitHub로 실제 사용**하는 것을 목표로, GitHub를 안전망으로 두고 단계적으로 도입합니다. 각 Phase는 이전 Phase가 7.4의 검증을 통과한 뒤에 시작합니다.
+
+### Phase 2: Agent Workspace + Read-Only Mirror (MVP — 원본은 GitHub)
+1. Cargo Workspace 초기화 및 `gitust-cli`, `gitust-core`, `gitust-git`, `gitust-sandbox`, `gitust-sync`, `gitust-server` 구축. (뼈대 완료)
+2. `gitoxide`(`gix`) 기반 CoW 에이전트 워크트리 격리(`container-use` 패턴) 및 `microsandbox` 실행 연동 (`gitust sandbox run`).
+3. 내장 MCP 서버(`gitust mcp`): Claude Code / Cursor가 붙으면 에이전트별 워크트리 할당 + `sandbox run` 호출.
+4. GitHub → Gitust **단방향 읽기 전용 미러**(`gitust sync`)와 웹 코드/커밋/Diff 보기.
+5. 인증: **관리자 초대 링크** 방식 (아래 "인증 규칙" 참고).
+6. 목표: Gitust를 Gitust로 개발(dogfooding)할 수 있는 상태.
+
+### Phase 3: Internal GitHub (에이전트 브랜치는 사내, 승인분만 GitHub로)
+1. HTTPS/SSH(`russh`) Git 호스팅(clone/push/fetch)과 조직·팀·저장소 단위 권한.
+2. 에이전트 브랜치는 Gitust에만 push, 사람이 승인한 커밋/PR만 GitHub로 Outbound 동기화.
+3. PR 리뷰·머지, `gitust triage`.
+4. **Checks**: 저장소 설정 파일에 적힌 명령(예: `cargo fmt --check`, `cargo test`)을 브랜치/PR 갱신 시 자동 실행하고 통과/실패를 표시.
+5. Site Admin 콘솔(멤버 초대·비활성화, 저장소 관리)과 백업/복구.
+
+### Phase 4: Source of Truth 전환 + Enterprise
+1. 안정성이 확인된 저장소부터 Gitust를 원본으로 전환하고 GitHub는 백업 미러로 운영.
+2. **Gitust Actions**: GitHub Actions YAML 호환 워크플로 엔진(표현식, matrix, needs, secrets, artifacts, cache, 마켓플레이스 액션 실행).
+3. SSO/OIDC/LDAP, 2FA, 감사 로그(Audit Trail).
+4. 멀티 노드 샌드박스 클러스터, Tantivy 검색.
+
+### 인증 규칙 (Phase 2~3)
+- 공개 회원가입과 "가입 후 승인" 방식은 두지 않습니다. 계정은 **관리자가 발급한 초대 링크**로만 생성합니다.
+- 초대/비밀번호 재설정 링크는 메일 서버 없이 관리자가 메신저 등으로 직접 전달합니다.
+- 링크 토큰은 충분히 긴 암호학적 랜덤 값이며 DB에는 해시만 저장합니다. 1회 사용, 만료(기본 72시간), 관리자 취소를 지원합니다.
+- 비밀번호는 argon2로 해시하고, 로그인 시도 횟수를 제한합니다.
+- Git 접근은 SSH 키와 개인 액세스 토큰(HTTPS)으로 합니다. 계정 비활성화 시 세션·SSH 키·토큰이 모두 즉시 무효화되어야 합니다.
+- 첫 관리자는 CLI(`gitust admin create`)로만 생성합니다. 웹에 "첫 가입자 = 관리자" 경로를 만들지 않습니다.
 
 ---
 
 ## 6. Performance Budgets & Quality Gates (성능 예산)
 
-에이전트가 작성하는 모든 기능은 **항상 Superhuman 수준의 극한 속도(Blazing Speed)를 최우선으로 지향**하며 아래의 정량적 성능 기준을 충족해야 합니다.
+에이전트가 작성하는 모든 기능은 **항상 Superhuman 수준의 극한 속도(Blazing Speed)를 최우선으로 지향**하며 아래의 정량적 성능 기준을 목표로 합니다.
+
+- 아래 수치는 **목표치**입니다. 벤치마크 스크립트로 측정한 결과만 달성으로 인정하며, 문서·UI에는 측정 환경과 함께 측정값을 인용합니다.
+- CoW 워크트리 수치는 reflink/clonefile을 지원하는 파일시스템(APFS, btrfs, XFS)이 전제입니다. 지원하지 않는 파일시스템(ext4 등)의 대체 경로와 그 성능을 따로 측정합니다.
+- 샌드박스 수치는 실행 환경 기동 시간이며, 빌드·테스트 자체의 소요 시간은 포함하지 않습니다.
 
 - **Agent Branch / Worktree Spawn (`gix` CoW)**: **< 1ms**
 - **Microsandbox Warm Execution Start**: **< 100ms ~ 200ms**
@@ -132,6 +167,15 @@ gitust/
 
 ### 7.3 Git Branch & Commit Workflow (Single-Developer Trunk-Based `main`)
 - 이 프로젝트는 1인 개발 체제로 진행되므로 **불필요한 피처 브랜치(Feature Branch)나 PR을 분리하지 않고 항상 `main` 브랜치에서 직접 작업, 커밋, 푸시(`git push origin main`)**합니다.
+
+### 7.4 Verification Gates (기능 완료 조건)
+기능을 구현하기 전에 통과해야 할 테스트를 먼저 작성하고, 아래 해당 항목을 통과해야 완료로 봅니다.
+- **Git 데이터 무결성**: 실제 `git` 클라이언트로 clone → commit → push → fetch 왕복 통합 테스트 후 서버·클라이언트 양쪽 `git fsck`가 통과해야 합니다.
+- **권한**: 허용 경로뿐 아니라 거부 경로(다른 팀 저장소 접근, 비활성 계정, 만료·재사용된 초대 링크, 승인 없는 Outbound 동기화)가 반드시 막히는지 테스트합니다.
+- **샌드박스 격리**: 샌드박스 밖 파일 읽기/쓰기, 호스트 시크릿·환경 변수 접근, 허용되지 않은 네트워크 접근, 프로세스 탈출 시도가 실패하는지 테스트합니다.
+- **동기화**: 미러 결과가 원본 GitHub 저장소의 ref·커밋과 일치하는지 비교 검증합니다.
+- **백업/복구**: Phase 3부터 백업에서 실제로 복구하는 리허설 테스트를 둡니다.
+- **성능**: 6장 수치를 주장하는 변경은 벤치마크 결과를 함께 남깁니다.
 
 ---
 

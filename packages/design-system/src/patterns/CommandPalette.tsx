@@ -2,6 +2,7 @@ import {
   Component,
   createEffect,
   createMemo,
+  createSelector,
   createSignal,
   For,
   onCleanup,
@@ -27,7 +28,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
 
   const [query, setQuery] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
-  const [filterLatencyMs, setFilterLatencyMs] = createSignal(0.05);
+  const isRowSelected = createSelector(selectedIndex);
 
   const allCommands = createMemo(() => {
     const registered = shortcutManager.shortcuts();
@@ -36,12 +37,12 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
     return [...registered, ...extra.filter((c) => !seen.has(c.id))];
   });
 
-  const filteredCommands = createMemo(() => {
+  const filteredWithTiming = createMemo(() => {
     const t0 = performance.now();
     const q = query().trim().toLowerCase();
     const list = allCommands();
 
-    const result = !q
+    const items = !q
       ? list
       : list.filter(
           (cmd) =>
@@ -51,10 +52,12 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
             cmd.keys.toLowerCase().includes(q)
         );
 
-    const t1 = performance.now();
-    setFilterLatencyMs(Number((t1 - t0).toFixed(3)));
-    return result;
+    const latencyMs = Number((performance.now() - t0).toFixed(3));
+    return { items, latencyMs };
   });
+
+  const filteredCommands = () => filteredWithTiming().items;
+  const filterLatencyMs = () => filteredWithTiming().latencyMs;
 
   createEffect(() => {
     // Reset selection index whenever filtered list changes
@@ -174,8 +177,8 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
             {(cmd, idx) => (
               <div
                 role="option"
-                aria-selected={selectedIndex() === idx()}
-                data-active={selectedIndex() === idx()}
+                aria-selected={isRowSelected(idx())}
+                data-active={isRowSelected(idx())}
                 class="ds-cmd-item"
                 onMouseMove={() => setSelectedIndex(idx())}
                 onClick={() => executeSelected(cmd)}

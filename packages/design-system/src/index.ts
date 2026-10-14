@@ -61,6 +61,7 @@ export {
 } from "./patterns/VirtualFileTree";
 export {
   IssueListView,
+  filterIssueItems,
   type IssueListViewProps,
   type IssueItem,
 } from "./patterns/IssueListView";
@@ -77,8 +78,10 @@ export {
 } from "./patterns/EnterpriseAdminView";
 export {
   AgentSwarmView,
+  filterAgentSwarmTasks,
   type AgentSwarmViewProps,
   type AgentSandboxTask,
   type AgentProvider,
 } from "./patterns/AgentSwarmView";
 export { ActiveChordHUD } from "./patterns/ActiveChordHUD";
+

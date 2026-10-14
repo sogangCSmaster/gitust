@@ -33,9 +33,39 @@ impl BiDirectionalSyncConfig {
     /// until merged into an approved branch (`main`, `master`, `release/*`).
     #[must_use]
     pub fn should_sync_branch_outbound(&self, branch_name: &str, human_approved: bool) -> bool {
-        if branch_name.starts_with(&self.private_agent_branch_prefix) {
+        let trimmed = branch_name.trim();
+        let normalized = trimmed
+            .strip_prefix("refs/heads/")
+            .unwrap_or(trimmed)
+            .trim_matches('/');
+
+        // Reject empty, traversal, or malformed Git ref names (fail-closed)
+        if normalized.is_empty()
+            || normalized.starts_with("refs/")
+            || normalized.contains("..")
+            || normalized.contains("//")
+            || normalized.contains("@{")
+            || normalized.ends_with(".lock")
+            || normalized
+                .chars()
+                .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+        {
             return false;
         }
+
+        let prefix = self.private_agent_branch_prefix.trim_matches('/');
+        if !prefix.is_empty() {
+            let norm_lower = normalized.to_ascii_lowercase();
+            let prefix_lower = prefix.to_ascii_lowercase();
+            if norm_lower == prefix_lower
+                || norm_lower
+                    .strip_prefix(&prefix_lower)
+                    .is_some_and(|rest| rest.starts_with('/'))
+            {
+                return false;
+            }
+        }
+
         if self.sync_outbound_approved_only {
             return human_approved;
         }
@@ -57,7 +87,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn blocks_agent_branches_from_leaking_to_github() {
+    fn blocks_agent_branches_and_ref_traversal_from_leaking_to_github() {
         let cfg = BiDirectionalSyncConfig::new(
             RepoId::new(),
             "https://github.com/sogangCSmaster/gitust.git",
@@ -66,9 +96,15 @@ mod tests {
         // Agent branches must never leak to GitHub even if flag is true
         assert!(!cfg.should_sync_branch_outbound("agent/claude/task-101", true));
         assert!(!cfg.should_sync_branch_outbound("agent/cursor/fix-db", false));
+        assert!(!cfg.should_sync_branch_outbound("refs/heads/agent/claude/task-101", true));
+        assert!(!cfg.should_sync_branch_outbound("/agent/claude/task-101", true));
+        assert!(!cfg.should_sync_branch_outbound("Agent/Claude/Task-101", true));
+        assert!(!cfg.should_sync_branch_outbound("main/../agent/secret", true));
+        assert!(!cfg.should_sync_branch_outbound("", true));
 
         // Approved main branch syncs to GitHub
         assert!(cfg.should_sync_branch_outbound("main", true));
+        assert!(cfg.should_sync_branch_outbound("refs/heads/main", true));
         assert!(!cfg.should_sync_branch_outbound("main", false));
     }
 }

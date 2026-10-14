@@ -65,13 +65,16 @@ pub struct CommitSha(pub String);
 // Core Domain Errors
 // ============================================================================
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum DomainError {
     #[error("repository not found: {0}")]
     RepositoryNotFound(String),
 
     #[error("agent worktree not found: {0}")]
     WorktreeNotFound(String),
+
+    #[error("malformed email address: '{0}'")]
+    MalformedEmail(String),
 
     #[error("registration rejected by enterprise policy: email '{0}' is outside allowed domain '@{1}'")]
     DomainLockViolation(String, String),
@@ -137,6 +140,21 @@ pub struct AgentWorktree {
     pub created_at: DateTime<Utc>,
 }
 
+impl AgentWorktree {
+    /// Transitions this agent worktree into the `Merged` state and records whether it was synced
+    /// to the upstream GitHub mirror.
+    pub fn approve_and_merge(&mut self, synced_to_github: bool) -> Result<(), DomainError> {
+        if self.status == WorktreeStatus::Discarded {
+            return Err(DomainError::InvalidStateTransition(
+                "cannot merge a discarded worktree".to_owned(),
+            ));
+        }
+        self.status = WorktreeStatus::Merged;
+        self.github_synced = synced_to_github;
+        Ok(())
+    }
+}
+
 // ============================================================================
 // Enterprise Self-Hosted IAM, Auth & Security Policy
 // ============================================================================
@@ -175,18 +193,36 @@ impl Default for EnterpriseSecurityPolicy {
 }
 
 impl EnterpriseSecurityPolicy {
-    /// Validates whether a new user email is permitted to register on this private instance.
+    /// Strictly validates whether a new user email is permitted to register on this private instance.
+    /// Prevents empty local parts (`"@company.internal"`), multiple `@` injections, whitespace,
+    /// and handles RFC 5321 case-insensitive domain matching.
     pub fn validate_registration(&self, email: &str, is_invited: bool) -> Result<(), DomainError> {
         if self.invite_only && !is_invited {
             return Err(DomainError::InviteOnlyActive);
         }
-        let expected_suffix = format!("@{}", self.allowed_email_domain);
-        if !email.ends_with(&expected_suffix) {
+
+        let trimmed = email.trim();
+        let Some((local, domain)) = trimmed.rsplit_once('@') else {
+            return Err(DomainError::MalformedEmail(email.to_owned()));
+        };
+
+        if local.is_empty()
+            || domain.is_empty()
+            || local.contains('@')
+            || local.chars().any(|c| c.is_whitespace() || c.is_control())
+            || domain.chars().any(|c| c.is_whitespace() || c.is_control())
+        {
+            return Err(DomainError::MalformedEmail(email.to_owned()));
+        }
+
+        let clean_allowed = self.allowed_email_domain.trim().trim_start_matches('@');
+        if clean_allowed.is_empty() || !domain.eq_ignore_ascii_case(clean_allowed) {
             return Err(DomainError::DomainLockViolation(
                 email.to_owned(),
-                self.allowed_email_domain.clone(),
+                clean_allowed.to_owned(),
             ));
         }
+
         Ok(())
     }
 }
@@ -196,14 +232,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn enterprise_policy_enforces_invite_and_domain_lock() {
+    fn enterprise_policy_enforces_invite_and_strict_domain_lock() {
         let policy = EnterpriseSecurityPolicy::default();
 
         // Uninvited user rejected
-        assert!(matches!(
+        assert_eq!(
             policy.validate_registration("dev@company.internal", false),
             Err(DomainError::InviteOnlyActive)
-        ));
+        );
 
         // Invited user with external domain rejected
         assert!(matches!(
@@ -211,9 +247,21 @@ mod tests {
             Err(DomainError::DomainLockViolation(_, _))
         ));
 
-        // Invited user with corporate domain succeeds
+        // Edge Case 1: Empty local part ("@company.internal") must be rejected
+        assert!(matches!(
+            policy.validate_registration("@company.internal", true),
+            Err(DomainError::MalformedEmail(_))
+        ));
+
+        // Edge Case 2: Multiple '@' injection ("attacker@evil.com@company.internal") must be rejected
+        assert!(matches!(
+            policy.validate_registration("attacker@evil.com@company.internal", true),
+            Err(DomainError::MalformedEmail(_))
+        ));
+
+        // Edge Case 3: Case-insensitive corporate domain ("Dev@Company.Internal") must succeed
         assert!(policy
-            .validate_registration("dev@company.internal", true)
+            .validate_registration("Dev@Company.Internal", true)
             .is_ok());
     }
 }

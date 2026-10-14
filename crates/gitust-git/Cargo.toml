@@ -9,5 +9,4 @@ gitust-core.workspace = true
 gix.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 chrono.workspace = true

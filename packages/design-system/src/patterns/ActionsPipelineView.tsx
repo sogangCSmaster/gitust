@@ -42,6 +42,7 @@ export const ActionsPipelineView: Component<ActionsPipelineViewProps> = (
   const viewportHeight = () => props.height ?? 420;
   const overscan = 14;
 
+  let viewportRef: HTMLDivElement | undefined;
   const [scrollTop, setScrollTop] = createSignal(0);
   const [logQuery, setLogQuery] = createSignal("");
 
@@ -54,15 +55,22 @@ export const ActionsPipelineView: Component<ActionsPipelineViewProps> = (
     );
   });
 
+  const visibleCount = createMemo(
+    () => Math.ceil(viewportHeight() / rowHeight) + overscan * 2
+  );
+
+  const startIdx = createMemo(() => {
+    const total = filteredLogs().length;
+    const rawStart = Math.max(0, Math.floor(scrollTop() / rowHeight) - overscan);
+    const maxStart = Math.max(0, total - visibleCount());
+    return Math.min(rawStart, maxStart);
+  });
+
   const visibleLogs = createMemo(() => {
     const list = filteredLogs();
-    const startIdx = Math.max(0, Math.floor(scrollTop() / rowHeight) - overscan);
-    const count = Math.ceil(viewportHeight() / rowHeight) + overscan * 2;
-    const endIdx = Math.min(list.length, startIdx + count);
-    return list.slice(startIdx, endIdx).map((line, i) => ({
-      line,
-      absIndex: startIdx + i,
-    }));
+    const start = startIdx();
+    const end = Math.min(list.length, start + visibleCount());
+    return list.slice(start, end);
   });
 
   const statusBadge = (status: ActionJobStep["status"]): BadgeVariant => {
@@ -224,12 +232,14 @@ export const ActionsPipelineView: Component<ActionsPipelineViewProps> = (
               onInput={(e) => {
                 setLogQuery(e.currentTarget.value);
                 setScrollTop(0);
+                if (viewportRef) viewportRef.scrollTop = 0;
               }}
             />
           </div>
         </div>
 
         <div
+          ref={viewportRef}
           class="ds-diff-viewport"
           style={{ height: `${viewportHeight()}px` }}
           onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
@@ -239,12 +249,12 @@ export const ActionsPipelineView: Component<ActionsPipelineViewProps> = (
             style={{ height: `${filteredLogs().length * rowHeight}px` }}
           >
             <For each={visibleLogs()}>
-              {({ line, absIndex }) => (
+              {(line, idx) => (
                 <div
                   class="ds-log-row"
                   data-level={line.level}
                   style={{
-                    transform: `translateY(${absIndex * rowHeight}px)`,
+                    transform: `translateY(${(startIdx() + idx()) * rowHeight}px)`,
                   }}
                 >
                   <span

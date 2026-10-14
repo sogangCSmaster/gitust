@@ -1,6 +1,7 @@
 //! `gitust-server`: High-performance Axum HTTP/REST, Built-in MCP Gateway,
 //! and Real-Time Sync Server for Gitust.
 
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -11,14 +12,13 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
-use gitust_core::{
-    AgentKind, AgentWorktree, CommitSha, EnterpriseSecurityPolicy, RepoId, WorktreeStatus,
-};
+use gitust_core::{AgentKind, AgentWorktree, CommitSha, EnterpriseSecurityPolicy, RepoId};
 use gitust_git::{GitEngine, RepoHeadSnapshot};
 use gitust_sandbox::{builtin_mcp_tools, McpToolDescriptor, MicrosandboxExecutor};
 use gitust_sync::{BiDirectionalSyncConfig, SyncStatusReport};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
+
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -28,7 +28,7 @@ pub struct AppState {
     pub sandbox_executor: MicrosandboxExecutor,
     pub sync_config: BiDirectionalSyncConfig,
     pub security_policy: Arc<RwLock<EnterpriseSecurityPolicy>>,
-    pub worktrees: Arc<RwLock<Vec<AgentWorktree>>>,
+    pub worktrees: Arc<RwLock<VecDeque<AgentWorktree>>>,
 }
 
 impl AppState {
@@ -37,7 +37,7 @@ impl AppState {
         let repo_id = RepoId::new();
         let git_engine = GitEngine::new(&repo_path);
 
-        let initial_worktrees = vec![
+        let initial_worktrees = VecDeque::from([
             git_engine.spawn_cow_agent_worktree(
                 repo_id,
                 AgentKind::ClaudeCode,
@@ -52,7 +52,7 @@ impl AppState {
                 "main",
                 "Add single-roundtrip MCP tool for multi-file atomic commit + sandbox run",
             ),
-        ];
+        ]);
 
         Self {
             repo_id,
@@ -121,19 +121,26 @@ async fn git_head_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
-async fn list_worktrees_handler(State(state): State<AppState>) -> Json<Vec<AgentWorktree>> {
-    let list = state
+async fn list_worktrees_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<AgentWorktree>>, (StatusCode, String)> {
+    let guard = state
         .worktrees
         .read()
-        .map(|g| g.clone())
-        .unwrap_or_default();
-    Json(list)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(guard.iter().cloned().collect()))
 }
 
 async fn spawn_worktree_handler(
     State(state): State<AppState>,
     Json(req): Json<SpawnWorktreeRequest>,
-) -> Json<AgentWorktree> {
+) -> Result<Json<AgentWorktree>, (StatusCode, String)> {
+    if req.branch.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "branch name must not be empty".to_owned(),
+        ));
+    }
     let wt = state.git_engine.spawn_cow_agent_worktree(
         state.repo_id,
         req.agent.unwrap_or(AgentKind::ClaudeCode),
@@ -141,10 +148,12 @@ async fn spawn_worktree_handler(
         "main",
         req.prompt_summary,
     );
-    if let Ok(mut guard) = state.worktrees.write() {
-        guard.insert(0, wt.clone());
-    }
-    Json(wt)
+    let mut guard = state
+        .worktrees
+        .write()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    guard.push_front(wt.clone());
+    Ok(Json(wt))
 }
 
 async fn approve_worktree_handler(
@@ -157,10 +166,11 @@ async fn approve_worktree_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if let Some(wt) = guard.iter_mut().find(|w| w.id.0 == id) {
-        wt.status = WorktreeStatus::Merged;
-        wt.github_synced = state
+        let should_sync = state
             .sync_config
             .should_sync_branch_outbound(&wt.base_branch, true);
+        wt.approve_and_merge(should_sync)
+            .map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
         return Ok(Json(wt.clone()));
     }
 

@@ -1,4 +1,11 @@
-import { Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  Component,
+  createMemo,
+  createSelector,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { Badge, BadgeVariant } from "../primitives/Badge";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
@@ -37,6 +44,23 @@ export interface AgentSwarmViewProps {
   onDiscardBranch: (id: number) => void;
   onSpawnBatchSwarm: () => void;
   onTriggerGithubSync: () => void;
+  filterQuery?: string;
+  onFilterQueryChange?: (query: string) => void;
+}
+
+export function filterAgentSwarmTasks(
+  tasks: AgentSandboxTask[],
+  rawQuery: string
+): AgentSandboxTask[] {
+  const q = rawQuery.trim().toLowerCase();
+  if (!q) return tasks;
+  return tasks.filter(
+    (t) =>
+      t.branch.toLowerCase().includes(q) ||
+      t.agent.toLowerCase().includes(q) ||
+      t.promptSummary.toLowerCase().includes(q) ||
+      t.sandboxStatus.toLowerCase().includes(q)
+  );
 }
 
 /**
@@ -47,21 +71,20 @@ export interface AgentSwarmViewProps {
  * - Unified `gitust` Single-Binary CLI & MCP Server
  */
 export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
-  const [filter, setFilter] = createSignal("");
+  const [localFilter, setLocalFilter] = createSignal("");
+  const filter = () => props.filterQuery ?? localFilter();
+  const setFilter = (q: string) => {
+    setLocalFilter(q);
+    props.onFilterQueryChange?.(q);
+  };
+
   const [autoSyncMergedToGithub, setAutoSyncMergedToGithub] =
     createSignal(true);
+  const isRowFocused = createSelector(() => props.focusedIndex);
 
-  const filteredTasks = createMemo(() => {
-    const q = filter().trim().toLowerCase();
-    if (!q) return props.tasks;
-    return props.tasks.filter(
-      (t) =>
-        t.branch.toLowerCase().includes(q) ||
-        t.agent.toLowerCase().includes(q) ||
-        t.promptSummary.toLowerCase().includes(q) ||
-        t.sandboxStatus.toLowerCase().includes(q)
-    );
-  });
+  const filteredTasks = createMemo(() =>
+    filterAgentSwarmTasks(props.tasks, filter())
+  );
 
   const stats = createMemo(() => {
     let verified = 0;
@@ -509,18 +532,15 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
         aria-label="Agent Swarm Sandbox Branches"
       >
         <For each={filteredTasks()}>
-          {(task, index) => {
-            const isFocused = () => props.focusedIndex === index();
-
-            return (
-              <div
-                role="option"
-                aria-selected={isFocused()}
-                data-focused={isFocused()}
-                class="ds-issue-row"
-                onMouseEnter={() => props.onFocusIndexChange(index())}
-                onClick={() => props.onFocusIndexChange(index())}
-              >
+          {(task, index) => (
+            <div
+              role="option"
+              aria-selected={isRowFocused(index())}
+              data-focused={isRowFocused(index())}
+              class="ds-issue-row"
+              onMouseEnter={() => props.onFocusIndexChange(index())}
+              onClick={() => props.onFocusIndexChange(index())}
+            >
                 <div class="ds-issue-left">
                   <Badge variant="accent">
                     <Icon name="bot" size={12} />
@@ -626,8 +646,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                   </Show>
                 </div>
               </div>
-            );
-          }}
+            )}
         </For>
       </div>
     </div>

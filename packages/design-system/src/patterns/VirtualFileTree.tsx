@@ -1,4 +1,10 @@
-import { Component, createMemo, createSignal, For } from "solid-js";
+import {
+  Component,
+  createMemo,
+  createSelector,
+  createSignal,
+  For,
+} from "solid-js";
 import { Icon } from "../primitives/Icon";
 import { Input } from "../primitives/Input";
 
@@ -21,8 +27,10 @@ export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
   const viewportHeight = () => props.height ?? 320;
   const overscan = 10;
 
+  let viewportRef: HTMLDivElement | undefined;
   const [filter, setFilter] = createSignal("");
   const [scrollTop, setScrollTop] = createSignal(0);
+  const isPathSelected = createSelector(() => props.activePath);
 
   const filteredFiles = createMemo(() => {
     const q = filter().trim().toLowerCase();
@@ -30,15 +38,22 @@ export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
     return props.files.filter((f) => f.path.toLowerCase().includes(q));
   });
 
+  const visibleCount = createMemo(
+    () => Math.ceil(viewportHeight() / rowHeight) + overscan * 2
+  );
+
+  const startIdx = createMemo(() => {
+    const total = filteredFiles().length;
+    const rawStart = Math.max(0, Math.floor(scrollTop() / rowHeight) - overscan);
+    const maxStart = Math.max(0, total - visibleCount());
+    return Math.min(rawStart, maxStart);
+  });
+
   const visibleSlice = createMemo(() => {
     const list = filteredFiles();
-    const startIdx = Math.max(0, Math.floor(scrollTop() / rowHeight) - overscan);
-    const count = Math.ceil(viewportHeight() / rowHeight) + overscan * 2;
-    const endIdx = Math.min(list.length, startIdx + count);
-    return list.slice(startIdx, endIdx).map((item, idx) => ({
-      item,
-      absIndex: startIdx + idx,
-    }));
+    const start = startIdx();
+    const end = Math.min(list.length, start + visibleCount());
+    return list.slice(start, end);
   });
 
   return (
@@ -57,17 +72,20 @@ export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
           onInput={(e) => {
             setFilter(e.currentTarget.value);
             setScrollTop(0);
+            if (viewportRef) viewportRef.scrollTop = 0;
           }}
           shortcut="t"
         />
       </div>
 
       <div
+        ref={viewportRef}
         style={{
           position: "relative",
           height: `${viewportHeight()}px`,
           "overflow-y": "auto",
           "overscroll-behavior": "contain",
+          contain: "strict",
         }}
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       >
@@ -78,12 +96,12 @@ export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
           }}
         >
           <For each={visibleSlice()}>
-            {({ item, absIndex }) => (
+            {(item, idx) => (
               <div
                 class="ds-tree-row ds-mono"
-                data-active={props.activePath === item.path}
+                data-active={isPathSelected(item.path)}
                 style={{
-                  transform: `translateY(${absIndex * rowHeight}px)`,
+                  transform: `translateY(${(startIdx() + idx()) * rowHeight}px)`,
                 }}
                 onClick={() => props.onSelect(item)}
               >

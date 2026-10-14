@@ -20,6 +20,10 @@ export interface ShortcutDefinition {
   description?: string;
   /** Whether this shortcut should work even when focused inside an input/textarea */
   allowInInput?: boolean;
+  /** Whether holding the key down (key repeat) should repeatedly invoke the handler (e.g. j/k navigation) */
+  allowRepeat?: boolean;
+  /** Whether this shortcut is allowed to fire while a modal <dialog open> is active */
+  allowWhenModalOpen?: boolean;
 }
 
 export interface KeystrokeTelemetry {
@@ -138,9 +142,19 @@ class ShortcutManager {
     }
 
     const parts: string[] = [];
-    if (event.metaKey || event.ctrlKey) parts.push("mod");
+    const hasMod = event.metaKey || event.ctrlKey;
+    if (hasMod) parts.push("mod");
     if (event.altKey) parts.push("alt");
-    if (event.shiftKey && rawKey.length > 1) parts.push("shift");
+
+    const isAsciiLetter =
+      rawKey.length === 1 &&
+      ((rawKey >= "a" && rawKey <= "z") || (rawKey >= "A" && rawKey <= "Z"));
+    if (
+      event.shiftKey &&
+      (rawKey.length > 1 || hasMod || event.altKey || isAsciiLetter)
+    ) {
+      parts.push("shift");
+    }
 
     const normalizedKey = rawKey === " " ? "space" : rawKey.toLowerCase();
     parts.push(normalizedKey);
@@ -154,6 +168,11 @@ class ShortcutManager {
       return true;
     }
     return target.isContentEditable;
+  }
+
+  private isModalDialogOpen(): boolean {
+    if (typeof document === "undefined") return false;
+    return document.querySelector("dialog[open]") !== null;
   }
 
   private clearChord(): void {
@@ -173,6 +192,7 @@ class ShortcutManager {
 
   public detach(): void {
     if (!this.attached || typeof window === "undefined") return;
+    this.clearChord();
     this.attached = false;
     window.removeEventListener("keydown", this.handleKeyDown, {
       capture: true,
@@ -184,10 +204,23 @@ class ShortcutManager {
     const token = this.eventToToken(event);
     if (!token) return;
 
+    if (token === "escape" && this.pendingChordPrefix) {
+      this.clearChord();
+      return;
+    }
+
     const inInput = this.isEditableElement(event.target);
+    const modalOpen = this.isModalDialogOpen();
+
+    if (inInput || modalOpen) {
+      if (this.pendingChordPrefix) {
+        this.clearChord();
+      }
+    }
 
     // 1. If a chord prefix is currently active (e.g., user pressed 'g' earlier)
-    if (this.pendingChordPrefix && !inInput) {
+    if (this.pendingChordPrefix && !inInput && !modalOpen) {
+      if (event.repeat) return;
       const chordCandidate = `${this.pendingChordPrefix} ${token}`;
       const matchedChord = this.keyMap.get(chordCandidate);
       this.clearChord();
@@ -207,8 +240,9 @@ class ShortcutManager {
       }
     }
 
-    // 2. Check if this single token starts a chord sequence (only when not typing in an input)
-    if (!inInput && this.chordPrefixes.has(token)) {
+    // 2. Check if this single token starts a chord sequence (only when not typing in an input or modal)
+    if (!inInput && !modalOpen && this.chordPrefixes.has(token)) {
+      if (event.repeat) return;
       event.preventDefault();
       this.pendingChordPrefix = token;
       setActiveChordSignal(token);
@@ -222,6 +256,12 @@ class ShortcutManager {
     // 3. Direct single-key or modifier shortcut match
     const directMatch = this.keyMap.get(token);
     if (directMatch) {
+      if (event.repeat && !directMatch.allowRepeat) {
+        return;
+      }
+      if (modalOpen && !directMatch.allowWhenModalOpen) {
+        return;
+      }
       if (inInput && !directMatch.allowInInput && !token.startsWith("mod+")) {
         return;
       }

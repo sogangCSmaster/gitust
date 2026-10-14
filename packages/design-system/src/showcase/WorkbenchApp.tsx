@@ -21,6 +21,8 @@ import {
   Dialog,
   EnterpriseAdminView,
   EnterpriseUser,
+  filterAgentSwarmTasks,
+  filterIssueItems,
   getTheme,
   ICON_DEFS,
   Icon,
@@ -67,14 +69,24 @@ export const WorkbenchApp: Component = () => {
   const [swarmTasks, setSwarmTasks] = createSignal<AgentSandboxTask[]>(
     INITIAL_AGENT_SWARM_TASKS
   );
+  const [swarmFilter, setSwarmFilter] = createSignal("");
   const [focusedSwarmIdx, setFocusedSwarmIdx] = createSignal(0);
+  const visibleSwarmTasks = createMemo(() =>
+    filterAgentSwarmTasks(swarmTasks(), swarmFilter())
+  );
 
   // Superhuman-style Local-First / Optimistic Issue Store
   const [issues, setIssues] = createSignal<IssueItem[]>(INITIAL_ISSUES);
+  const [issueFilter, setIssueFilter] = createSignal("");
   const [focusedIssueIdx, setFocusedIssueIdx] = createSignal(0);
+  const visibleIssues = createMemo(() =>
+    filterIssueItems(issues(), issueFilter())
+  );
+
   const [optimisticToast, setOptimisticToast] = createSignal<string | null>(
     null
   );
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Gitust Actions CI/CD State
   const [actionJobs, setActionJobs] =
@@ -97,9 +109,13 @@ export const WorkbenchApp: Component = () => {
   );
 
   const showQuickFeedback = (msg: string) => {
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+    }
     setOptimisticToast(msg);
-    setTimeout(() => {
+    toastTimer = setTimeout(() => {
       setOptimisticToast((cur) => (cur === msg ? null : cur));
+      toastTimer = null;
     }, 2200);
   };
 
@@ -148,7 +164,9 @@ export const WorkbenchApp: Component = () => {
       "Cursor Agent",
       "Codex Swarm",
     ];
-    const baseId = Math.max(...swarmTasks().map((t) => t.id)) + 1;
+    const current = swarmTasks();
+    const baseId =
+      current.reduce((maxId, t) => (t.id > maxId ? t.id : maxId), 0) + 1;
     const batch: AgentSandboxTask[] = Array.from({ length: 10 }, (_, idx) => {
       const id = baseId + idx;
       const agent = providers[idx % providers.length]!;
@@ -160,7 +178,7 @@ export const WorkbenchApp: Component = () => {
         forkLatencyMs: Number((0.25 + (idx % 4) * 0.04).toFixed(2)),
         promptSummary: `Parallel sandbox task #${id}: zero-copy refactor & unit test verification`,
         sandboxStatus: "verified",
-        compileTimeMs: 68 + (idx * 7) % 35,
+        compileTimeMs: 68 + ((idx * 7) % 35),
         testsPassed: 24,
         testsTotal: 24,
         filesChanged: 2 + (idx % 3),
@@ -194,7 +212,9 @@ export const WorkbenchApp: Component = () => {
   };
 
   const createOptimisticIssue = () => {
-    const newId = Math.max(...issues().map((i) => i.id)) + 1;
+    const current = issues();
+    const newId =
+      current.reduce((maxId, i) => (i.id > maxId ? i.id : maxId), 0) + 1;
     const newItem: IssueItem = {
       id: newId,
       kind: "issue",
@@ -261,6 +281,7 @@ export const WorkbenchApp: Component = () => {
         keys: "mod+k",
         description: "Search all commands, agent branches, and actions",
         allowInInput: true,
+        allowWhenModalOpen: true,
         handler: () => setCmdOpen((v) => !v),
       }),
       shortcutManager.register({
@@ -325,13 +346,14 @@ export const WorkbenchApp: Component = () => {
         category: "Issues & PRs",
         keys: "j",
         description: "Select next row in active list",
+        allowRepeat: true,
         handler: () => {
           if (activeTab() === "swarm") {
-            setFocusedSwarmIdx((i) =>
-              Math.min(swarmTasks().length - 1, i + 1)
-            );
+            const maxIdx = Math.max(0, visibleSwarmTasks().length - 1);
+            setFocusedSwarmIdx((i) => Math.min(maxIdx, i + 1));
           } else if (activeTab() === "issues") {
-            setFocusedIssueIdx((i) => Math.min(issues().length - 1, i + 1));
+            const maxIdx = Math.max(0, visibleIssues().length - 1);
+            setFocusedIssueIdx((i) => Math.min(maxIdx, i + 1));
           }
         },
       }),
@@ -341,11 +363,14 @@ export const WorkbenchApp: Component = () => {
         category: "Issues & PRs",
         keys: "k",
         description: "Select previous row in active list",
+        allowRepeat: true,
         handler: () => {
           if (activeTab() === "swarm") {
-            setFocusedSwarmIdx((i) => Math.max(0, i - 1));
+            const maxIdx = Math.max(0, visibleSwarmTasks().length - 1);
+            setFocusedSwarmIdx((i) => Math.min(maxIdx, Math.max(0, i - 1)));
           } else if (activeTab() === "issues") {
-            setFocusedIssueIdx((i) => Math.max(0, i - 1));
+            const maxIdx = Math.max(0, visibleIssues().length - 1);
+            setFocusedIssueIdx((i) => Math.min(maxIdx, Math.max(0, i - 1)));
           }
         },
       }),
@@ -357,7 +382,9 @@ export const WorkbenchApp: Component = () => {
         description: "Instant 0ms in-memory merge of verified agent sandbox",
         handler: () => {
           if (activeTab() === "swarm") {
-            const task = swarmTasks()[focusedSwarmIdx()];
+            const list = visibleSwarmTasks();
+            const clampedIdx = Math.min(focusedSwarmIdx(), Math.max(0, list.length - 1));
+            const task = list[clampedIdx];
             if (task) approveAndMergeSwarmTask(task.id);
           }
         },
@@ -370,7 +397,9 @@ export const WorkbenchApp: Component = () => {
         description: "Drop CoW worktree snapshot immediately",
         handler: () => {
           if (activeTab() === "swarm") {
-            const task = swarmTasks()[focusedSwarmIdx()];
+            const list = visibleSwarmTasks();
+            const clampedIdx = Math.min(focusedSwarmIdx(), Math.max(0, list.length - 1));
+            const task = list[clampedIdx];
             if (task) discardSwarmTask(task.id);
           }
         },
@@ -390,7 +419,9 @@ export const WorkbenchApp: Component = () => {
         keys: "e",
         description: "Instant 0ms state mutation without spinner",
         handler: () => {
-          const item = issues()[focusedIssueIdx()];
+          const list = visibleIssues();
+          const clampedIdx = Math.min(focusedIssueIdx(), Math.max(0, list.length - 1));
+          const item = list[clampedIdx];
           if (item) toggleIssueStatus(item.id);
         },
       }),
@@ -438,11 +469,15 @@ export const WorkbenchApp: Component = () => {
         category: "View & Theme",
         keys: "?",
         description: "Inspect all registered single & chord shortcuts",
+        allowWhenModalOpen: true,
         handler: () => setShortcutsModalOpen((v) => !v),
       }),
     ];
 
-    onCleanup(() => cleanups.forEach((fn) => fn()));
+    onCleanup(() => {
+      if (toastTimer) clearTimeout(toastTimer);
+      cleanups.forEach((fn) => fn());
+    });
   });
 
   const tabs = createMemo<TabItem<WorkbenchTab>[]>(() => [
@@ -756,6 +791,8 @@ export const WorkbenchApp: Component = () => {
             onDiscardBranch={discardSwarmTask}
             onSpawnBatchSwarm={spawnBatchAgentSwarm}
             onTriggerGithubSync={triggerGithubSync}
+            filterQuery={swarmFilter()}
+            onFilterQueryChange={setSwarmFilter}
           />
         </Show>
 
@@ -805,6 +842,8 @@ export const WorkbenchApp: Component = () => {
             onFocusIndexChange={setFocusedIssueIdx}
             onToggleStatus={toggleIssueStatus}
             filterRef={(el) => (filterInputRef = el)}
+            filterQuery={issueFilter()}
+            onFilterQueryChange={setIssueFilter}
           />
         </Show>
 

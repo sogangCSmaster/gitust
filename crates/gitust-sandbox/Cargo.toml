@@ -9,4 +9,10 @@ gitust-core.workspace = true
 tokio.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+gitust-git.workspace = true
+
 

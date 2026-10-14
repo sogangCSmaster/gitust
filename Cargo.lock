@@ -648,8 +648,11 @@ dependencies = [
  "chrono",
  "gitust-core",
  "gix",
+ "libc",
  "serde",
+ "tempfile",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -657,7 +660,10 @@ name = "gitust-sandbox"
 version = "0.1.0"
 dependencies = [
  "gitust-core",
+ "gitust-git",
+ "libc",
  "serde",
+ "tempfile",
  "thiserror",
  "tokio",
 ]

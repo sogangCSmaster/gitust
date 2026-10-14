@@ -167,21 +167,28 @@ async fn main() -> Result<()> {
         }
         Commands::Sandbox { cmd, repo } => {
             let engine = GitEngine::new(&repo);
-            let wt = engine.spawn_cow_agent_worktree(
+            let run_id_str = WorktreeId::new().0.to_string();
+            let run_suffix = &run_id_str[..8];
+            let branch_name = format!("agent/claude/cli-sandbox-{run_suffix}");
+            let materialized = engine.materialize_cow_agent_worktree(
                 RepoId::new(),
                 AgentKind::ClaudeCode,
-                "agent/claude/cli-sandbox-run",
+                branch_name,
                 "main",
                 &cmd,
-            );
+            )?;
             let executor = MicrosandboxExecutor::new(8);
             let res = executor
-                .execute_in_worktree(WorktreeId::new(), &repo, &cmd)
+                .execute_in_worktree(materialized.worktree.id, &materialized.worktree_dir, &cmd)
                 .await?;
 
             println!(
-                "⚡ [gitust sandbox] CoW Fork: {}µs | Microsandbox Exec: {}ms | Exit: {} | Privacy: ON-PREM",
-                wt.fork_latency_micros, res.duration_ms, res.exit_code
+                "⚡ [gitust sandbox] CoW Fork ({}) : {}µs | Microsandbox Exec: {}ms | Exit: {} | Worktree: {} | Privacy: ON-PREM",
+                materialized.strategy.as_str(),
+                materialized.worktree.fork_latency_micros,
+                res.duration_ms,
+                res.exit_code,
+                materialized.worktree_dir.display()
             );
             if !res.stdout.trim().is_empty() {
                 print!("{}", res.stdout);

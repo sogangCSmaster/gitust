@@ -17,10 +17,13 @@ use gitust_core::{
     AgentKind, AgentWorktree, AuthError, AuthenticatedPrincipal, CommitSha, EnterpriseRole,
     EnterpriseSecurityPolicy, InviteId, InvitePublicView, PatId, PersonalAccessTokenView, RepoId,
     RepositoryRecord, SshKeyId, SshPublicKeyView, TeamId, UserId, UserPublicProfile,
+    WorktreeStatus,
 };
 use gitust_db::{AuthStore, IssuedInviteLink, IssuedPersonalAccessToken, LoginSessionResponse};
 use gitust_git::{GitEngine, RepoHeadSnapshot};
-use gitust_sandbox::{builtin_mcp_tools, McpToolDescriptor, MicrosandboxExecutor};
+use gitust_sandbox::{
+    builtin_mcp_tools, McpToolDescriptor, MicrosandboxExecutor, SandboxExecutionResult,
+};
 use gitust_sync::{BiDirectionalSyncConfig, SyncStatusReport};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -96,6 +99,11 @@ pub struct SpawnWorktreeRequest {
     pub agent: Option<AgentKind>,
     pub branch: String,
     pub prompt_summary: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SandboxExecRequest {
+    pub command: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -204,9 +212,15 @@ impl FromRequestParts<AppState> for AuthenticatedPrincipal {
     }
 }
 
-/// Enforces team repository BOLA access if `repo_id` is registered in `auth_store`.
+/// Maximum number of tracked agent worktrees kept in memory.
+const MAX_TRACKED_WORKTREES: usize = 1024;
+
+/// Enforces team repository BOLA access (fail-closed):
+/// - If `repo_id` is registered in `auth_store`, enforces team membership via `authorize_repository_access`.
+/// - Otherwise, only allows access if `repo_id == default_repo_id` (the primary server repository).
 fn check_repo_bola(
     auth_store: &AuthStore,
+    default_repo_id: RepoId,
     caller: &AuthenticatedPrincipal,
     repo_id: RepoId,
 ) -> Result<(), (StatusCode, String)> {
@@ -214,8 +228,12 @@ fn check_repo_bola(
         auth_store
             .authorize_repository_access(caller, repo_id)
             .map_err(map_auth_err)?;
+        return Ok(());
     }
-    Ok(())
+    if repo_id == default_repo_id {
+        return Ok(());
+    }
+    Err(map_auth_err(AuthError::ForbiddenRepositoryAccess))
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -260,6 +278,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/swarm/worktrees",
             get(list_worktrees_handler).post(spawn_worktree_handler),
+        )
+        .route(
+            "/api/v1/swarm/worktrees/{id}/sandbox",
+            post(exec_worktree_sandbox_handler),
         )
         .route(
             "/api/v1/swarm/worktrees/{id}/approve",
@@ -504,7 +526,7 @@ async fn git_head_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
 ) -> Result<Json<RepoHeadSnapshot>, (StatusCode, String)> {
-    check_repo_bola(&state.auth_store, &caller, state.repo_id)?;
+    check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
     let engine = state.git_engine.clone();
     tokio::task::spawn_blocking(move || engine.inspect_head_zero_copy())
         .await
@@ -520,7 +542,7 @@ async fn list_worktrees_handler(
     let guard = state.worktrees.read();
     let list = guard
         .iter()
-        .filter(|wt| check_repo_bola(&state.auth_store, &caller, wt.repo_id).is_ok())
+        .filter(|wt| check_repo_bola(&state.auth_store, state.repo_id, &caller, wt.repo_id).is_ok())
         .cloned()
         .collect();
     Json(list)
@@ -531,24 +553,128 @@ async fn spawn_worktree_handler(
     caller: AuthenticatedPrincipal,
     Json(req): Json<SpawnWorktreeRequest>,
 ) -> Result<Json<AgentWorktree>, (StatusCode, String)> {
-    if req.branch.trim().is_empty() {
+    let clean_branch = GitEngine::validate_branch_name(&req.branch)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let target_repo_id = req.repo_id.unwrap_or(state.repo_id);
+    check_repo_bola(&state.auth_store, state.repo_id, &caller, target_repo_id)?;
+
+    let engine = state.git_engine.clone();
+    let agent = req.agent.unwrap_or(AgentKind::ClaudeCode);
+    let prompt_summary = req.prompt_summary;
+
+    let wt = tokio::task::spawn_blocking(move || {
+        engine
+            .materialize_cow_agent_worktree(
+                target_repo_id,
+                agent,
+                clean_branch.clone(),
+                "main",
+                prompt_summary.clone(),
+            )
+            .map_or_else(
+                |_| {
+                    engine.spawn_cow_agent_worktree(
+                        target_repo_id,
+                        agent,
+                        clean_branch,
+                        "main",
+                        prompt_summary,
+                    )
+                },
+                |m| m.worktree,
+            )
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    {
+        let mut guard = state.worktrees.write();
+        if guard.len() >= MAX_TRACKED_WORKTREES {
+            guard.pop_back();
+        }
+        guard.push_front(wt.clone());
+    }
+    Ok(Json(wt))
+}
+
+async fn exec_worktree_sandbox_handler(
+    State(state): State<AppState>,
+    caller: AuthenticatedPrincipal,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SandboxExecRequest>,
+) -> Result<Json<SandboxExecutionResult>, (StatusCode, String)> {
+    if req.command.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            "branch name must not be empty".to_owned(),
+            "sandbox command must not be empty".to_owned(),
         ));
     }
-    let target_repo_id = req.repo_id.unwrap_or(state.repo_id);
-    check_repo_bola(&state.auth_store, &caller, target_repo_id)?;
 
-    let wt = state.git_engine.spawn_cow_agent_worktree(
-        target_repo_id,
-        req.agent.unwrap_or(AgentKind::ClaudeCode),
-        req.branch,
-        "main",
-        req.prompt_summary,
-    );
-    state.worktrees.write().push_front(wt.clone());
-    Ok(Json(wt))
+    let (wt_snapshot, existing_dir) = {
+        let guard = state.worktrees.read();
+        let Some(wt) = guard.iter().find(|w| w.id.0 == id) else {
+            return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
+        };
+        let dir = wt.worktree_path.as_ref().map(PathBuf::from);
+        (wt.clone(), dir)
+    };
+    check_repo_bola(
+        &state.auth_store,
+        state.repo_id,
+        &caller,
+        wt_snapshot.repo_id,
+    )?;
+
+    // Never fall back to the main repository working directory! If this worktree was initialized
+    // as a lightweight descriptor (`worktree_path: None`), materialize its isolated CoW directory on demand.
+    let wt_dir = if let Some(dir) = existing_dir {
+        dir
+    } else {
+        let engine = state.git_engine.clone();
+        let snap = wt_snapshot.clone();
+        let materialized = tokio::task::spawn_blocking(move || {
+            engine.materialize_cow_agent_worktree_with_id(
+                snap.id,
+                snap.repo_id,
+                snap.agent,
+                snap.branch,
+                snap.base_branch,
+                snap.prompt_summary,
+            )
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
+
+        let mut guard = state.worktrees.write();
+        if let Some(wt) = guard.iter_mut().find(|w| w.id.0 == id) {
+            wt.worktree_path = Some(materialized.worktree_dir.display().to_string());
+            wt.cow_strategy = materialized.strategy.as_str().to_owned();
+        }
+        materialized.worktree_dir
+    };
+
+    let res = state
+        .sandbox_executor
+        .execute_in_worktree(wt_snapshot.id, &wt_dir, &req.command)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    {
+        let mut guard = state.worktrees.write();
+        if let Some(wt) = guard.iter_mut().find(|w| w.id.0 == id) {
+            wt.last_sandbox_duration_ms = res.duration_ms;
+            if wt.status != WorktreeStatus::Merged && wt.status != WorktreeStatus::Discarded {
+                wt.status = if res.exit_code == 0 {
+                    WorktreeStatus::Verified
+                } else {
+                    WorktreeStatus::Failed
+                };
+            }
+        }
+    }
+
+    Ok(Json(res))
 }
 
 async fn approve_worktree_handler(
@@ -571,7 +697,7 @@ async fn approve_worktree_handler(
         };
         wt.repo_id
     };
-    check_repo_bola(&state.auth_store, &caller, wt_repo_id)?;
+    check_repo_bola(&state.auth_store, state.repo_id, &caller, wt_repo_id)?;
 
     let mut guard = state.worktrees.write();
     if let Some(wt) = guard.iter_mut().find(|w| w.id.0 == id) {
@@ -596,7 +722,7 @@ async fn sync_github_handler(
     ) {
         return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
     }
-    check_repo_bola(&state.auth_store, &caller, state.repo_id)?;
+    check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
 
     let engine = state.git_engine.clone();
     let head_sha = tokio::task::spawn_blocking(move || engine.inspect_head_zero_copy())
@@ -850,6 +976,32 @@ mod tests {
             .await
             .expect("res");
         assert_eq!(unapproved_sync.status(), StatusCode::FORBIDDEN);
+
+        // 5b. Fail-closed BOLA: Alice tries to spawn a worktree on an arbitrary unregistered RepoId -> 403 FORBIDDEN
+        let bad_wt_body = serde_json::to_vec(&SpawnWorktreeRequest {
+            repo_id: Some(RepoId::new()),
+            agent: Some(AgentKind::ClaudeCode),
+            branch: "agent/claude/arbitrary-repo".to_owned(),
+            prompt_summary: "Attempt unregistered repo_id".to_owned(),
+        })
+        .expect("serialize");
+        let bad_wt_res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/swarm/worktrees")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer {}", alice_login.raw_session_token),
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(bad_wt_body))
+                    .expect("req"),
+            )
+            .await
+            .expect("res");
+        assert_eq!(bad_wt_res.status(), StatusCode::FORBIDDEN);
 
         // 6. Admin deactivates Alice -> Alice's session token immediately fails with 403 FORBIDDEN (AccountDeactivated)
         let res = app

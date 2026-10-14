@@ -296,6 +296,10 @@ pub struct AgentWorktree {
     pub deletions: u32,
     pub github_synced: bool,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub cow_strategy: String,
 }
 
 impl AgentWorktree {

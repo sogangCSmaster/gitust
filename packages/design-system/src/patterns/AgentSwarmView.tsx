@@ -25,6 +25,7 @@ export interface AgentSandboxTask {
   filesChanged: number;
   additions: number;
   deletions: number;
+  githubSynced?: boolean;
   updatedAt: string;
 }
 
@@ -35,16 +36,20 @@ export interface AgentSwarmViewProps {
   onApproveMerge: (id: number) => void;
   onDiscardBranch: (id: number) => void;
   onSpawnBatchSwarm: () => void;
+  onTriggerGithubSync: () => void;
 }
 
 /**
- * Agent-Native Swarm & Micro-Sandbox Fleet Control View.
- * Built for the era where Claude Code / Cursor / AI agents spawn hundreds of concurrent
- * zero-copy CoW branches and validate builds in <100ms sandboxes, while humans triage
- * and merge verified branches at Superhuman speed (j/k -> a to merge, x to discard).
+ * All-in-One Agent-Native Git + Container-Use Worktree Isolation + Microsandbox Execution View.
+ * Solves Cursor Origin / Cloud Agent limitations:
+ * - 100% On-Premise Zero-Cloud-Leakage (Privacy Mode stays ON, unlimited local quota)
+ * - Real-time Bi-Directional GitHub Sync (only verified & approved branches sync to GitHub)
+ * - Unified `gitust` Single-Binary CLI & MCP Server
  */
 export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
   const [filter, setFilter] = createSignal("");
+  const [autoSyncMergedToGithub, setAutoSyncMergedToGithub] =
+    createSignal(true);
 
   const filteredTasks = createMemo(() => {
     const q = filter().trim().toLowerCase();
@@ -97,7 +102,201 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
         gap: "var(--ds-space-3)",
       }}
     >
-      {/* Top Telemetry Cards: Zero-Copy Branching & Sandbox Fleet Throughput */}
+      {/* Top Architecture Banner: Gitea + Container-Use + Microsandbox + Bi-Directional GitHub Sync */}
+      <div
+        style={{
+          display: "grid",
+          "grid-template-columns": "1.25fr 1fr",
+          gap: "var(--ds-space-3)",
+        }}
+      >
+        {/* Left Banner: 100% On-Premise Privacy & Bi-Directional GitHub Sync Control */}
+        <div class="ds-card">
+          <div class="ds-card-header">
+            <span
+              style={{
+                display: "inline-flex",
+                "align-items": "center",
+                gap: "var(--ds-space-1-5)",
+              }}
+            >
+              <Icon name="shield-check" size={14} />
+              <span>
+                Zero-Cloud-Leakage On-Premise Engine &amp; Bi-Directional GitHub
+                Sync
+              </span>
+            </span>
+            <Badge variant="success" mono>
+              Privacy Mode: STRICT ON-PREM (0 Bytes to Cloud)
+            </Badge>
+          </div>
+          <div
+            class="ds-card-body"
+            style={{
+              padding: "var(--ds-space-3)",
+              display: "flex",
+              "flex-direction": "column",
+              gap: "var(--ds-space-2-5)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "space-between",
+                gap: "var(--ds-space-2)",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    "font-weight": 600,
+                    "font-size": "var(--ds-font-size-xs)",
+                  }}
+                >
+                  Two-Way Live Mirror:{" "}
+                  <span class="ds-mono" style={{ color: "var(--ds-fg-link)" }}>
+                    github.com/corp/core-monorepo ⇄ gitust.internal/corp/core
+                  </span>
+                </div>
+                <div
+                  style={{
+                    "font-size": "var(--ds-font-size-2xs)",
+                    color: "var(--ds-fg-muted)",
+                  }}
+                >
+                  Agent experimental branches stay 100% private on-prem. Only
+                  human-approved (<Kbd keys="a" />) merges sync back to GitHub.
+                </div>
+              </div>
+              <Button
+                size="xs"
+                variant="secondary"
+                icon={<Icon name="rotate-ccw" size={12} />}
+                onClick={props.onTriggerGithubSync}
+              >
+                Sync GitHub Now (11ms)
+              </Button>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "space-between",
+                "padding-top": "var(--ds-space-2)",
+                "border-top": "1px solid var(--ds-border-subtle)",
+                "font-size": "var(--ds-font-size-xs)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "var(--ds-space-2)",
+                }}
+              >
+                <Badge variant="info" mono>
+                  1. gitoxide (Git)
+                </Badge>
+                <Badge variant="accent" mono>
+                  2. container-use (MCP Worktree)
+                </Badge>
+                <Badge variant="merged" mono>
+                  3. microsandbox (libkrun CI)
+                </Badge>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "var(--ds-space-2)",
+                }}
+              >
+                <span
+                  style={{
+                    "font-size": "var(--ds-font-size-2xs)",
+                    color: "var(--ds-fg-secondary)",
+                  }}
+                >
+                  Auto-push approved merges to GitHub
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoSyncMergedToGithub()}
+                  data-checked={autoSyncMergedToGithub()}
+                  class="ds-switch"
+                  onClick={() => setAutoSyncMergedToGithub((v) => !v)}
+                >
+                  <span class="ds-switch-thumb" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Banner: Unified Single-Binary `gitust` CLI & Agent MCP Quickstart */}
+        <div class="ds-card">
+          <div class="ds-card-header">
+            <span
+              style={{
+                display: "inline-flex",
+                "align-items": "center",
+                gap: "var(--ds-space-1-5)",
+              }}
+            >
+              <Icon name="terminal" size={14} />
+              <span>Unified Single-Binary CLI (`gitust`) &amp; MCP Bridge</span>
+            </span>
+            <Badge variant="neutral" mono>
+              Zero External Daemons
+            </Badge>
+          </div>
+          <div
+            class="ds-card-body ds-mono"
+            style={{
+              padding: "var(--ds-space-2-5) var(--ds-space-3)",
+              "background-color": "var(--ds-bg-canvas)",
+              "font-size": "var(--ds-font-size-2xs)",
+              gap: "4px",
+              color: "var(--ds-fg-secondary)",
+            }}
+          >
+            <div>
+              <span style={{ color: "var(--ds-success-fg)" }}>$</span> gitust
+              serve --sync-github corp/core-monorepo{" "}
+              <span style={{ color: "var(--ds-fg-muted)" }}>
+                # All-in-one Git + Web + Microsandbox
+              </span>
+            </div>
+            <div>
+              <span style={{ color: "var(--ds-success-fg)" }}>$</span> claude
+              mcp add gitust -- gitust mcp{" "}
+              <span style={{ color: "var(--ds-fg-muted)" }}>
+                # Replaces container-use &amp; cloud VM
+              </span>
+            </div>
+            <div>
+              <span style={{ color: "var(--ds-success-fg)" }}>$</span> gitust
+              sandbox run "cargo test --workspace"{" "}
+              <span style={{ color: "var(--ds-fg-muted)" }}>
+                # &lt;1ms CoW fork + 84ms microsandbox
+              </span>
+            </div>
+            <div>
+              <span style={{ color: "var(--ds-success-fg)" }}>$</span> gitust
+              triage --approve-verified{" "}
+              <span style={{ color: "var(--ds-fg-muted)" }}>
+                # Instant merge &amp; two-way GitHub push
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 4 Telemetry Cards: Zero-Copy Branching & Sandbox Fleet Throughput */}
       <div
         style={{
           display: "grid",
@@ -116,7 +315,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 "font-size": "var(--ds-font-size-xs)",
               }}
             >
-              <span>Active Agent Worktrees</span>
+              <span>Container-Use Worktrees</span>
               <Icon name="layers" size={14} />
             </div>
             <div
@@ -134,7 +333,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                   "font-weight": 500,
                 }}
               >
-                (0.4ms CoW Fork)
+                (0.35ms CoW)
               </span>
             </div>
             <div
@@ -143,7 +342,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 color: "var(--ds-fg-muted)",
               }}
             >
-              gix In-Memory Object DB · 0 Byte Disk Overhead
+              Unlimited On-Prem Quota · 0 Byte Clone Overhead
             </div>
           </div>
         </div>
@@ -159,7 +358,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 "font-size": "var(--ds-font-size-xs)",
               }}
             >
-              <span>Sandbox Verified (Ready)</span>
+              <span>Microsandbox Verified</span>
               <Icon name="check" size={14} />
             </div>
             <div
@@ -170,7 +369,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 color: "var(--ds-success-fg)",
               }}
             >
-              {stats().verified} Ready · {stats().merged} Merged
+              {stats().verified} Ready · {stats().merged} Synced
             </div>
             <div
               style={{
@@ -178,7 +377,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 color: "var(--ds-fg-muted)",
               }}
             >
-              Press <Kbd keys="a" /> on focused row to instant-merge
+              Press <Kbd keys="a" /> to merge &amp; sync to GitHub
             </div>
           </div>
         </div>
@@ -194,7 +393,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 "font-size": "var(--ds-font-size-xs)",
               }}
             >
-              <span>Micro-Sandbox Pool</span>
+              <span>Microsandbox Engine (`msb`)</span>
               <Icon name="cpu" size={14} />
             </div>
             <div
@@ -205,7 +404,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 color: "var(--ds-info-fg)",
               }}
             >
-              {stats().compiling} Running · 84ms avg
+              {stats().compiling} Active · 84ms avg
             </div>
             <div
               style={{
@@ -213,7 +412,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 color: "var(--ds-fg-muted)",
               }}
             >
-              Shared Cargo/sccache + Firecracker/Namespace Isolation
+              Rust libkrun MicroVM + Shared Build Cache
             </div>
           </div>
         </div>
@@ -229,8 +428,8 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 "font-size": "var(--ds-font-size-xs)",
               }}
             >
-              <span>Agent Protocol Gateway</span>
-              <Icon name="bot" size={14} />
+              <span>GitHub Bi-Directional Mirror</span>
+              <Icon name="rotate-ccw" size={14} />
             </div>
             <div
               class="ds-mono"
@@ -240,7 +439,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 color: "var(--ds-merged-fg)",
               }}
             >
-              MCP + Batch RPC
+              Live ⇄ 11ms
             </div>
             <div
               style={{
@@ -248,7 +447,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 color: "var(--ds-fg-muted)",
               }}
             >
-              Claude Code · Cursor · Codex Direct Socket
+              Inbound Webhook + Outbound Verified Push
             </div>
           </div>
         </div>
@@ -266,7 +465,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
         <div style={{ flex: 1 }}>
           <Input
             icon={<Icon name="search" size={14} />}
-            placeholder="Filter agent branches by agent (Claude Code, Cursor), status (verified, compiling), or prompt..."
+            placeholder="Filter isolated agent worktrees by agent (Claude Code, Cursor), status (verified, compiling), or prompt..."
             value={filter()}
             onInput={(e) => {
               setFilter(e.currentTarget.value);
@@ -287,7 +486,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
           <span>Triage:</span>
           <Kbd keys="j" />
           <Kbd keys="k" />
-          <span>Approve &amp; Merge:</span>
+          <span>Merge &amp; Sync:</span>
           <Kbd keys="a" />
           <span>Discard:</span>
           <Kbd keys="x" />
@@ -349,19 +548,26 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                     <span>{task.branch}</span>
                   </Badge>
 
+                  <Show when={task.sandboxStatus === "merged"}>
+                    <Badge variant="info" mono>
+                      <Icon name="rotate-ccw" size={11} />
+                      <span>GitHub Synced</span>
+                    </Badge>
+                  </Show>
+
                   <span class="ds-issue-title">{task.promptSummary}</span>
                 </div>
 
                 <div class="ds-issue-right">
                   <span
                     class="ds-mono"
-                    title="CoW Branch Fork Latency + Sandbox Compile Time"
+                    title="CoW Worktree Fork Latency + Microsandbox Execution Time"
                     style={{
                       "font-size": "var(--ds-font-size-2xs)",
                       color: "var(--ds-fg-muted)",
                     }}
                   >
-                    fork:{task.forkLatencyMs}ms · build:{task.compileTimeMs}ms
+                    cow:{task.forkLatencyMs}ms · msb:{task.compileTimeMs}ms
                   </span>
 
                   <Badge
@@ -405,7 +611,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                         props.onApproveMerge(task.id);
                       }}
                     >
-                      Merge (a)
+                      Merge &amp; Sync (a)
                     </Button>
                     <Button
                       size="xs"

@@ -111,10 +111,21 @@ export const WorkbenchApp: Component = () => {
         if (t.id !== id) return t;
         const dt = (performance.now() - t0).toFixed(2);
         showQuickFeedback(
-          `Fast-Forward Merged ${t.branch} (${t.agent}) into main in ${dt}ms (gix In-Memory Ref Update)`
+          `Merged ${t.branch} (${t.agent}) into main & synced to GitHub in ${dt}ms (0 Cloud VM Leakage)`
         );
-        return { ...t, sandboxStatus: "merged", updatedAt: "just now" };
+        return {
+          ...t,
+          sandboxStatus: "merged",
+          githubSynced: true,
+          updatedAt: "just now",
+        };
       })
+    );
+  };
+
+  const triggerGithubSync = () => {
+    showQuickFeedback(
+      "Bi-Directional GitHub Sync: Pulled 2 upstream commits & pushed verified main (11ms, Agent branches kept private)"
     );
   };
 
@@ -744,6 +755,7 @@ export const WorkbenchApp: Component = () => {
             onApproveMerge={approveAndMergeSwarmTask}
             onDiscardBranch={discardSwarmTask}
             onSpawnBatchSwarm={spawnBatchAgentSwarm}
+            onTriggerGithubSync={triggerGithubSync}
           />
         </Show>
 

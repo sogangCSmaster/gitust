@@ -50,13 +50,16 @@ This skill enforces a ruthless, non-rubber-stamping verification standard before
   - *Required pattern*: Coordinate via a shared cancellation state (`Arc<AtomicBool>` or `Arc<Mutex<...>>`) between the RAII guard's `Drop` and the `spawn_blocking` closure so that if the Future is dropped before commit, the blocking task (or a cleanup task) rolls back the on-disk worktree/directory and releases quota.
 - **No Blocking Subprocesses on Async Worker Threads**: Use `tokio::task::spawn_blocking` for normal and `SIGINT` cleanup paths, keeping synchronous `Drop` cleanup only as a last-resort fallback.
 
-### Check 3: Post-`.await` State TOCTOU & Lock Coordination
+### Check 3: Post-`.await` / Post-Unlock State TOCTOU & Lock Coordination
 - **Stale State Overwrite Across `.await`**: Mutually exclusive operations on the same entity (`exec`, `approve`, `discard`) must coordinate via per-entity `exec_lock` (`try_lock_owned`), and the lock guard must be held until **after** both the on-disk operation and the in-memory/DB state removal/transition complete.
+- **Password-Hash CAS Across Argon2 Unlock**: When `login` drops the state lock to run CPU-intensive Argon2 verification against `phc_to_verify`, re-acquiring the lock to mint a session MUST re-verify `user.password_hash == phc_to_verify` (and `user.status == Active`) so a concurrent password reset cannot be bypassed by an in-flight login using the old password.
 - **Terminal State Monotonicity**: State transitions after `.await` must re-verify that the entity has not transitioned to a terminal state (`Merged`, `Discarded`) while locks were dropped.
 - **No Blocking I/O Inside Locks**: Never hold a `RwLock`/`Mutex` across `git` subprocesses, disk I/O, or Argon2 hashing.
 
 ### Check 4: Config & Credential Parser Differentials
-- **`.git/config` Credential Bypass**: Before exposing `<common_git_dir>` read-only to a sandbox, fold backslash-escaped line continuations (`\\\r\n`, `\\\n`), strip quotes, handle arbitrary whitespace/tabs in section headers (`[include\t]`, `[includeIf...]`), block `credential.helper` using `store` or inline shell `!`, block `[include]` / `[includeIf]` / `include.path`, and inspect all URL/header fields case-insensitively.
+- **`.git/config` & `config.worktree` Credential Bypass**:
+  1. Inspect **all** config files exposed inside `<common_git_dir>` (`config` and `config.worktree`), not just `<common_git_dir>/config`.
+  2. Git's config parser supports mid-value quoting (`url = https://"user:tok@host"/r.git`, `helper = "st""ore"`) and backslash escapes (`\"`, `\\`, `\n`, `\t`). Never rely solely on `.trim_matches('"')`; unquote full Git config string syntax (or parse via `gix::config::File`) before inspecting keys, subsections, URLs, `extraHeader`, `credential.helper` (`store` or `!`), and `[include]` / `[includeIf]`.
 
 ### Check 5: Crash Recovery & Detached-HEAD Worktrees
 - **Porcelain Parser Blind Spot**: `git worktree list --porcelain` omits `branch refs/heads/...` when a worktree is in `detached HEAD` state. Identify managed agent worktrees by their canonical parent directory (`worktrees_base`) and `WorktreeId` leaf name so detached worktrees remain visible to `list_agent_worktrees` and `recover_agent_worktrees`.
@@ -65,7 +68,8 @@ This skill enforces a ruthless, non-rubber-stamping verification standard before
 - **Fail-Closed Execution**: Never fall back to unsandboxed host execution when `sandbox-exec` (macOS) or `bwrap` (Linux) is unavailable.
 - **Strict Environment Allowlist**: Strip host secrets (`HOME`, `SSH_AUTH_SOCK`, `GIT_ASKPASS`, `GIT_SSH_COMMAND`, `GIT_CONFIG_*`, `GITHUB_TOKEN`, `AWS_*`, `DYLD_*`, `LD_*`) and enforce `GIT_CONFIG_NOSYSTEM=1` + isolated `HOME`/`TMPDIR`.
 
-### Check 7: Auth Rate-Limiting DoS, Fail-Closed Caps & Unbounded Growth
+### Check 7: Auth Rate-Limiting DoS, Per-Key Memory Bounds & Unbounded Growth
+- **Input Length Validation & Fixed-Size Hash Keys**: Bounding map entry *count* (`MAX_RATE_LIMIT_TRACKED_KEYS`) is not enough if an attacker can send 1.9 MiB `identifier` strings that get stored verbatim as map keys (10,000 × 1.9 MiB = 19 GiB OOM). Always reject oversized inputs (`identifier.len() > 254`, `password.len() > 256`) *before* allocating/lowercasing, and hash variable-length identifiers (SHA-256) when constructing rate-limit keys.
 - **Client-Scoped Rate Limiting**: Scope login rate-limit keys by unforgeable caller scope (`ConnectInfo<SocketAddr>`) so remote attackers cannot globally lock out known usernames (`"siteadmin"`) from other IPs, and never trust spoofable headers (`X-Forwarded-For`) unless an explicit trusted-proxy configuration is verified.
 - **Fail-Closed Cap Eviction**: When `failed_logins` reaches `MAX_RATE_LIMIT_TRACKED_KEYS`, never `return;` early (which fails open and disables rate limiting after an attacker floods fake usernames). Evict an older/non-account entry so new failed attempts are always recorded.
 - **Bounded State**: Prune expired/revoked sessions (preserving suspended-user revoked sessions until expiry for `403 AccountDeactivated` semantics) and stale rate-limit windows on snapshot writes.
@@ -78,7 +82,8 @@ This skill enforces a ruthless, non-rubber-stamping verification standard before
 - Every repository/worktree/sync route must enforce `check_repo_access` (fail-closed on unknown `RepoId`), memoize per-`RepoId` checks in list endpoints, and immediately reject deactivated principals (`403 Forbidden`).
 
 ### Check 10: Zero Fabricated Telemetry or Fake Stubs (`AGENTS.md` Principle 5)
-- Never hardcode fake latency numbers, no-op timers, or fake stub responses. All performance claims must come from reproducible benchmarks with hardware/OS context.
+- Never hardcode fake latency numbers, no-op timers, or fake stub responses that return `200 OK` claiming an action (`Merged`, `synced_at`) happened when no underlying Git ref or remote operation was performed. Either execute the real Git operation or return an explicit error status (`409` / `501` / `502`).
+- All performance claims must come from reproducible benchmarks with hardware/OS context.
 
 ### Check 11: Git Subprocess, Hook/Filter & Ref CAS Integrity
 - **Argument Injection (`--`)**: Whenever user/agent-supplied branch names, revisions, or paths are passed to `git` CLI commands, validate them and separate positional paths/refs with `--` where supported so values starting with `-` cannot be interpreted as flags (e.g. `--upload-pack`).
@@ -86,18 +91,23 @@ This skill enforces a ruthless, non-rubber-stamping verification standard before
 - **Atomic Ref CAS**: Use compare-and-swap (verifying expected old OID or `PreviousValue::MustNotExist`) when creating/updating refs so concurrent pushes or merges never silently clobber commits.
 - **Outbound Sync Noise Guard**: Verify outbound GitHub sync strictly rejects `refs/heads/agent/*` and unapproved refs.
 
-### Check 12: MCP, Streaming & Request Bounds
-- Enforce explicit byte/line limits on HTTP request bodies, MCP JSON-RPC frames, and captured sandbox stdout/stderr buffers so a runaway process or client cannot trigger OOM.
+### Check 12: MCP, Streaming, Request Bounds & `SIGPIPE`-Safe Draining
+- **Drain After Cap (`SIGPIPE` Prevention)**: When capping captured child `stdout`/`stderr` at `MAX_SANDBOX_STREAM_BYTES`, never drop the pipe reader immediately after `.take(cap).read_to_end(...)` while the child process is still running—closing the read end causes the child's next write to fail with `SIGPIPE` (exit code 141). Always drain remaining output into `tokio::io::sink()` until EOF.
+- Enforce explicit byte/line limits on HTTP request bodies and MCP JSON-RPC frames so a runaway client cannot trigger OOM.
 - Verify MCP sessions cannot access or mutate worktrees belonging to unauthorized repositories or other principals.
 
-### Check 13: DB / Disk Crash Consistency & N+1 Prevention
+### Check 13: DB / Disk Crash Consistency, `.gitignore` Hygiene & N+1 Prevention
 - Never issue DB or lock-heavy repository lookups inside loops (`AGENTS.md` §7.1).
 - Ensure disk mutations (worktree creation/removal) and state mutations (`worktrees` / DB) are ordered and reconciled on startup so neither crash nor cancellation leaves permanent zombie entries.
+- **Secret File `.gitignore` Hygiene**: Ensure default local state paths (e.g., `.gitust/`, `.*.gitust-worktrees/`) are ignored in `.gitignore` so credentials or `auth-db.json` snapshots cannot be accidentally committed.
 
 ### Check 14: Frontend, Design System & Optimistic UI Rollback (`packages/*`)
 - When auditing frontend changes (`packages/design-system`, `packages/sync-client`, `packages/web`):
   - **0ms Optimistic UI + Rollback**: Mutations must update UI state immediately without spinners, and deterministically roll back if the server returns an error.
   - **Strict Design Tokens & Sprite Icons**: Zero magic numbers (use `--ds-*` CSS variables only) and zero Unicode emojis in production UI (use `<Icon name="..." />` only).
+  - **Virtualization & Keyboard Viewport Sync**:
+    - Never combine `left: 0; right: 0` with `contain: paint` on virtualized code/diff rows inside an `overflow-x: auto` viewport (it clips long lines and breaks horizontal scrolling; use `min-width: 100%; width: max-content; contain: layout style`).
+    - Keyboard navigation (`ArrowUp`/`ArrowDown`, `j`/`k`, `Ctrl+N`/`Ctrl+P`) in scrollable lists/palettes must call `scrollIntoView({ block: "nearest" })` so the active selection never moves off-screen.
   - **XSS Hygiene**: Never inject unsanitized commit messages, branch names, diffs, or agent logs into raw HTML sinks.
 
 ---

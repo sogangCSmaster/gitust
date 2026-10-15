@@ -5,16 +5,14 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 
 use axum::extract::{FromRequestParts, Path, State};
 use axum::http::request::Parts;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use chrono::Utc;
 use gitust_core::{
-    AgentKind, AgentWorktree, AuthError, AuthenticatedPrincipal, CommitSha, EnterpriseRole,
+    AgentKind, AgentWorktree, AuthError, AuthenticatedPrincipal, EnterpriseRole,
     EnterpriseSecurityPolicy, InviteId, InvitePublicView, PatId, PersonalAccessTokenView, RepoId,
     RepositoryRecord, SshKeyId, SshPublicKeyView, TeamId, UserId, UserPublicProfile, WorktreeId,
     WorktreeStatus,
@@ -295,7 +293,9 @@ fn map_git_err(err: GitEngineError) -> (StatusCode, String) {
             StatusCode::BAD_REQUEST
         }
         GitEngineError::BaseBranchNotFound(_) => StatusCode::NOT_FOUND,
-        GitEngineError::BranchAlreadyExists(_) => StatusCode::CONFLICT,
+        GitEngineError::BranchAlreadyExists(_) | GitEngineError::MergeConflict(_) => {
+            StatusCode::CONFLICT
+        }
         GitEngineError::CredentialsInRepoConfig => StatusCode::PRECONDITION_FAILED,
         _ => {
             tracing::error!(error = %err, "git engine failure");
@@ -1047,28 +1047,63 @@ async fn approve_worktree_handler(
         return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
     }
 
-    let wt = find_authorized_worktree(&state, &caller, id)?;
-    let runtime = state.worktree_runtime.read().get(&wt.id).cloned();
-    let _run_guard = match runtime {
-        Some(rt) => Some(rt.exec_lock.try_lock_owned().map_err(|_| {
+    let wt_initial = find_authorized_worktree(&state, &caller, id)?;
+    let runtime = state
+        .worktree_runtime
+        .read()
+        .get(&wt_initial.id)
+        .cloned()
+        .ok_or_else(|| {
             (
                 StatusCode::CONFLICT,
-                "a sandbox run is in progress for this worktree".to_owned(),
+                "worktree has no checkout on this server".to_owned(),
             )
-        })?),
-        None => None,
-    };
+        })?;
+    let run_guard = runtime.exec_lock.try_lock_owned().map_err(|_| {
+        (
+            StatusCode::CONFLICT,
+            "a sandbox run is in progress for this worktree".to_owned(),
+        )
+    })?;
 
-    let mut guard = state.worktrees.write();
-    if let Some(wt) = guard.iter_mut().find(|w| w.id.0 == id) {
-        // Phase 2: approval only records the decision. No Git merge or GitHub push happens
-        // yet, so `github_synced` stays false until Phase 3 performs a real push.
-        wt.approve_and_merge(false)
-            .map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
-        return Ok(Json(wt.clone()));
+    // Re-verify runtime presence and `Verified` status AFTER acquiring `exec_lock` so a concurrent
+    // discard or failed sandbox run that completed just before `try_lock_owned` cannot be bypassed.
+    if !state.worktree_runtime.read().contains_key(&wt_initial.id) {
+        return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
+    }
+    let wt = find_authorized_worktree(&state, &caller, id)?;
+    if wt.status != WorktreeStatus::Verified {
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "cannot approve worktree in {:?} state; sandbox verification required first",
+                wt.status
+            ),
+        ));
     }
 
-    Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")))
+    let engine = state.git_engine.clone();
+    let state_for_merge = state.clone();
+    let branch = wt.branch.clone();
+    let base_branch = wt.base_branch.clone();
+    let merged_wt = tokio::task::spawn_blocking(move || {
+        let _held = run_guard;
+        let merged_sha = engine
+            .merge_agent_branch(&branch, &base_branch)
+            .map_err(map_git_err)?;
+        let mut guard = state_for_merge.worktrees.write();
+        if let Some(wt) = guard.iter_mut().find(|w| w.id.0 == id) {
+            wt.approve_and_merge(false)
+                .map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
+            wt.base_commit = merged_sha;
+            return Ok(wt.clone());
+        }
+        Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")))
+    })
+    .await
+    .map_err(internal_err)??;
+
+    Ok(Json(merged_wt))
 }
 
 async fn sync_github_handler(
@@ -1083,37 +1118,10 @@ async fn sync_github_handler(
     }
     check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
 
-    let start = Instant::now();
-    let engine = state.git_engine.clone();
-    let head_sha = tokio::task::spawn_blocking(move || engine.inspect_head_zero_copy())
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .map(|s| s.head_sha)
-        .unwrap_or_else(|| CommitSha("HEAD".to_owned()));
-
-    let filtered_count = {
-        let list = state.worktrees.read();
-        u32::try_from(
-            list.iter()
-                .filter(|w| {
-                    !state
-                        .sync_config
-                        .should_sync_branch_outbound(&w.branch, false)
-                })
-                .count(),
-        )
-        .unwrap_or(0)
-    };
-    let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-
-    Ok(Json(SyncStatusReport {
-        github_remote_url: state.sync_config.github_remote_url.clone(),
-        last_synced_commit: head_sha,
-        sync_latency_ms: elapsed_ms,
-        private_agent_branches_filtered: filtered_count,
-        synced_at: Utc::now(),
-    }))
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        "GitHub synchronization is not implemented".to_owned(),
+    ))
 }
 
 async fn mcp_tools_handler(_caller: AuthenticatedPrincipal) -> Json<Vec<McpToolDescriptor>> {
@@ -1513,13 +1521,44 @@ mod tests {
         let (s, _) = call(&app, "POST", approve.clone(), &token, None).await;
         assert_eq!(s, StatusCode::CONFLICT);
 
-        // Exec runs inside the worktree and verifies it.
+        // Simulate an agent commit in the worktree checkout, then verify inside the sandbox.
+        let lc_dir = GitEngine::new(&repo)
+            .list_agent_worktrees()
+            .expect("list")
+            .into_iter()
+            .find(|e| e.branch == "agent/claude/lifecycle")
+            .expect("lifecycle worktree")
+            .worktree_dir;
+        std::fs::write(lc_dir.join("README.md"), "hello\nmerged-by-agent\n").expect("write");
+        let commit_out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&lc_dir)
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "user.name=Agent",
+                "-c",
+                "user.email=agent@company.internal",
+                "commit",
+                "-q",
+                "-am",
+                "agent commit",
+            ])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .expect("git commit");
+        assert!(commit_out.status.success());
+
+        // Exec runs inside the worktree and verifies the agent commit.
         let (s, body) = call(
             &app,
             "POST",
             format!("/api/v1/swarm/worktrees/{}/sandbox", wt.id.0),
             &token,
-            Some(serde_json::json!({"command": "test -f README.md"})),
+            Some(serde_json::json!({
+                "command": "grep -q merged-by-agent README.md"
+            })),
         )
         .await;
         assert_eq!(s, StatusCode::OK, "{body}");
@@ -1528,6 +1567,15 @@ mod tests {
 
         let (s, body) = call(&app, "POST", approve, &token, None).await;
         assert_eq!(s, StatusCode::OK, "{body}");
+        assert!(
+            std::fs::read_to_string(repo.join("README.md"))
+                .expect("read main README")
+                .contains("merged-by-agent"),
+            "approving worktree must merge agent commit into main"
+        );
+
+        let (sync_status, _) = call(&app, "POST", "/api/v1/sync/github".into(), &token, None).await;
+        assert_eq!(sync_status, StatusCode::NOT_IMPLEMENTED);
 
         // Discard removes the checkout and the branch.
         let (s, _) = call(
@@ -1848,6 +1896,38 @@ mod tests {
         assert_eq!(conflict_status, StatusCode::CONFLICT);
 
         drop(held_guard);
+
+        // Approving a branch with zero commits ahead of `base_branch` must also fail (409).
+        let (no_commit_status, _) = call(
+            &app,
+            "POST",
+            format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
+            &token,
+            None,
+        )
+        .await;
+        assert_eq!(no_commit_status, StatusCode::CONFLICT);
+
+        std::fs::write(runtime.worktree_dir.join("README.md"), "race-merged\n").expect("write");
+        let commit_out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&runtime.worktree_dir)
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "user.name=Agent",
+                "-c",
+                "user.email=agent@company.internal",
+                "commit",
+                "-q",
+                "-am",
+                "race commit",
+            ])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .expect("git commit");
+        assert!(commit_out.status.success());
 
         let (ok_status, _) = call(
             &app,

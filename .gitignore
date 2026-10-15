@@ -4,3 +4,6 @@ dist/
 *.log
 target/
 .vite/
+.gitust/
+.*.gitust-worktrees/
+

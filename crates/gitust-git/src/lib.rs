@@ -57,6 +57,9 @@ pub enum GitEngineError {
     #[error("branch '{0}' already exists")]
     BranchAlreadyExists(String),
 
+    #[error("merge conflict: {0}")]
+    MergeConflict(String),
+
     #[error("reference transaction failed: {0}")]
     RefTransaction(String),
 
@@ -602,6 +605,115 @@ impl GitEngine {
             details: e.to_string(),
         })
     }
+
+    /// Merges (fast-forwards) a verified `agent/` branch into `base_branch` (`refs/heads/<base>`)
+    /// using an atomic `gix` CAS reference transaction, and updates the main working tree if it is
+    /// non-bare and currently checked out on `base_branch`.
+    pub fn merge_agent_branch(
+        &self,
+        branch: &str,
+        base_branch: &str,
+    ) -> Result<CommitSha, GitEngineError> {
+        let clean_branch = Self::validate_agent_branch_name(branch)?;
+        let clean_base = Self::validate_branch_name(base_branch)?;
+
+        let mut repo = self.acquire_repo()?;
+        ensure_reflog_identity(&mut repo)?;
+
+        let full_agent = format!("refs/heads/{clean_branch}");
+        let agent_id = repo
+            .find_reference(full_agent.as_str())
+            .map_err(|_| GitEngineError::BaseBranchNotFound(clean_branch.clone()))?
+            .peel_to_id_in_place()
+            .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?
+            .detach();
+
+        let full_base = format!("refs/heads/{clean_base}");
+        let base_id = repo
+            .find_reference(full_base.as_str())
+            .map_err(|_| GitEngineError::BaseBranchNotFound(clean_base.clone()))?
+            .peel_to_id_in_place()
+            .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?
+            .detach();
+
+        let agent_hex = agent_id.to_string();
+        if agent_id == base_id {
+            return Err(GitEngineError::MergeConflict(format!(
+                "agent branch '{clean_branch}' has no commits ahead of '{clean_base}' to merge"
+            )));
+        }
+
+        let base_hex = base_id.to_string();
+        run_git(
+            &self.repo_path,
+            [
+                OsStr::new("merge-base"),
+                OsStr::new("--is-ancestor"),
+                OsStr::new(base_hex.as_str()),
+                OsStr::new(agent_hex.as_str()),
+            ],
+        )
+        .map_err(|_| {
+            GitEngineError::MergeConflict(format!(
+                "base branch '{clean_base}' has diverged from '{clean_branch}'; fast-forward not possible"
+            ))
+        })?;
+
+        let head_on_base = repo.work_dir().is_some()
+            && repo
+                .head_name()
+                .ok()
+                .flatten()
+                .is_some_and(|n| n.as_bstr() == full_base.as_bytes());
+
+        if head_on_base {
+            let status_out = run_git(
+                &self.repo_path,
+                [
+                    OsStr::new("status"),
+                    OsStr::new("--porcelain"),
+                    OsStr::new("--untracked-files=no"),
+                ],
+            )?;
+            if !status_out.iter().all(u8::is_ascii_whitespace) {
+                return Err(GitEngineError::MergeConflict(format!(
+                    "main working tree has uncommitted changes on '{clean_base}'; cannot fast-forward"
+                )));
+            }
+            // `git merge --ff-only` acquires `.git/index.lock` + the branch ref lock atomically,
+            // verifies that current `HEAD` is still an ancestor of `agent_hex` (preventing
+            // concurrent sibling approvals from clobbering each other), and refuses to overwrite
+            // untracked working-tree files.
+            run_git(
+                &self.repo_path,
+                [
+                    OsStr::new("merge"),
+                    OsStr::new("--ff-only"),
+                    OsStr::new("--quiet"),
+                    OsStr::new(agent_hex.as_str()),
+                ],
+            )
+            .map_err(|_| {
+                GitEngineError::MergeConflict(format!(
+                    "cannot fast-forward '{clean_base}' to '{clean_branch}'"
+                ))
+            })?;
+        } else {
+            repo.reference(
+                full_base.as_str(),
+                agent_id,
+                PreviousValue::MustExistAndMatch(Target::Object(base_id)),
+                format!("gitust: fast-forward {clean_base} to {clean_branch}"),
+            )
+            .map_err(|_| {
+                GitEngineError::MergeConflict(format!(
+                    "base branch '{clean_base}' changed concurrently; fast-forward aborted"
+                ))
+            })?;
+        }
+
+        Ok(CommitSha(agent_hex))
+    }
 }
 
 fn canonicalize_existing_ancestors(path: &Path) -> PathBuf {
@@ -729,19 +841,21 @@ fn delete_branch_ref(
     Ok(())
 }
 
-/// Fails closed if the shared repository config contains credentials or external config includes
-/// an agent could read: userinfo in `http(s)://` URLs (`https://user:token@host`,
-/// `https://token@host`), any `http.extraHeader` setting, `credential.helper = store` / `!cmd`,
-/// or `[include]` / `[includeIf]` directives.
+/// Fails closed if the shared repository config (`config` or `config.worktree`) contains
+/// credentials or external config includes an agent could read: userinfo in `http(s)://` URLs
+/// (`https://user:token@host`, `https://token@host`), any `http.extraHeader` setting,
+/// `credential.helper = store` / `!cmd`, or `[include]` / `[includeIf]` directives.
 fn reject_credentials_in_config(common_git_dir: &Path) -> Result<(), GitEngineError> {
-    let config_path = common_git_dir.join("config");
-    let text = match fs::read_to_string(&config_path) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(io_err(&config_path, &e)),
-    };
-    if config_contains_credentials(&text) {
-        return Err(GitEngineError::CredentialsInRepoConfig);
+    for name in ["config", "config.worktree"] {
+        let config_path = common_git_dir.join(name);
+        let text = match fs::read_to_string(&config_path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(io_err(&config_path, &e)),
+        };
+        if config_contains_credentials(&text) {
+            return Err(GitEngineError::CredentialsInRepoConfig);
+        }
     }
     Ok(())
 }
@@ -767,7 +881,68 @@ fn read_worktree_admin_dir(worktree_dir: &Path) -> Result<PathBuf, GitEngineErro
     fs::canonicalize(&path).map_err(|e| io_err(&path, &e))
 }
 
+fn contains_http_userinfo(text: &str) -> bool {
+    for scheme in ["http://", "https://"] {
+        let mut rest = text;
+        while let Some(idx) = rest.find(scheme) {
+            let after = &rest[idx + scheme.len()..];
+            let authority_end = after
+                .find(|c: char| c == '/' || c == '\'' || c == ']' || c.is_whitespace())
+                .unwrap_or(after.len());
+            if after[..authority_end].contains('@') {
+                return true;
+            }
+            rest = &after[authority_end..];
+        }
+    }
+    false
+}
+
 fn config_contains_credentials(text: &str) -> bool {
+    // 1. Formal RFC-compliant `git-config` AST inspection via `gix::config::File`.
+    // Fails closed if the config cannot be parsed by `gitoxide`, and inspects all unquoted
+    // section names, subsection headers, keys, and escape-decoded values.
+    let Ok(cfg) = gix::config::File::try_from(text) else {
+        return true;
+    };
+    for section in cfg.sections() {
+        let header = section.header();
+        let sec_name = String::from_utf8_lossy(header.name().as_ref()).to_ascii_lowercase();
+        if sec_name == "include" || sec_name == "includeif" {
+            return true;
+        }
+        if let Some(sub) = header.subsection_name() {
+            let sub_lower = String::from_utf8_lossy(sub.as_ref())
+                .to_ascii_lowercase()
+                .replace('"', "");
+            if contains_http_userinfo(&sub_lower) {
+                return true;
+            }
+        }
+        for key in section.body().value_names() {
+            let key_str: &str = key.as_ref();
+            let key_lower = key_str.to_ascii_lowercase();
+            if key_lower == "extraheader" {
+                return true;
+            }
+            for val in section.values(key_str) {
+                let decoded = String::from_utf8_lossy(val.as_ref())
+                    .to_ascii_lowercase()
+                    .replace('"', "");
+                let trimmed_val = decoded.trim();
+                if key_lower == "helper"
+                    && (trimmed_val.starts_with("store") || trimmed_val.starts_with('!'))
+                {
+                    return true;
+                }
+                if contains_http_userinfo(trimmed_val) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 2. Defense-in-depth lexical scan (folds backslash line continuations and strips mid-token quotes).
     let folded: std::borrow::Cow<'_, str> = if text.contains('\\') {
         std::borrow::Cow::Owned(text.replace("\\\r\n", "").replace("\\\n", ""))
     } else {
@@ -778,17 +953,14 @@ fn config_contains_credentials(text: &str) -> bool {
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
             continue;
         }
-        let line = trimmed.to_ascii_lowercase();
+        let line = trimmed.to_ascii_lowercase().replace('"', "");
         if line.contains("extraheader") {
             return true;
         }
-        // Fail closed on `[include]` / `[includeIf ...]` or `include.path` directives because
-        // included files could embed credentials or point outside the repository.
         if let Some(section) = line.strip_prefix('[') {
             let header = section.trim_start();
             if let Some(rest) = header.strip_prefix("include") {
                 if rest.starts_with(']')
-                    || rest.starts_with('"')
                     || rest.starts_with(char::is_whitespace)
                     || rest.starts_with("if")
                 {
@@ -800,31 +972,18 @@ fn config_contains_credentials(text: &str) -> bool {
             let key = key.trim();
             let unquoted = value
                 .trim()
-                .trim_matches(|c: char| c.is_whitespace() || c == '"' || c == '\'');
+                .trim_matches(|c: char| c.is_whitespace() || c == '\'');
             if key == "include.path" || (key.starts_with("includeif.") && key.ends_with(".path")) {
                 return true;
             }
-            // `credential.helper = store [--file ...]` or inline shell `!cmd` can expose secrets.
             if (key == "helper" || key.ends_with(".helper"))
                 && (unquoted.starts_with("store") || unquoted.starts_with('!'))
             {
                 return true;
             }
         }
-        for scheme in ["http://", "https://"] {
-            let mut rest = line.as_str();
-            while let Some(idx) = rest.find(scheme) {
-                let after = &rest[idx + scheme.len()..];
-                let authority_end = after
-                    .find(|c: char| {
-                        c == '/' || c == '"' || c == '\'' || c == ']' || c.is_whitespace()
-                    })
-                    .unwrap_or(after.len());
-                if after[..authority_end].contains('@') {
-                    return true;
-                }
-                rest = &after[authority_end..];
-            }
+        if contains_http_userinfo(&line) {
+            return true;
         }
     }
     false
@@ -1218,12 +1377,38 @@ mod tests {
         ));
         // Nothing was created.
         assert!(git(&repo_dir, &["branch", "--list", "agent/*"]).is_empty());
+
+        // Also reject credentials placed inside `.git/config.worktree`.
+        git(
+            &repo_dir,
+            &[
+                "remote",
+                "set-url",
+                "origin",
+                "https://github.com/acme/app.git",
+            ],
+        );
+        fs::write(
+            repo_dir.join(".git/config.worktree"),
+            "[http]\n\textraHeader = Authorization: Bearer ghp_worktree_secret\n",
+        )
+        .expect("write config.worktree");
+        assert!(matches!(
+            materialize(&engine, "agent/claude/creds-wt"),
+            Err(GitEngineError::CredentialsInRepoConfig)
+        ));
     }
 
     #[test]
     fn credential_detection_cases() {
         assert!(config_contains_credentials(
             "[remote \"o\"]\n\turl = https://user:pw@host/r.git\n"
+        ));
+        assert!(config_contains_credentials(
+            "[remote \"o\"]\n\turl = https://\"user:pw@host\"/r.git\n"
+        ));
+        assert!(config_contains_credentials(
+            "[remote \"o\"]\n\turl = \"https://user:pw@\"host/r.git\n"
         ));
         assert!(config_contains_credentials(
             "[remote \"o\"]\n\turl = https://ghp_token@github.com/r.git\n"
@@ -1236,6 +1421,9 @@ mod tests {
         ));
         assert!(config_contains_credentials(
             "[credential]\n\thelper = store --file .git/creds\n"
+        ));
+        assert!(config_contains_credentials(
+            "[credential]\n\thelper = \"st\"\"ore --file .git/creds\"\n"
         ));
         assert!(config_contains_credentials(
             "[credential]\n\thelper = \"store --file .git/creds\"\n"

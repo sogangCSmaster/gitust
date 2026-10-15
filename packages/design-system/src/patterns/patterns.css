@@ -142,19 +142,22 @@
 
 .ds-diff-spacer {
   position: relative;
-  width: 100%;
+  min-width: 100%;
+  width: max-content;
 }
 
 .ds-diff-row {
   position: absolute;
   left: 0;
-  right: 0;
+  right: auto;
+  width: max-content;
+  min-width: 100%;
   height: var(--ds-code-line-height);
   display: flex;
   align-items: center;
   white-space: pre;
   cursor: pointer;
-  contain: layout style paint;
+  contain: layout style;
 }
 
 .ds-diff-row:hover {

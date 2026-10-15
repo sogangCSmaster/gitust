@@ -66,6 +66,16 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
   });
 
   createEffect(() => {
+    selectedIndex();
+    if (!props.open) return;
+    queueMicrotask(() => {
+      dialogEl
+        ?.querySelector<HTMLElement>('.ds-cmd-item[data-active="true"]')
+        ?.scrollIntoView({ block: "nearest" });
+    });
+  });
+
+  createEffect(() => {
     if (!dialogEl) return;
     if (props.open && !dialogEl.open) {
       setQuery("");

@@ -536,7 +536,10 @@ fn canonicalize_openssh_pubkey(raw: &str) -> Result<(String, String), AuthError>
 }
 
 fn scoped_id_rate_limit_key(scope: &str, norm_id: &str) -> String {
-    format!("scope:{scope}:id:{norm_id}")
+    format!(
+        "scope:{scope}:id:{}",
+        hex::encode(hash_token_sha256(norm_id))
+    )
 }
 
 fn scoped_account_rate_limit_key(scope: &str, user_id: UserId) -> String {
@@ -1122,8 +1125,8 @@ impl AuthStore {
             }
 
             // Clear any brute-force lockouts for this user's username, email, and canonical uid
-            let id_user_suffix = format!(":id:{lower_username}");
-            let id_email_suffix = format!(":id:{target_email}");
+            let id_user_suffix = format!(":id:{}", hex::encode(hash_token_sha256(&lower_username)));
+            let id_email_suffix = format!(":id:{}", hex::encode(hash_token_sha256(&target_email)));
             let uid_suffix = format!(":uid:{}", user_id.0);
             guard.failed_logins.retain(|k, _| {
                 !k.ends_with(&id_user_suffix)
@@ -1200,13 +1203,14 @@ impl AuthStore {
         password: &str,
         client_scope: Option<&str>,
     ) -> Result<LoginSessionResponse, AuthError> {
-        let norm_id = identifier.trim().to_ascii_lowercase();
-        if norm_id.is_empty() {
+        let trimmed_id = identifier.trim();
+        if trimmed_id.is_empty() || trimmed_id.len() > 254 || password.len() > 256 {
             return Err(AuthError::InvalidCredentials);
         }
+        let norm_id = trimmed_id.to_ascii_lowercase();
         let scope = client_scope
             .map(str::trim)
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.is_empty() && s.len() <= 128)
             .unwrap_or("default");
         let id_key = scoped_id_rate_limit_key(scope, &norm_id);
 
@@ -1271,6 +1275,9 @@ impl AuthStore {
             let Some(user) = guard.users.get(&user_id) else {
                 return Err(AuthError::InvalidCredentials);
             };
+            if user.password_hash != phc_to_verify {
+                return Err(AuthError::InvalidCredentials);
+            }
             if user.status != AccountStatus::Active {
                 return Err(AuthError::AccountDeactivated);
             }
@@ -2113,6 +2120,22 @@ mod tests {
                 .unwrap_err(),
             AuthError::RateLimitExceeded
         );
+
+        // Oversized (1.9 MiB) login identifiers are rejected before allocating or inserting into
+        // `failed_logins`, and all stored `:id:` keys use fixed-length SHA-256 hex digests.
+        let huge_id = "x".repeat(1_900_000);
+        assert_eq!(
+            store
+                .login_with_client_scope(&huge_id, "WrongPass!999", Some("huge"))
+                .unwrap_err(),
+            AuthError::InvalidCredentials
+        );
+        assert!(store
+            .state
+            .read()
+            .failed_logins
+            .keys()
+            .all(|k| k.len() <= 200));
     }
 
     #[test]

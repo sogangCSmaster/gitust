@@ -196,6 +196,7 @@ impl SandboxSpec {
             "SQUASH_MSG",
             "ORIG_HEAD",
             "FETCH_HEAD",
+            "config.worktree",
             "worktrees",
         ] {
             rules.push(PathRule::new(
@@ -438,8 +439,12 @@ impl LocalSandboxExecutor {
 
 async fn read_capped<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> Vec<u8> {
     let mut buf = Vec::new();
-    if let Some(p) = pipe {
-        let _ = p.take(MAX_SANDBOX_STREAM_BYTES).read_to_end(&mut buf).await;
+    if let Some(mut p) = pipe {
+        let _ = (&mut p)
+            .take(MAX_SANDBOX_STREAM_BYTES)
+            .read_to_end(&mut buf)
+            .await;
+        let _ = tokio::io::copy(&mut p, &mut tokio::io::sink()).await;
     }
     buf
 }
@@ -1126,5 +1131,36 @@ mod tests {
             .map(|s| s.to_string_lossy().into_owned())
             .collect();
         assert!(online.iter().any(|a| a == "--share-net"));
+    }
+
+    #[tokio::test]
+    async fn read_capped_drains_beyond_1mib_without_sigpipe() {
+        let tmp = TempDir::new().expect("tempdir");
+        let workdir = tmp.path().join("wt");
+        let scratch = tmp.path().join("scratch");
+        fs::create_dir_all(&workdir).expect("mkdir");
+        fs::create_dir_all(&scratch).expect("mkdir");
+        let spec = SandboxSpec {
+            workdir: workdir.clone(),
+            scratch_base: scratch,
+            rules: vec![PathRule::new(&workdir, PathAccess::ReadWrite)],
+        };
+        let exec = LocalSandboxExecutor::new(1);
+        let res = exec
+            .execute(
+                WorktreeId::new(),
+                &spec,
+                "dd if=/dev/zero bs=1024 count=2048 2>/dev/null | tr '\\0' 'a'",
+            )
+            .await
+            .expect("execute 2MiB stdout command");
+        assert_eq!(
+            res.exit_code, 0,
+            "2MiB output must not fail with SIGPIPE (141)"
+        );
+        assert_eq!(
+            res.stdout.len(),
+            usize::try_from(MAX_SANDBOX_STREAM_BYTES).expect("usize")
+        );
     }
 }

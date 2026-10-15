@@ -39,8 +39,9 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -235,10 +236,12 @@ pub struct SandboxExecutionResult {
 struct SandboxCleanupGuard {
     pid: Option<u32>,
     run_dir: PathBuf,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl Drop for SandboxCleanupGuard {
     fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::SeqCst);
         if let Some(pid) = self.pid.take() {
             kill_process_group(pid);
         }
@@ -314,11 +317,25 @@ impl LocalSandboxExecutor {
 
         let start = Instant::now();
         let run_id = SandboxRunId::new();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut cleanup_guard = SandboxCleanupGuard {
+            pid: None,
+            run_dir: spec.scratch_base.join(run_id.0.to_string()),
+            cancelled: Arc::clone(&cancelled),
+        };
         let spec_owned = spec.clone();
         let command_owned = command_str.to_owned();
         let allow_network = self.allow_network;
         let prepared = tokio::task::spawn_blocking(move || {
-            prepare_run(&spec_owned, run_id, &command_owned, allow_network)
+            let anticipated = spec_owned.scratch_base.join(run_id.0.to_string());
+            let res = prepare_run(&spec_owned, run_id, &command_owned, allow_network);
+            if res.is_err() || cancelled.load(Ordering::SeqCst) {
+                let _ = fs::remove_dir_all(&anticipated);
+                if let Ok(ref p) = res {
+                    let _ = fs::remove_dir_all(&p.run_dir);
+                }
+            }
+            res
         })
         .await
         .map_err(|e| SandboxError::Prepare {
@@ -326,10 +343,7 @@ impl LocalSandboxExecutor {
             message: e.to_string(),
         })??;
 
-        let mut cleanup_guard = SandboxCleanupGuard {
-            pid: None,
-            run_dir: prepared.run_dir.clone(),
-        };
+        cleanup_guard.run_dir = prepared.run_dir.clone();
 
         let mut cmd = Command::new(&prepared.program);
         cmd.args(&prepared.args)
@@ -557,12 +571,18 @@ fn host_rules() -> Vec<PathRule> {
     rules
 }
 
-/// Canonicalizes rule paths (dropping ones that do not exist) and orders them shallow-to-deep,
-/// so that deeper rules take precedence. Equal depth keeps insertion order (later wins).
+/// Canonicalizes rule paths and orders them shallow-to-deep so that deeper rules take
+/// precedence. Equal depth keeps insertion order (later wins).
+///
+/// For `PathAccess::Hidden`, if the target leaf does not exist yet (for example
+/// `<common_git_dir>/refs/stash` or `COMMIT_EDITMSG` before the host runs `git stash` or
+/// `git commit`), we canonicalize the deepest existing non-root ancestor and append the
+/// remaining normal path components so Seatbelt still emits a `(deny ...)` rule covering files
+/// created while the sandbox is running.
 fn resolve_rules(rules: Vec<PathRule>) -> Result<Vec<PathRule>, SandboxError> {
     let mut resolved = Vec::with_capacity(rules.len());
     for rule in rules {
-        let Ok(path) = fs::canonicalize(&rule.path) else {
+        let Some(path) = canonicalize_rule_path(&rule.path, rule.access) else {
             continue;
         };
         let lossy = path.to_string_lossy();
@@ -573,6 +593,31 @@ fn resolve_rules(rules: Vec<PathRule>) -> Result<Vec<PathRule>, SandboxError> {
     }
     resolved.sort_by_key(|r| r.path.components().count());
     Ok(resolved)
+}
+
+fn canonicalize_rule_path(path: &Path, access: PathAccess) -> Option<PathBuf> {
+    if let Ok(canonical) = fs::canonicalize(path) {
+        return Some(canonical);
+    }
+    if access != PathAccess::Hidden {
+        return None;
+    }
+    for ancestor in path.ancestors().skip(1) {
+        if ancestor == Path::new("/") || ancestor.as_os_str().is_empty() {
+            break;
+        }
+        if let Ok(mut canonical_base) = fs::canonicalize(ancestor) {
+            let suffix = path.strip_prefix(ancestor).ok()?;
+            for comp in suffix.components() {
+                match comp {
+                    Component::Normal(part) => canonical_base.push(part),
+                    _ => return None,
+                }
+            }
+            return Some(canonical_base);
+        }
+    }
+    None
 }
 
 /// Builds a Seatbelt profile. Seatbelt applies the last matching rule, so emitting rules in
@@ -650,9 +695,10 @@ fn bwrap_args(
             PathAccess::Hidden if rule.path.is_dir() => {
                 args.extend(["--tmpfs".into(), p]);
             }
-            PathAccess::Hidden => {
+            PathAccess::Hidden if rule.path.exists() => {
                 args.extend(["--ro-bind".into(), "/dev/null".into(), p]);
             }
+            PathAccess::Hidden => {}
             PathAccess::ReadOnly => {
                 args.extend(["--ro-bind".into(), p.clone(), p]);
             }
@@ -1012,12 +1058,22 @@ mod tests {
         let rules = resolve_rules(vec![
             PathRule::new(&deep, PathAccess::ReadWrite),
             PathRule::new(tmp.path().join("a"), PathAccess::Hidden),
-            PathRule::new(tmp.path().join("missing"), PathAccess::ReadOnly),
+            PathRule::new(tmp.path().join("missing-ro"), PathAccess::ReadOnly),
+            PathRule::new(
+                tmp.path().join("a/not-yet-created-secret"),
+                PathAccess::Hidden,
+            ),
         ])
         .expect("resolve");
-        assert_eq!(rules.len(), 2, "missing paths are dropped");
+        assert_eq!(
+            rules.len(),
+            3,
+            "missing ReadOnly paths are dropped, but missing Hidden leaves under an existing ancestor are preserved"
+        );
         assert_eq!(rules[0].access, PathAccess::Hidden);
-        assert_eq!(rules[1].access, PathAccess::ReadWrite);
+        assert_eq!(rules[1].access, PathAccess::Hidden);
+        assert!(rules[1].path.ends_with("a/not-yet-created-secret"));
+        assert_eq!(rules[2].access, PathAccess::ReadWrite);
     }
 
     #[test]

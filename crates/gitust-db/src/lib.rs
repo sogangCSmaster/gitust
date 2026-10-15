@@ -247,7 +247,23 @@ impl AuthState {
         state
     }
 
+    fn prune_expired(&mut self, now: DateTime<Utc>) {
+        self.sessions_by_hash.retain(|_, ses| {
+            let user_active = self
+                .users
+                .get(&ses.user_id)
+                .is_none_or(|u| u.status == AccountStatus::Active);
+            now < ses.expires_at && !(ses.revoked && user_active)
+        });
+        let cutoff = now - Duration::seconds(LOGIN_RATE_LIMIT_WINDOW_SECS);
+        self.failed_logins.retain(|_, list| {
+            list.retain(|&ts| ts > cutoff);
+            !list.is_empty()
+        });
+    }
+
     fn next_snapshot(&mut self) -> PersistedSnapshot {
+        self.prune_expired(Utc::now());
         self.revision = self.revision.saturating_add(1);
         PersistedSnapshot {
             revision: self.revision,
@@ -289,7 +305,7 @@ pub struct LoginSessionResponse {
 
 /// High-concurrency, O(1) indexed Authentication & Authorization Store.
 /// Disk persistence is synchronized via a dedicated `persist_mutex` OUTSIDE the in-memory `RwLock`,
-/// guaranteeing `<5µs` non-blocking reads even during `fsync`.
+/// keeping in-memory reads non-blocking even during `fsync`.
 #[derive(Debug, Clone)]
 pub struct AuthStore {
     state: Arc<RwLock<AuthState>>,
@@ -410,9 +426,74 @@ fn validate_password_strength(password: &str) -> Result<(), AuthError> {
     Ok(())
 }
 
-/// Validates and canonicalizes an OpenSSH public key into `<algorithm> <base64-blob>`,
-/// stripping any trailing comment so changing a comment cannot bypass fingerprint uniqueness.
-fn canonicalize_openssh_pubkey(raw: &str) -> Result<String, AuthError> {
+fn decode_base64_standard(input: &str) -> Option<Vec<u8>> {
+    let bytes = input.as_bytes();
+    if bytes.is_empty() || !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    let val = |b: u8| -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    };
+    let mut out = Vec::with_capacity((bytes.len() / 4) * 3);
+    for (idx, chunk) in bytes.chunks_exact(4).enumerate() {
+        let is_last = idx + 1 == bytes.len() / 4;
+        let a = val(chunk[0])?;
+        let b = val(chunk[1])?;
+        out.push((a << 2) | (b >> 4));
+        if chunk[2] == b'=' {
+            if !is_last || chunk[3] != b'=' {
+                return None;
+            }
+            break;
+        }
+        let c = val(chunk[2])?;
+        out.push((b << 4) | (c >> 2));
+        if chunk[3] == b'=' {
+            if !is_last {
+                return None;
+            }
+            break;
+        }
+        let d = val(chunk[3])?;
+        out.push((c << 6) | d);
+    }
+    Some(out)
+}
+
+fn encode_base64_unpadded(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = if chunk.len() > 1 { chunk[1] } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] } else { 0 };
+        out.push(char::from(TABLE[usize::from(b0 >> 2)]));
+        out.push(char::from(
+            TABLE[usize::from(((b0 & 0x03) << 4) | (b1 >> 4))],
+        ));
+        if chunk.len() > 1 {
+            out.push(char::from(
+                TABLE[usize::from(((b1 & 0x0f) << 2) | (b2 >> 6))],
+            ));
+        }
+        if chunk.len() > 2 {
+            out.push(char::from(TABLE[usize::from(b2 & 0x3f)]));
+        }
+    }
+    out
+}
+
+/// Validates and canonicalizes an OpenSSH public key into `(<algorithm> <base64-blob>, SHA256:<base64>)`,
+/// decoding the Base64 wire blob, verifying the embedded key-type header matches `<algorithm>`,
+/// and computing the standard OpenSSH SHA-256 fingerprint over the decoded binary key blob.
+fn canonicalize_openssh_pubkey(raw: &str) -> Result<(String, String), AuthError> {
     let mut parts = raw.split_whitespace();
     let (Some(algo), Some(blob)) = (parts.next(), parts.next()) else {
         return Err(AuthError::InvalidInput(
@@ -431,20 +512,36 @@ fn canonicalize_openssh_pubkey(raw: &str) -> Result<String, AuthError> {
             "unsupported SSH key algorithm: {algo}"
         )));
     }
-    if blob.len() < 16
-        || !blob
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='))
-    {
+    let Some(decoded) = decode_base64_standard(blob) else {
         return Err(AuthError::InvalidInput(
             "malformed base64 key blob in SSH public key".to_owned(),
         ));
+    };
+    if decoded.len() < 4 + algo.len() + 4 {
+        return Err(AuthError::InvalidInput(
+            "SSH public key blob is truncated".to_owned(),
+        ));
     }
-    Ok(format!("{algo} {blob}"))
+    let header_len = usize::try_from(u32::from_be_bytes([
+        decoded[0], decoded[1], decoded[2], decoded[3],
+    ]))
+    .unwrap_or(usize::MAX);
+    if header_len != algo.len() || &decoded[4..4 + algo.len()] != algo.as_bytes() {
+        return Err(AuthError::InvalidInput(
+            "SSH public key blob algorithm header does not match declared key type".to_owned(),
+        ));
+    }
+    let digest: [u8; 32] = Sha256::digest(&decoded).into();
+    let fingerprint = format!("SHA256:{}", encode_base64_unpadded(&digest));
+    Ok((format!("{algo} {blob}"), fingerprint))
 }
 
-fn account_rate_limit_key(user_id: UserId) -> String {
-    format!("uid:{}", user_id.0)
+fn scoped_id_rate_limit_key(scope: &str, norm_id: &str) -> String {
+    format!("scope:{scope}:id:{norm_id}")
+}
+
+fn scoped_account_rate_limit_key(scope: &str, user_id: UserId) -> String {
+    format!("scope:{scope}:uid:{}", user_id.0)
 }
 
 impl AuthStore {
@@ -1022,9 +1119,14 @@ impl AuthStore {
             }
 
             // Clear any brute-force lockouts for this user's username, email, and canonical uid
-            guard.failed_logins.remove(&lower_username);
-            guard.failed_logins.remove(&target_email);
-            guard.failed_logins.remove(&account_rate_limit_key(user_id));
+            let id_user_suffix = format!(":id:{lower_username}");
+            let id_email_suffix = format!(":id:{target_email}");
+            let uid_suffix = format!(":uid:{}", user_id.0);
+            guard.failed_logins.retain(|k, _| {
+                !k.ends_with(&id_user_suffix)
+                    && !k.ends_with(&id_email_suffix)
+                    && !k.ends_with(&uid_suffix)
+            });
 
             let snap = self.maybe_snapshot(&mut guard);
             (profile, snap)
@@ -1035,7 +1137,7 @@ impl AuthStore {
     }
 
     // ========================================================================
-    // 3. Login with Argon2id + Dual-Key Sliding-Window Brute-Force Rate Limiting
+    // 3. Login with Argon2id + Scoped Dual-Key Sliding-Window Rate Limiting
     // ========================================================================
 
     fn is_rate_limited_locked(state: &mut AuthState, key: &str, now: DateTime<Utc>) -> bool {
@@ -1057,7 +1159,18 @@ impl AuthStore {
                 !list.is_empty()
             });
             if state.failed_logins.len() >= MAX_RATE_LIMIT_TRACKED_KEYS {
-                return;
+                // Fail-closed under map saturation: evict a non-account (`:id:`) key with the
+                // fewest attempts (or any key as fallback) rather than dropping the new attempt.
+                if let Some(evict_key) = state
+                    .failed_logins
+                    .iter()
+                    .filter(|(k, _)| k.contains(":id:"))
+                    .min_by_key(|(_, v)| v.len())
+                    .or_else(|| state.failed_logins.iter().min_by_key(|(_, v)| v.len()))
+                    .map(|(k, _)| k.clone())
+                {
+                    state.failed_logins.remove(&evict_key);
+                }
             }
         }
         let entry = state.failed_logins.entry(key).or_default();
@@ -1065,18 +1178,34 @@ impl AuthStore {
         entry.push(now);
     }
 
-    /// Authenticates a user by username or email + password with sliding-window rate limiting
-    /// across both the caller-provided identifier AND the canonical account ID (`uid:<uuid>`),
-    /// preventing username/email alternation bypasses.
+    /// Authenticates a user by username or email + password with sliding-window rate limiting.
     pub fn login(
         &self,
         identifier: &str,
         password: &str,
     ) -> Result<LoginSessionResponse, AuthError> {
+        self.login_with_client_scope(identifier, password, None)
+    }
+
+    /// Authenticates a user by username or email + password, scoping brute-force rate-limit
+    /// buckets by `client_scope` (e.g. client IP) so an attacker from one source cannot lock out
+    /// a legitimate user or SiteAdmin logging in from another source, while still blocking
+    /// username/email alternation from the same caller scope.
+    pub fn login_with_client_scope(
+        &self,
+        identifier: &str,
+        password: &str,
+        client_scope: Option<&str>,
+    ) -> Result<LoginSessionResponse, AuthError> {
         let norm_id = identifier.trim().to_ascii_lowercase();
         if norm_id.is_empty() {
             return Err(AuthError::InvalidCredentials);
         }
+        let scope = client_scope
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("default");
+        let id_key = scoped_id_rate_limit_key(scope, &norm_id);
 
         let now = Utc::now();
         let (maybe_user_id, phc_to_verify) = {
@@ -1087,8 +1216,8 @@ impl AuthStore {
                 .copied()
                 .or_else(|| guard.email_index.get(&norm_id).copied());
 
-            let acct_key = uid.map(account_rate_limit_key);
-            if Self::is_rate_limited_locked(&mut guard, &norm_id, now)
+            let acct_key = uid.map(|u| scoped_account_rate_limit_key(scope, u));
+            if Self::is_rate_limited_locked(&mut guard, &id_key, now)
                 || acct_key
                     .as_deref()
                     .is_some_and(|k| Self::is_rate_limited_locked(&mut guard, k, now))
@@ -1113,9 +1242,9 @@ impl AuthStore {
         let (response, snapshot) = {
             let mut guard = self.state.write();
             let check_now = Utc::now();
-            let acct_key = maybe_user_id.map(account_rate_limit_key);
+            let acct_key = maybe_user_id.map(|u| scoped_account_rate_limit_key(scope, u));
 
-            if Self::is_rate_limited_locked(&mut guard, &norm_id, check_now)
+            if Self::is_rate_limited_locked(&mut guard, &id_key, check_now)
                 || acct_key
                     .as_deref()
                     .is_some_and(|k| Self::is_rate_limited_locked(&mut guard, k, check_now))
@@ -1124,12 +1253,12 @@ impl AuthStore {
             }
 
             let Some(user_id) = maybe_user_id else {
-                Self::record_failed_login_locked(&mut guard, norm_id, check_now);
+                Self::record_failed_login_locked(&mut guard, id_key, check_now);
                 return Err(AuthError::InvalidCredentials);
             };
 
             if !password_valid {
-                Self::record_failed_login_locked(&mut guard, norm_id, check_now);
+                Self::record_failed_login_locked(&mut guard, id_key, check_now);
                 if let Some(ak) = acct_key {
                     Self::record_failed_login_locked(&mut guard, ak, check_now);
                 }
@@ -1147,9 +1276,13 @@ impl AuthStore {
             let lower_username = user.username.to_ascii_lowercase();
             let lower_email = user.email.to_ascii_lowercase();
 
-            guard.failed_logins.remove(&norm_id);
-            guard.failed_logins.remove(&lower_username);
-            guard.failed_logins.remove(&lower_email);
+            guard.failed_logins.remove(&id_key);
+            guard
+                .failed_logins
+                .remove(&scoped_id_rate_limit_key(scope, &lower_username));
+            guard
+                .failed_logins
+                .remove(&scoped_id_rate_limit_key(scope, &lower_email));
             if let Some(ak) = acct_key {
                 guard.failed_logins.remove(&ak);
             }
@@ -1190,7 +1323,7 @@ impl AuthStore {
     // 4. O(1) Session, PAT (HTTPS Git), and SSH Key Authentication
     // ========================================================================
 
-    /// Validates a session bearer token in `<5µs` O(1) time.
+    /// Validates a session bearer token in O(1) time.
     /// Immediately rejects deactivated accounts (`AccountDeactivated`) or revoked/expired sessions.
     pub fn authenticate_session(
         &self,
@@ -1354,9 +1487,7 @@ impl AuthStore {
             ));
         }
 
-        let canonical_key = canonicalize_openssh_pubkey(public_key_openssh)?;
-        let fingerprint_bytes = hash_token_sha256(&canonical_key);
-        let fingerprint_sha256 = format!("SHA256:{}", hex::encode(fingerprint_bytes));
+        let (canonical_key, fingerprint_sha256) = canonicalize_openssh_pubkey(public_key_openssh)?;
 
         let (view, snapshot) = {
             let mut guard = self.state.write();
@@ -1400,10 +1531,8 @@ impl AuthStore {
         &self,
         public_key_openssh: &str,
     ) -> Result<AuthenticatedPrincipal, AuthError> {
-        let canonical_key = canonicalize_openssh_pubkey(public_key_openssh)
+        let (_canonical_key, fingerprint_sha256) = canonicalize_openssh_pubkey(public_key_openssh)
             .map_err(|_| AuthError::Unauthenticated)?;
-        let fingerprint_bytes = hash_token_sha256(&canonical_key);
-        let fingerprint_sha256 = format!("SHA256:{}", hex::encode(fingerprint_bytes));
 
         let guard = self.state.read();
         let Some(&key_id) = guard.ssh_fingerprint_index.get(&fingerprint_sha256) else {
@@ -1569,6 +1698,12 @@ impl AuthStore {
     #[must_use]
     pub fn repository_exists(&self, repo_id: RepoId) -> bool {
         self.state.read().repositories.contains_key(&repo_id)
+    }
+
+    /// Returns a snapshot of the authoritative [`EnterpriseSecurityPolicy`] stored in [`AuthStore`].
+    #[must_use]
+    pub fn security_policy(&self) -> EnterpriseSecurityPolicy {
+        self.state.read().policy.clone()
     }
 
     /// Verifies whether `caller` is permitted to access `repo_id`.
@@ -1765,7 +1900,7 @@ mod tests {
             .create_personal_access_token(&dev_principal, "laptop-git-https", Some(30))
             .expect("pat creation must succeed");
         let ssh_key_str =
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGitustTestKeyDev1 dev1@company.internal";
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGitustTestKeyDev100 dev1@company.internal";
         store
             .register_ssh_public_key(&dev_principal, "MacBook Pro", ssh_key_str)
             .expect("ssh key registration must succeed");
@@ -1871,7 +2006,7 @@ mod tests {
             .register_ssh_public_key(
                 &principal_a,
                 "alpha-key",
-                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlphaKey comment@host",
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlphaKey000 comment@host",
             )
             .expect("alpha ssh");
 
@@ -1889,7 +2024,7 @@ mod tests {
             .register_ssh_public_key(
                 &principal_b,
                 "duplicate-key-different-comment",
-                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlphaKey attacker@otherhost",
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlphaKey000 attacker@otherhost",
             )
             .is_err());
 
@@ -1937,6 +2072,12 @@ mod tests {
             AuthError::RateLimitExceeded
         );
 
+        // An attacker locking out their own client scope must NOT lock out the legitimate admin
+        // from a different client scope (Account Lockout DoS defense).
+        assert!(store
+            .login_with_client_scope("rootadmin", "SuperSecretAdminPass!2026", Some("10.0.0.10"),)
+            .is_ok());
+
         // Redeeming a password reset link clears the lockout and rotates the password
         let reset = store
             .create_password_reset_link(&admin, root_id, None)
@@ -1946,6 +2087,43 @@ mod tests {
             .expect("redeem reset");
 
         assert!(store.login("rootadmin", "RotatedAdminPass!2026").is_ok());
+
+        // Flooding MAX_RATE_LIMIT_TRACKED_KEYS fake identifier keys must NOT fail open or allow
+        // brute-forcing a real account.
+        {
+            let now = Utc::now();
+            let mut st = store.state.write();
+            for i in 0..MAX_RATE_LIMIT_TRACKED_KEYS {
+                AuthStore::record_failed_login_locked(
+                    &mut st,
+                    format!("scope:flood:id:fake_{i}"),
+                    now,
+                );
+            }
+        }
+        for _ in 0..MAX_LOGIN_ATTEMPTS {
+            let _ = store.login_with_client_scope("rootadmin", "WrongPass!999", Some("flood"));
+        }
+        assert_eq!(
+            store
+                .login_with_client_scope("rootadmin", "RotatedAdminPass!2026", Some("flood"))
+                .unwrap_err(),
+            AuthError::RateLimitExceeded
+        );
+    }
+
+    #[test]
+    fn ssh_pubkey_rejects_mismatched_wire_header_and_malformed_base64() {
+        // Declared `ssh-rsa`, but wire blob header encodes `ssh-ed25519`.
+        assert!(canonicalize_openssh_pubkey(
+            "ssh-rsa AAAAC3NzaC1lZDI1NTE5AAAAIAlphaKey000 user@host"
+        )
+        .is_err());
+        // Non-4-byte-aligned base64 blob.
+        assert!(canonicalize_openssh_pubkey(
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlphaKey user@host"
+        )
+        .is_err());
     }
 
     #[test]

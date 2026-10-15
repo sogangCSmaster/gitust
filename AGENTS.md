@@ -179,11 +179,12 @@ Phase 2부터는 **사내 GitHub로 실제 사용**하는 것을 목표로, GitH
 - **성능**: 6장 수치를 주장하는 변경은 벤치마크 결과를 함께 남깁니다.
 
 ### 7.5 Mandatory Per-Step Subagent Review Gate (Step별 필수 리뷰 에이전트 감사)
-각 Step 개발이 끝날 때마다 **`git commit` / `git push` 전에 반드시 리뷰 Subagent를 스폰(`invoke_subagent`)하여 아래 4대 관점에서 전수 코드 리뷰**를 받고, 발견된 P0/P1 이슈를 모두 수정해야 합니다.
+각 Step이나 작업 개발이 끝날 때마다 **`git commit` / `git push` 전에 반드시 레포지토리 내 [`adversarial-audit` 스킬](.agents/skills/adversarial-audit/SKILL.md)을 사용해 자체 점검 및 리뷰 Subagent 감사를 수행**하고, 발견된 P0/P1 이슈를 모두 수정해야 합니다.
+- **필수 절차**: 작업이 끝나면 에이전트 자신과 스폰된 리뷰 Subagent(`invoke_subagent`) 모두 반드시 `.agents/skills/adversarial-audit/SKILL.md`를 먼저 읽고, 스킬에 정의된 **10대 실전 버그 체크리스트(경로 `canonicalize` 누락 우회, `spawn_blocking` 취소 시 가드 누수, `.await` 전후 상태 TOCTOU, 설정 파서 우회, 분리된 HEAD 복구 누락, 전역 계정 잠금 DoS, 상태 이원화, 허위 측정치 금지 등)** 를 코드 라인 단위로 대조해야 합니다. 형식적인 고무도장(Rubber-stamp) 통과를 엄격히 금지합니다.
 1. **속도 (Blazing Speed)**: 락 경합(Lock Contention), 비동기 런타임 내 블로킹 I/O 및 CPU 병목, N+1 쿼리, 불필요한 메모리 할당/복사 여부.
-2. **안정성 (Stability & Edge Cases)**: `unwrap()`/`expect()` 제거, 동시성 레이스 컨디션(TOCTOU), 타임아웃/리소스 누수, 경계값 및 엣지케이스 처리 여부.
-3. **스파게티 코드 방지 (Clean Architecture)**: 크레이트/모듈 간 책임 분리, God struct/함수 방지, 타입 시스템을 통한 불변식 강제 여부.
-4. **보안 & IDOR/BOLA (Authorization & Isolation)**: 타 유저/타 팀 리소스 무단 접근·수정(IDOR/BOLA), 일반 유저의 관리자 API 호출(BFLA), 비활성 계정/만료 토큰 우회, 타이밍 공격 및 민감 정보 노출 여부.
+2. **안정성 (Stability & Edge Cases)**: `unwrap()`/`expect()` 제거, 동시성 레이스 컨디션(TOCTOU), 비동기 취소(Cancellation) 시 리소스 누수, 경계값 및 엣지케이스 처리 여부.
+3. **스파게티 코드 방지 (Clean Architecture)**: 크레이트/모듈 간 책임 분리, 상태 이원화(Split-Brain) 방지, God struct/함수 방지, 타입 시스템을 통한 불변식 강제 여부.
+4. **보안 & IDOR/BOLA (Authorization & Isolation)**: 타 유저/타 팀 리소스 무단 접근·수정(IDOR/BOLA), 일반 유저의 관리자 API 호출(BFLA), 비활성 계정/만료 토큰 우회, 샌드박스/파서 우회 및 민감 정보 노출 여부.
 
 ---
 

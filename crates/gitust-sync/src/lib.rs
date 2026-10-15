@@ -1,7 +1,7 @@
-//! `gitust-sync`: Bi-Directional Real-Time GitHub Mirroring Engine.
+//! `gitust-sync`: Bi-Directional Real-Time GitHub Mirroring Policy & Engine.
 //! Keeps noisy/experimental AI agent branches (`agent/*`) 100% private on-premise
-//! while syncing human-approved merges (`main`, release branches, verified PRs)
-//! bi-directionally with an existing GitHub repository in `<100ms`.
+//! while allowing human-approved branches (`main`, release branches, verified PRs)
+//! to sync with an existing GitHub repository.
 
 use chrono::{DateTime, Utc};
 use gitust_core::{CommitSha, RepoId};

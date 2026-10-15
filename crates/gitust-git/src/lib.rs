@@ -436,11 +436,19 @@ impl GitEngine {
         unchanged_from: &CommitSha,
     ) -> Result<bool, GitEngineError> {
         let clean_branch = Self::validate_agent_branch_name(branch)?;
+        if fs::symlink_metadata(worktree_dir)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(GitEngineError::WorktreeNotManaged(
+                worktree_dir.display().to_string(),
+            ));
+        }
         let repo = self.acquire_repo()?;
         let common_git_dir = Self::common_git_dir(&repo);
         let base = self.worktrees_base(&repo, &common_git_dir);
-        let base = fs::canonicalize(&base).unwrap_or(base);
-        let target = fs::canonicalize(worktree_dir).unwrap_or_else(|_| worktree_dir.to_path_buf());
+        let base = canonicalize_existing_ancestors(&base);
+        let target = canonicalize_existing_ancestors(worktree_dir);
         if target.parent() != Some(base.as_path()) {
             return Err(GitEngineError::WorktreeNotManaged(
                 worktree_dir.display().to_string(),
@@ -489,12 +497,12 @@ impl GitEngine {
     }
 
     /// Lists agent worktrees managed by this engine (linked worktrees under the worktree base
-    /// directory whose branch is in the `agent/` namespace).
+    /// directory, including worktrees whose `HEAD` was detached inside the sandbox).
     pub fn list_agent_worktrees(&self) -> Result<Vec<ManagedWorktreeEntry>, GitEngineError> {
         let repo = self.acquire_repo()?;
         let common_git_dir = Self::common_git_dir(&repo);
         let base = self.worktrees_base(&repo, &common_git_dir);
-        let base = fs::canonicalize(&base).unwrap_or(base);
+        let base = canonicalize_existing_ancestors(&base);
 
         let stdout = run_git(
             &self.repo_path,
@@ -505,7 +513,7 @@ impl GitEngine {
                 OsStr::new("-z"),
             ],
         )?;
-        Ok(parse_worktree_list(&stdout)
+        Ok(parse_worktree_list(&stdout, Some(&base))
             .into_iter()
             .filter(|e| e.worktree_dir.parent() == Some(base.as_path()))
             .collect())
@@ -524,7 +532,7 @@ impl GitEngine {
             [OsStr::new("worktree"), OsStr::new("prune")],
         );
         let worktrees_base = self.worktrees_base(&repo, &common_git_dir);
-        let worktrees_base = fs::canonicalize(&worktrees_base).unwrap_or(worktrees_base);
+        let worktrees_base = canonicalize_existing_ancestors(&worktrees_base);
         let main_workdir = repo
             .work_dir()
             .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()));
@@ -594,6 +602,29 @@ impl GitEngine {
             details: e.to_string(),
         })
     }
+}
+
+fn canonicalize_existing_ancestors(path: &Path) -> PathBuf {
+    if let Ok(canonical) = fs::canonicalize(path) {
+        return canonical;
+    }
+    for ancestor in path.ancestors().skip(1) {
+        if ancestor.as_os_str().is_empty() {
+            break;
+        }
+        if let Ok(mut canonical_base) = fs::canonicalize(ancestor) {
+            if let Ok(suffix) = path.strip_prefix(ancestor) {
+                for comp in suffix.components() {
+                    match comp {
+                        std::path::Component::Normal(part) => canonical_base.push(part),
+                        _ => return path.to_path_buf(),
+                    }
+                }
+                return canonical_base;
+            }
+        }
+    }
+    path.to_path_buf()
 }
 
 fn io_err(path: &Path, e: &std::io::Error) -> GitEngineError {
@@ -698,11 +729,10 @@ fn delete_branch_ref(
     Ok(())
 }
 
-/// Fails closed if the shared repository config contains credentials an agent could read:
-/// userinfo in `http(s)://` URLs (`https://user:token@host`, `https://token@host`) or any
-/// `http.extraHeader` setting.
-///
-/// Limitation: `include.path` / `includeIf` targets are not followed.
+/// Fails closed if the shared repository config contains credentials or external config includes
+/// an agent could read: userinfo in `http(s)://` URLs (`https://user:token@host`,
+/// `https://token@host`), any `http.extraHeader` setting, `credential.helper = store` / `!cmd`,
+/// or `[include]` / `[includeIf]` directives.
 fn reject_credentials_in_config(common_git_dir: &Path) -> Result<(), GitEngineError> {
     let config_path = common_git_dir.join("config");
     let text = match fs::read_to_string(&config_path) {
@@ -738,17 +768,41 @@ fn read_worktree_admin_dir(worktree_dir: &Path) -> Result<PathBuf, GitEngineErro
 }
 
 fn config_contains_credentials(text: &str) -> bool {
-    for raw in text.lines() {
+    let folded = text.replace("\\\r\n", "").replace("\\\n", "");
+    for raw in folded.lines() {
         let line = raw.trim().to_ascii_lowercase();
-        if line.starts_with('#') || line.starts_with(';') {
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
             continue;
         }
         if line.contains("extraheader") {
             return true;
         }
-        // `credential.helper = store [--file ...]` keeps plaintext credentials on disk.
+        // Fail closed on `[include]` / `[includeIf ...]` or `include.path` directives because
+        // included files could embed credentials or point outside the repository.
+        if let Some(section) = line.strip_prefix('[') {
+            let header = section.trim_start();
+            if let Some(rest) = header.strip_prefix("include") {
+                if rest.starts_with(']')
+                    || rest.starts_with('"')
+                    || rest.starts_with(char::is_whitespace)
+                    || rest.starts_with("if")
+                {
+                    return true;
+                }
+            }
+        }
         if let Some((key, value)) = line.split_once('=') {
-            if key.trim() == "helper" && value.trim().starts_with("store") {
+            let key = key.trim();
+            let unquoted = value
+                .trim()
+                .trim_matches(|c: char| c.is_whitespace() || c == '"' || c == '\'');
+            if key == "include.path" || (key.starts_with("includeif.") && key.ends_with(".path")) {
+                return true;
+            }
+            // `credential.helper = store [--file ...]` or inline shell `!cmd` can expose secrets.
+            if (key == "helper" || key.ends_with(".helper"))
+                && (unquoted.starts_with("store") || unquoted.starts_with('!'))
+            {
                 return true;
             }
         }
@@ -757,7 +811,9 @@ fn config_contains_credentials(text: &str) -> bool {
             while let Some(idx) = rest.find(scheme) {
                 let after = &rest[idx + scheme.len()..];
                 let authority_end = after
-                    .find(|c: char| c == '/' || c == '"' || c.is_whitespace())
+                    .find(|c: char| {
+                        c == '/' || c == '"' || c == '\'' || c == ']' || c.is_whitespace()
+                    })
                     .unwrap_or(after.len());
                 if after[..authority_end].contains('@') {
                     return true;
@@ -785,7 +841,7 @@ fn read_branch_creation_reflog(common_git_dir: &Path, branch: &str) -> (String, 
     let mut first_line = String::new();
     if BufReader::new(file).read_line(&mut first_line).is_err() || first_line.is_empty() {
         return default();
-    }
+    };
     let first_line = first_line.trim_end_matches(['\r', '\n']);
     let (meta, msg) = first_line.split_once('\t').unwrap_or((first_line, ""));
     let mut parts = meta.split_whitespace();
@@ -822,8 +878,9 @@ fn infer_agent_kind(branch: &str) -> AgentKind {
     }
 }
 
-/// Parses `git worktree list --porcelain -z`, keeping only entries on `agent/` branches.
-fn parse_worktree_list(stdout: &[u8]) -> Vec<ManagedWorktreeEntry> {
+/// Parses `git worktree list --porcelain -z`, keeping entries on `agent/` branches or detached
+/// worktrees located directly inside `managed_base`.
+fn parse_worktree_list(stdout: &[u8], managed_base: Option<&Path>) -> Vec<ManagedWorktreeEntry> {
     let mut entries = Vec::new();
     let mut path: Option<PathBuf> = None;
     let mut head: Option<String> = None;
@@ -831,15 +888,37 @@ fn parse_worktree_list(stdout: &[u8]) -> Vec<ManagedWorktreeEntry> {
 
     let mut flush =
         |path: &mut Option<PathBuf>, head: &mut Option<String>, branch: &mut Option<String>| {
-            if let (Some(p), Some(h), Some(b)) = (path.take(), head.take(), branch.take()) {
-                if let Some(short) = b.strip_prefix("refs/heads/") {
-                    if short.starts_with(AGENT_BRANCH_PREFIX) {
-                        entries.push(ManagedWorktreeEntry {
-                            worktree_dir: fs::canonicalize(&p).unwrap_or(p),
-                            branch: short.to_owned(),
-                            head: CommitSha(h),
-                        });
+            if let (Some(p), Some(h)) = (path.take(), head.take()) {
+                let canon_p = canonicalize_existing_ancestors(&p);
+                let resolved_branch = match branch.take() {
+                    Some(b) => b
+                        .strip_prefix("refs/heads/")
+                        .filter(|short| short.starts_with(AGENT_BRANCH_PREFIX))
+                        .map(str::to_owned),
+                    None if managed_base.is_some_and(|base| canon_p.parent() == Some(base)) => {
+                        let leaf = canon_p
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("detached");
+                        let sanitized: String = leaf
+                            .chars()
+                            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                            .collect();
+                        let suffix = if sanitized.is_empty() {
+                            "worktree"
+                        } else {
+                            sanitized.as_str()
+                        };
+                        Some(format!("{AGENT_BRANCH_PREFIX}detached/{suffix}"))
                     }
+                    None => None,
+                };
+                if let Some(short) = resolved_branch {
+                    entries.push(ManagedWorktreeEntry {
+                        worktree_dir: canon_p,
+                        branch: short,
+                        head: CommitSha(h),
+                    });
                 }
             }
             *path = None;
@@ -1153,6 +1232,27 @@ mod tests {
         assert!(config_contains_credentials(
             "[credential]\n\thelper = store --file .git/creds\n"
         ));
+        assert!(config_contains_credentials(
+            "[credential]\n\thelper = \"store --file .git/creds\"\n"
+        ));
+        assert!(config_contains_credentials(
+            "[credential]\n\thelper = !f() { echo password=ghp_secret; }; f\n"
+        ));
+        assert!(config_contains_credentials(
+            "[credential \"https://tok@github.com\"]\n\thelper = osxkeychain\n"
+        ));
+        assert!(config_contains_credentials(
+            "[include]\n\tpath = ~/.gitconfig-secrets\n"
+        ));
+        assert!(config_contains_credentials(
+            "[include\t]\n\tpath = ~/.gitconfig-secrets\n"
+        ));
+        assert!(config_contains_credentials(
+            "[credential]\n\thelper = \\\n\tstore --file .git/creds\n"
+        ));
+        assert!(config_contains_credentials(
+            "[includeIf \"gitdir:~/work/\"]\n\tpath = ~/.gitconfig-work\n"
+        ));
         assert!(!config_contains_credentials(
             "[credential]\n\thelper = osxkeychain\n"
         ));
@@ -1165,6 +1265,44 @@ mod tests {
         assert!(!config_contains_credentials(
             "[remote \"o\"]\n\turl = ssh://git@github.com/acme/r.git\n"
         ));
+    }
+
+    #[test]
+    fn idempotent_remove_already_deleted_dir_and_detached_head_recovery() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_dir = tmp.path().join("repo");
+        init_repo(&repo_dir);
+        let engine = GitEngine::new(&repo_dir);
+
+        let m1 = materialize(&engine, "agent/claude/idempotent-1").expect("m1");
+        let m2 = materialize(&engine, "agent/claude/detached-2").expect("m2");
+
+        // Simulate crash after m1's directory was deleted on disk while m2 keeps `worktrees_base`
+        // alive; pass a non-canonical path through the tempdir root.
+        fs::remove_dir_all(&m1.worktree_dir).expect("delete m1 dir");
+        let non_canonical_m1 = repo_dir
+            .parent()
+            .expect("parent")
+            .join(m1.worktrees_base.file_name().expect("base name"))
+            .join(m1.worktree_dir.file_name().expect("leaf name"));
+        let deleted = engine
+            .remove_agent_worktree(
+                &non_canonical_m1,
+                &m1.worktree.branch,
+                &m1.worktree.base_commit,
+            )
+            .expect("idempotent remove should succeed even when dir was already gone");
+        assert!(deleted, "unchanged branch should still be cleaned up");
+
+        // Detach HEAD inside m2 and verify list/recover still see it.
+        git(&m2.worktree_dir, &["checkout", "-q", "--detach", "HEAD"]);
+        let listed = engine.list_agent_worktrees().expect("list");
+        assert_eq!(listed.len(), 1, "detached worktree must remain visible");
+        let recovered = engine
+            .recover_agent_worktrees(m2.worktree.repo_id)
+            .expect("recover");
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].worktree.id, m2.worktree.id);
     }
 
     #[test]

@@ -233,13 +233,60 @@ async fn main() -> Result<()> {
 
 struct CliWorktreeGuard {
     engine: GitEngine,
-    materialized: MaterializedWorktree,
+    materialized: std::sync::Arc<std::sync::Mutex<Option<MaterializedWorktree>>>,
     keep: bool,
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl CliWorktreeGuard {
+    async fn finish(self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let taken = self
+            .materialized
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        let Some(m) = taken else {
+            return;
+        };
+        if self.keep {
+            eprintln!(
+                "[gitust sandbox] kept worktree {} on branch {}",
+                m.worktree_dir.display(),
+                m.worktree.branch
+            );
+            return;
+        }
+        let engine = self.engine.clone();
+        match tokio::task::spawn_blocking(move || {
+            engine.remove_agent_worktree(
+                &m.worktree_dir,
+                &m.worktree.branch,
+                &m.worktree.base_commit,
+            )
+        })
+        .await
+        {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => eprintln!("[gitust sandbox] warning: cleanup failed: {e}"),
+            Err(e) => eprintln!("[gitust sandbox] warning: cleanup task failed: {e}"),
+        }
+    }
 }
 
 impl Drop for CliWorktreeGuard {
     fn drop(&mut self) {
-        let m = &self.materialized;
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let taken = self
+            .materialized
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        let Some(m) = taken else {
+            return;
+        };
         if self.keep {
             eprintln!(
                 "[gitust sandbox] kept worktree {} on branch {}",
@@ -275,6 +322,15 @@ async fn run_cli_sandbox(
     #[cfg(unix)]
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
 
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let materialized_slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let guard = CliWorktreeGuard {
+        engine: engine.clone(),
+        materialized: std::sync::Arc::clone(&materialized_slot),
+        keep,
+        cancelled: std::sync::Arc::clone(&cancelled),
+    };
+
     let worktree_id = WorktreeId::new();
     let id_str = worktree_id.0.to_string();
     let branch = format!("agent/cli/sandbox-{}", &id_str[..8]);
@@ -282,23 +338,32 @@ async fn run_cli_sandbox(
     let base_branch = head.branch_name.clone();
     let cmd_summary = cmd.to_owned();
     let m = tokio::task::spawn_blocking(move || {
-        engine_for_spawn.materialize_agent_worktree(
+        let res = engine_for_spawn.materialize_agent_worktree(
             worktree_id,
             RepoId::new(),
             AgentKind::InternalBot,
             &branch,
             &base_branch,
             cmd_summary,
-        )
+        );
+        let mut slot = materialized_slot.lock().unwrap_or_else(|e| e.into_inner());
+        if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+            drop(slot);
+            if let Ok(ref m) = res {
+                if !keep {
+                    let _ = engine_for_spawn.remove_agent_worktree(
+                        &m.worktree_dir,
+                        &m.worktree.branch,
+                        &m.worktree.base_commit,
+                    );
+                }
+            }
+        } else if let Ok(ref m) = res {
+            *slot = Some(m.clone());
+        }
+        res
     })
     .await??;
-
-    let guard = CliWorktreeGuard {
-        engine,
-        materialized: m,
-        keep,
-    };
-    let m = &guard.materialized;
     let spec = SandboxSpec::for_linked_worktree(
         &m.worktree_dir,
         &m.worktree_admin_dir,
@@ -311,7 +376,7 @@ async fn run_cli_sandbox(
     let executor = LocalSandboxExecutor::new(1).with_timeout_secs(timeout_secs);
     // Biased select checks for a pending Ctrl-C (including one received during checkout) before
     // polling execution; dropping the execution future kills the sandboxed process group, and
-    // `CliWorktreeGuard::drop` always cleans up the worktree.
+    // `CliWorktreeGuard` always cleans up the worktree.
     #[cfg(unix)]
     let outcome = tokio::select! {
         biased;
@@ -325,12 +390,12 @@ async fn run_cli_sandbox(
     };
 
     let Some(outcome) = outcome else {
-        drop(guard);
+        guard.finish().await;
         eprintln!("[gitust sandbox] interrupted");
         return Ok(130);
     };
     let materialize_micros = m.worktree.materialize_micros;
-    drop(guard);
+    guard.finish().await;
 
     let res = outcome?;
     if !res.stdout.is_empty() {

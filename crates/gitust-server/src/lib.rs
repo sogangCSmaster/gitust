@@ -69,7 +69,6 @@ pub struct AppState {
     pub git_engine: GitEngine,
     pub sandbox_executor: LocalSandboxExecutor,
     pub sync_config: BiDirectionalSyncConfig,
-    pub security_policy: Arc<RwLock<EnterpriseSecurityPolicy>>,
     pub worktrees: Arc<RwLock<VecDeque<AgentWorktree>>>,
     pub worktree_runtime: Arc<RwLock<HashMap<WorktreeId, WorktreeRuntime>>>,
     /// Reserves global and per-user worktree slots before blocking checkouts.
@@ -120,7 +119,6 @@ impl AppState {
             git_engine,
             sandbox_executor: LocalSandboxExecutor::new(16),
             sync_config: BiDirectionalSyncConfig::new(repo_id, github_mirror_url),
-            security_policy: Arc::new(RwLock::new(EnterpriseSecurityPolicy::default())),
             worktrees: Arc::new(RwLock::new(worktrees)),
             worktree_runtime: Arc::new(RwLock::new(worktree_runtime)),
             spawn_quota: Arc::new(Mutex::new(SpawnQuotaTracker::default())),
@@ -140,7 +138,6 @@ pub struct HealthResponse {
     pub status: &'static str,
     pub engine: &'static str,
     pub privacy_mode: &'static str,
-    pub server_latency_micros: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -230,7 +227,7 @@ fn map_auth_err(err: AuthError) -> (StatusCode, String) {
 }
 
 /// Extracts and validates either a Session token (`gitust_ses_...`) or a Personal Access Token (`gitust_pat_...`)
-/// from the `Authorization: Bearer <token>` header in `<5µs` O(1) time.
+/// from the `Authorization: Bearer <token>` header in O(1) time.
 fn extract_principal(
     headers: &HeaderMap,
     auth_store: &AuthStore,
@@ -254,7 +251,7 @@ fn extract_principal(
 
 /// Zero-boilerplate Axum extractor for `AuthenticatedPrincipal`.
 /// Guarantees that every handler declaring `caller: AuthenticatedPrincipal` is authenticated
-/// in `<5µs` O(1) time and immediately rejects deactivated accounts or revoked tokens.
+/// in O(1) time and immediately rejects deactivated accounts or revoked tokens.
 impl FromRequestParts<AppState> for AuthenticatedPrincipal {
     type Rejection = (StatusCode, String);
 
@@ -396,13 +393,10 @@ pub fn build_router(state: AppState) -> Router {
 }
 
 async fn health_handler() -> Json<HealthResponse> {
-    let start = Instant::now();
-    let server_latency_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(1);
     Json(HealthResponse {
         status: "ok",
-        engine: "gitust-pure-rust (gix + microsandbox + github-sync)",
+        engine: "gitust-pure-rust (gix + local-os-sandbox)",
         privacy_mode: "STRICT_ON_PREMISE_ZERO_CLOUD_LEAKAGE",
-        server_latency_micros,
     })
 }
 
@@ -412,13 +406,19 @@ async fn public_register_disabled_handler() -> (StatusCode, String) {
 
 async fn login_handler(
     State(state): State<AppState>,
+    extensions: axum::http::Extensions,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginSessionResponse>, (StatusCode, String)> {
+    let client_scope = extensions
+        .get::<axum::extract::ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip().to_string());
     let store = state.auth_store.clone();
-    let res = tokio::task::spawn_blocking(move || store.login(&req.identifier, &req.password))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map_err(map_auth_err)?;
+    let res = tokio::task::spawn_blocking(move || {
+        store.login_with_client_scope(&req.identifier, &req.password, client_scope.as_deref())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(map_auth_err)?;
     Ok(Json(res))
 }
 
@@ -654,12 +654,26 @@ async fn list_worktrees_handler(
     Json(list)
 }
 
+enum SpawnLifecycle {
+    InFlight,
+    Materialized {
+        engine: GitEngine,
+        worktree_dir: PathBuf,
+        branch: String,
+        base_commit: gitust_core::CommitSha,
+    },
+    Committed,
+    Failed,
+    Cancelled,
+}
+
 /// RAII reservation of one global and one per-user worktree slot. Automatically releases the
-/// in-flight slot on drop if the checkout fails or the request future is cancelled.
+/// in-flight slot and rolls back any uncommitted checkout on drop if the checkout fails or the
+/// request future is cancelled.
 struct SpawnReservation {
     state: AppState,
     user_id: UserId,
-    committed: bool,
+    lifecycle: Arc<Mutex<SpawnLifecycle>>,
 }
 
 impl SpawnReservation {
@@ -694,23 +708,43 @@ impl SpawnReservation {
         Ok(Self {
             state: state.clone(),
             user_id,
-            committed: false,
+            lifecycle: Arc::new(Mutex::new(SpawnLifecycle::InFlight)),
         })
     }
 
-    fn commit(mut self, wt: AgentWorktree, runtime: WorktreeRuntime) {
+    fn commit(self, wt: AgentWorktree, runtime: WorktreeRuntime) {
+        *self.lifecycle.lock() = SpawnLifecycle::Committed;
         let mut quota = self.state.spawn_quota.lock();
         self.state.worktree_runtime.write().insert(wt.id, runtime);
         self.state.worktrees.write().push_front(wt);
         quota.release(self.user_id);
-        self.committed = true;
     }
 }
 
 impl Drop for SpawnReservation {
     fn drop(&mut self) {
-        if !self.committed {
-            self.state.spawn_quota.lock().release(self.user_id);
+        let prev = std::mem::replace(&mut *self.lifecycle.lock(), SpawnLifecycle::Cancelled);
+        match prev {
+            SpawnLifecycle::Committed => {}
+            SpawnLifecycle::Failed => {
+                self.state.spawn_quota.lock().release(self.user_id);
+            }
+            SpawnLifecycle::InFlight | SpawnLifecycle::Cancelled => {
+                // `spawn_blocking` is still running and will roll back the worktree + release quota.
+            }
+            SpawnLifecycle::Materialized {
+                engine,
+                worktree_dir,
+                branch,
+                base_commit,
+            } => {
+                let state = self.state.clone();
+                let user_id = self.user_id;
+                tokio::task::spawn_blocking(move || {
+                    let _ = engine.remove_agent_worktree(&worktree_dir, &branch, &base_commit);
+                    state.spawn_quota.lock().release(user_id);
+                });
+            }
         }
     }
 }
@@ -730,20 +764,51 @@ async fn spawn_worktree_handler(
         ));
     }
     let reservation = SpawnReservation::reserve(&state, caller.user_id)?;
+    let lifecycle = Arc::clone(&reservation.lifecycle);
+    let state_for_spawn = state.clone();
+    let user_id = caller.user_id;
 
     let engine = state.git_engine.clone();
     let agent = req.agent.unwrap_or(AgentKind::ClaudeCode);
     let base_branch = req.base_branch.unwrap_or_else(|| "main".to_owned());
     let prompt_summary = req.prompt_summary;
     let materialized = tokio::task::spawn_blocking(move || {
-        engine.materialize_agent_worktree(
+        let res = engine.materialize_agent_worktree(
             WorktreeId::new(),
             target_repo_id,
             agent,
             &clean_branch,
             &base_branch,
             prompt_summary,
-        )
+        );
+        let mut life = lifecycle.lock();
+        match (&*life, &res) {
+            (SpawnLifecycle::Cancelled, Ok(m)) => {
+                drop(life);
+                let _ = engine.remove_agent_worktree(
+                    &m.worktree_dir,
+                    &m.worktree.branch,
+                    &m.worktree.base_commit,
+                );
+                state_for_spawn.spawn_quota.lock().release(user_id);
+            }
+            (SpawnLifecycle::Cancelled, Err(_)) => {
+                drop(life);
+                state_for_spawn.spawn_quota.lock().release(user_id);
+            }
+            (_, Ok(m)) => {
+                *life = SpawnLifecycle::Materialized {
+                    engine: engine.clone(),
+                    worktree_dir: m.worktree_dir.clone(),
+                    branch: m.worktree.branch.clone(),
+                    base_commit: m.worktree.base_commit.clone(),
+                };
+            }
+            (_, Err(_)) => {
+                *life = SpawnLifecycle::Failed;
+            }
+        }
+        res
     })
     .await
     .map_err(internal_err)?
@@ -786,7 +851,12 @@ fn find_authorized_worktree(
 
 fn set_worktree_status(state: &AppState, id: WorktreeId, f: impl FnOnce(&mut AgentWorktree)) {
     if let Some(wt) = state.worktrees.write().iter_mut().find(|w| w.id == id) {
-        f(wt);
+        if !matches!(
+            wt.status,
+            WorktreeStatus::Merged | WorktreeStatus::Discarded
+        ) {
+            f(wt);
+        }
     }
 }
 
@@ -848,7 +918,16 @@ async fn exec_worktree_sandbox_handler(
         .map_err(internal_err)?
         .map_err(map_git_err)?;
 
-    set_worktree_status(&state, wt.id, |w| w.status = WorktreeStatus::Compiling);
+    {
+        let mut guard = state.worktrees.write();
+        let Some(w) = guard.iter_mut().find(|w| w.id == wt.id) else {
+            return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
+        };
+        if matches!(w.status, WorktreeStatus::Merged | WorktreeStatus::Discarded) {
+            return Err((StatusCode::CONFLICT, format!("worktree is {:?}", w.status)));
+        }
+        w.status = WorktreeStatus::Compiling;
+    }
     let mut status_guard = RunStatusGuard {
         state: state.clone(),
         id: wt.id,
@@ -914,23 +993,39 @@ async fn discard_worktree_handler(
     }
 
     if let Some(runtime) = runtime {
-        let _run_guard = runtime.exec_lock.clone().try_lock_owned().map_err(|_| {
+        let run_guard = runtime.exec_lock.clone().try_lock_owned().map_err(|_| {
             (
                 StatusCode::CONFLICT,
                 "a sandbox run is in progress for this worktree".to_owned(),
             )
         })?;
         let engine = state.git_engine.clone();
+        let state_for_cleanup = state.clone();
+        let wt_id = wt.id;
         let branch = wt.branch.clone();
         let base_commit = wt.base_commit.clone();
         let dir = runtime.worktree_dir.clone();
         // The branch is kept if the agent committed anything, so work is never destroyed.
+        // Hold `run_guard` inside the blocking task and remove the in-memory entries before
+        // releasing `run_guard` so concurrent requests cannot observe an unlocked deleted worktree
+        // and client disconnects during `spawn_blocking` never leave zombie entries in `AppState`.
         tokio::task::spawn_blocking(move || {
-            engine.remove_agent_worktree(&dir, &branch, &base_commit)
+            let _held_guard = run_guard;
+            let res = engine.remove_agent_worktree(&dir, &branch, &base_commit);
+            if res.is_ok() {
+                let _quota = state_for_cleanup.spawn_quota.lock();
+                state_for_cleanup.worktree_runtime.write().remove(&wt_id);
+                state_for_cleanup
+                    .worktrees
+                    .write()
+                    .retain(|w| w.id != wt_id);
+            }
+            res
         })
         .await
         .map_err(internal_err)?
         .map_err(map_git_err)?;
+        return Ok(StatusCode::NO_CONTENT);
     }
 
     let _quota = state.spawn_quota.lock();
@@ -952,14 +1047,17 @@ async fn approve_worktree_handler(
         return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
     }
 
-    let wt_repo_id = {
-        let guard = state.worktrees.read();
-        let Some(wt) = guard.iter().find(|w| w.id.0 == id) else {
-            return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
-        };
-        wt.repo_id
+    let wt = find_authorized_worktree(&state, &caller, id)?;
+    let runtime = state.worktree_runtime.read().get(&wt.id).cloned();
+    let _run_guard = match runtime {
+        Some(rt) => Some(rt.exec_lock.try_lock_owned().map_err(|_| {
+            (
+                StatusCode::CONFLICT,
+                "a sandbox run is in progress for this worktree".to_owned(),
+            )
+        })?),
+        None => None,
     };
-    check_repo_bola(&state.auth_store, state.repo_id, &caller, wt_repo_id)?;
 
     let mut guard = state.worktrees.write();
     if let Some(wt) = guard.iter_mut().find(|w| w.id.0 == id) {
@@ -985,6 +1083,7 @@ async fn sync_github_handler(
     }
     check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
 
+    let start = Instant::now();
     let engine = state.git_engine.clone();
     let head_sha = tokio::task::spawn_blocking(move || engine.inspect_head_zero_copy())
         .await
@@ -1006,11 +1105,12 @@ async fn sync_github_handler(
         )
         .unwrap_or(0)
     };
+    let elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     Ok(Json(SyncStatusReport {
         github_remote_url: state.sync_config.github_remote_url.clone(),
         last_synced_commit: head_sha,
-        sync_latency_ms: 11,
+        sync_latency_ms: elapsed_ms,
         private_agent_branches_filtered: filtered_count,
         synced_at: Utc::now(),
     }))
@@ -1027,8 +1127,7 @@ async fn enterprise_policy_handler(
     if caller.role != EnterpriseRole::SiteAdmin {
         return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
     }
-    let policy = state.security_policy.read().clone();
-    Ok(Json(policy))
+    Ok(Json(state.auth_store.security_policy()))
 }
 
 /// Starts the all-in-one Gitust server on the given socket address.
@@ -1039,8 +1138,12 @@ pub async fn serve(
     auth_store: AuthStore,
     trusted_sandbox_exec: bool,
 ) -> Result<(), std::io::Error> {
-    let state = AppState::with_auth_store(repo_path, github_mirror_url, auth_store)
-        .with_trusted_sandbox_exec(trusted_sandbox_exec);
+    let state = tokio::task::spawn_blocking(move || {
+        AppState::with_auth_store(repo_path, github_mirror_url, auth_store)
+            .with_trusted_sandbox_exec(trusted_sandbox_exec)
+    })
+    .await
+    .map_err(std::io::Error::other)?;
     if trusted_sandbox_exec {
         tracing::warn!(
             "host OS sandbox execution over HTTP is enabled; this is only safe for a trusted \
@@ -1050,7 +1153,11 @@ pub async fn serve(
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Gitust All-in-One Server listening on http://{addr}");
-    axum::serve(listener, app).await
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -1665,5 +1772,141 @@ mod tests {
             .await
             .expect("res");
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn approve_worktree_conflicts_while_exec_lock_held_and_preserves_terminal_status() {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let repo = tmp.path().join("repo");
+        init_temp_repo(&repo);
+
+        let auth_store = AuthStore::new_in_memory();
+        auth_store
+            .bootstrap_initial_admin_cli(
+                "siteadmin",
+                "siteadmin@company.internal",
+                "AdminPassword!2026",
+            )
+            .expect("bootstrap initial admin");
+        let login = auth_store
+            .login("siteadmin", "AdminPassword!2026")
+            .expect("login initial admin");
+        let token = login.raw_session_token;
+
+        let state = AppState::with_auth_store(
+            repo,
+            "https://github.com/sogangCSmaster/gitust.git".to_owned(),
+            auth_store,
+        )
+        .with_trusted_sandbox_exec(true);
+        let app = build_router(state.clone());
+
+        let (s, body) = call(
+            &app,
+            "POST",
+            "/api/v1/swarm/worktrees".into(),
+            &token,
+            Some(serde_json::json!({"branch": "agent/claude/lock-race", "prompt_summary": "race"})),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let wt: AgentWorktree = serde_json::from_str(&body).expect("parse wt");
+
+        // Mark Verified first via a quick sandbox run.
+        let (s, _) = call(
+            &app,
+            "POST",
+            format!("/api/v1/swarm/worktrees/{}/sandbox", wt.id.0),
+            &token,
+            Some(serde_json::json!({"command": "true"})),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+
+        let runtime = state
+            .worktree_runtime
+            .read()
+            .get(&wt.id)
+            .expect("worktree runtime")
+            .clone();
+
+        // Hold exec_lock to simulate an in-flight sandbox execution.
+        let held_guard = runtime
+            .exec_lock
+            .clone()
+            .try_lock_owned()
+            .expect("acquire exec_lock");
+
+        let (conflict_status, _) = call(
+            &app,
+            "POST",
+            format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
+            &token,
+            None,
+        )
+        .await;
+        assert_eq!(conflict_status, StatusCode::CONFLICT);
+
+        drop(held_guard);
+
+        let (ok_status, _) = call(
+            &app,
+            "POST",
+            format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
+            &token,
+            None,
+        )
+        .await;
+        assert_eq!(ok_status, StatusCode::OK);
+
+        // Once Merged, set_worktree_status must never overwrite the terminal status.
+        set_worktree_status(&state, wt.id, |w| w.status = WorktreeStatus::Failed);
+        let current_status = state
+            .worktrees
+            .read()
+            .iter()
+            .find(|w| w.id == wt.id)
+            .expect("wt exists")
+            .status;
+        assert_eq!(current_status, WorktreeStatus::Merged);
+
+        // Dropping an uncommitted SpawnReservation that reached Materialized must roll back the
+        // on-disk worktree and release the quota slot.
+        let admin_id = state
+            .auth_store
+            .authenticate_session(&token)
+            .expect("admin")
+            .user_id;
+        let resv = SpawnReservation::reserve(&state, admin_id).expect("reserve");
+        let m = state
+            .git_engine
+            .materialize_agent_worktree(
+                WorktreeId::new(),
+                state.repo_id,
+                AgentKind::ClaudeCode,
+                "agent/claude/cancel-rollback",
+                "main",
+                "cancel".to_owned(),
+            )
+            .expect("materialize");
+        let dir_to_rollback = m.worktree_dir.clone();
+        *resv.lifecycle.lock() = SpawnLifecycle::Materialized {
+            engine: state.git_engine.clone(),
+            worktree_dir: m.worktree_dir,
+            branch: m.worktree.branch,
+            base_commit: m.worktree.base_commit,
+        };
+        drop(resv);
+        for _ in 0..50 {
+            if !dir_to_rollback.exists() && state.spawn_quota.lock().in_flight_total == 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(
+            !dir_to_rollback.exists(),
+            "cancelled spawn must remove worktree dir"
+        );
+        assert_eq!(state.spawn_quota.lock().in_flight_total, 0);
     }
 }

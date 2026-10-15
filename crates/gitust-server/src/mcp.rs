@@ -568,7 +568,10 @@ where
 }
 
 /// Starts the built-in MCP JSON-RPC 2.0 server over `stdin`/`stdout` for Claude Code / Cursor.
-pub async fn serve_mcp_stdio(repo_path: PathBuf) -> Result<(), std::io::Error> {
+pub async fn serve_mcp_stdio(
+    repo_path: PathBuf,
+    github_mirror_url: String,
+) -> Result<(), std::io::Error> {
     let (state, _service_lock) = tokio::task::spawn_blocking(move || {
         let engine = GitEngine::new(&repo_path);
         engine
@@ -577,9 +580,12 @@ pub async fn serve_mcp_stdio(repo_path: PathBuf) -> Result<(), std::io::Error> {
         let lock = engine
             .lock_worktree_service()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::WouldBlock, e))?;
-        let mirror = "https://github.com/sogangCSmaster/gitust.git".to_owned();
-        let state = AppState::with_auth_store(repo_path, mirror, AuthStore::new_in_memory())
-            .with_trusted_sandbox_exec(true);
+        let state = AppState::with_engine_and_auth_store(
+            engine,
+            github_mirror_url,
+            AuthStore::new_in_memory(),
+        )
+        .with_trusted_sandbox_exec(true);
         Ok::<_, std::io::Error>((state, lock))
     })
     .await

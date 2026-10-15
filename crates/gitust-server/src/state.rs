@@ -151,6 +151,10 @@ pub struct AppState {
     pub worktree_runtime: Arc<RwLock<HashMap<WorktreeId, WorktreeRuntime>>>,
     /// Reserves global and per-user worktree slots before blocking checkouts.
     pub spawn_quota: Arc<Mutex<SpawnQuotaTracker>>,
+    /// Serializes repository-wide ref/working-tree mutations (`approve_worktree` and local mirror ref apply).
+    pub repo_mutation_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Serializes inbound `git fetch` staging runs so `repo_mutation_lock` is never held across network I/O.
+    pub sync_fetch_lock: Arc<tokio::sync::Mutex<()>>,
     /// Bounded OAuth 2.0 Dynamic Client Registration + PKCE S256 authorization code store.
     pub oauth_mcp: Arc<Mutex<OAuthMcpStore>>,
     /// Host OS sandbox execution over HTTP is only safe for a trusted single-user deployment.
@@ -170,8 +174,16 @@ impl AppState {
         github_mirror_url: String,
         auth_store: AuthStore,
     ) -> Self {
+        Self::with_engine_and_auth_store(GitEngine::new(&repo_path), github_mirror_url, auth_store)
+    }
+
+    #[must_use]
+    pub fn with_engine_and_auth_store(
+        git_engine: GitEngine,
+        github_mirror_url: String,
+        auth_store: AuthStore,
+    ) -> Self {
         let repo_id = RepoId::new();
-        let git_engine = GitEngine::new(&repo_path);
         let mut worktrees = VecDeque::new();
         let mut worktree_runtime = HashMap::new();
         if let Ok(recovered) = git_engine.recover_agent_worktrees(repo_id) {
@@ -216,6 +228,8 @@ impl AppState {
             worktrees: Arc::new(RwLock::new(worktrees)),
             worktree_runtime: Arc::new(RwLock::new(worktree_runtime)),
             spawn_quota: Arc::new(Mutex::new(SpawnQuotaTracker::default())),
+            repo_mutation_lock: Arc::new(tokio::sync::Mutex::new(())),
+            sync_fetch_lock: Arc::new(tokio::sync::Mutex::new(())),
             oauth_mcp: Arc::new(Mutex::new(oauth_store)),
             trusted_sandbox_exec: false,
         }
@@ -225,6 +239,69 @@ impl AppState {
     pub fn with_trusted_sandbox_exec(mut self, enabled: bool) -> Self {
         self.trusted_sandbox_exec = enabled;
         self
+    }
+
+    /// Atomically removes a worktree from both `worktree_runtime` and `worktrees` under the
+    /// canonical `spawn_quota -> worktree_runtime -> worktrees` lock order.
+    pub(crate) fn remove_worktree_entry(&self, wt_id: WorktreeId) {
+        let _quota = self.spawn_quota.lock();
+        self.worktree_runtime.write().remove(&wt_id);
+        self.worktrees.write().retain(|w| w.id != wt_id);
+    }
+
+    /// Releases an in-flight spawn quota slot for `user_id`.
+    pub(crate) fn release_in_flight_quota(&self, user_id: UserId) {
+        self.spawn_quota.lock().release(user_id);
+    }
+
+    /// Returns a cloned `WorktreeRuntime` for `wt_id` if present.
+    pub(crate) fn get_worktree_runtime(&self, wt_id: WorktreeId) -> Option<WorktreeRuntime> {
+        self.worktree_runtime.read().get(&wt_id).cloned()
+    }
+
+    /// Verifies that `wt_id` still has an active runtime checkout and transitions its status to
+    /// `WorktreeStatus::Compiling` if it has not been merged or discarded.
+    pub(crate) fn try_begin_worktree_compiling(
+        &self,
+        wt_id: WorktreeId,
+    ) -> Result<(), (StatusCode, String)> {
+        if !self.worktree_runtime.read().contains_key(&wt_id) {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("worktree {} not found", wt_id.0),
+            ));
+        }
+        let mut guard = self.worktrees.write();
+        let Some(w) = guard.iter_mut().find(|w| w.id == wt_id) else {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("worktree {} not found", wt_id.0),
+            ));
+        };
+        if matches!(w.status, WorktreeStatus::Merged | WorktreeStatus::Discarded) {
+            return Err((StatusCode::CONFLICT, format!("worktree is {:?}", w.status)));
+        }
+        w.status = WorktreeStatus::Compiling;
+        Ok(())
+    }
+
+    /// Atomically marks `wt_id` as `Merged` and records the new `merged_sha` as `base_commit`.
+    pub(crate) fn complete_worktree_merge(
+        &self,
+        wt_id: WorktreeId,
+        merged_sha: gitust_core::CommitSha,
+    ) -> Result<AgentWorktree, (StatusCode, String)> {
+        let mut guard = self.worktrees.write();
+        if let Some(wt) = guard.iter_mut().find(|w| w.id == wt_id) {
+            wt.approve_and_merge(false)
+                .map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
+            wt.base_commit = merged_sha;
+            return Ok(wt.clone());
+        }
+        Err((
+            StatusCode::NOT_FOUND,
+            format!("worktree {} not found", wt_id.0),
+        ))
     }
 }
 
@@ -363,13 +440,17 @@ pub(crate) fn map_auth_err(err: AuthError) -> (StatusCode, String) {
 
 pub(crate) fn map_git_err(err: GitEngineError) -> (StatusCode, String) {
     let code = match &err {
-        GitEngineError::InvalidBranchName(_) | GitEngineError::BranchNotAgentScoped(_) => {
-            StatusCode::BAD_REQUEST
-        }
-        GitEngineError::BaseBranchNotFound(_) => StatusCode::NOT_FOUND,
-        GitEngineError::BranchAlreadyExists(_) | GitEngineError::MergeConflict(_) => {
-            StatusCode::CONFLICT
-        }
+        GitEngineError::InvalidBranchName(_)
+        | GitEngineError::InvalidRevision(_)
+        | GitEngineError::InvalidRepoPath(_)
+        | GitEngineError::InvalidRemoteUrl(_)
+        | GitEngineError::BranchNotAgentScoped(_) => StatusCode::BAD_REQUEST,
+        GitEngineError::BaseBranchNotFound(_)
+        | GitEngineError::RevisionNotFound(_)
+        | GitEngineError::PathNotFound(_) => StatusCode::NOT_FOUND,
+        GitEngineError::BranchAlreadyExists(_)
+        | GitEngineError::MergeConflict(_)
+        | GitEngineError::WorktreeServiceBusy(_) => StatusCode::CONFLICT,
         GitEngineError::CredentialsInRepoConfig => StatusCode::PRECONDITION_FAILED,
         _ => {
             tracing::error!(error = %err, "git engine failure");

@@ -14,7 +14,6 @@ use gitust_core::{
 };
 use gitust_git::{GitEngine, RepoHeadSnapshot};
 use gitust_sandbox::{SandboxExecutionResult, SandboxSpec};
-use gitust_sync::SyncStatusReport;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -120,11 +119,11 @@ pub(crate) async fn spawn_worktree_core(
                     &m.worktree.branch,
                     &m.worktree.base_commit,
                 );
-                state_for_spawn.spawn_quota.lock().release(user_id);
+                state_for_spawn.release_in_flight_quota(user_id);
             }
             (SpawnLifecycle::Cancelled, Err(_)) => {
                 drop(life);
-                state_for_spawn.spawn_quota.lock().release(user_id);
+                state_for_spawn.release_in_flight_quota(user_id);
             }
             (_, Ok(m)) => {
                 *life = SpawnLifecycle::Materialized {
@@ -231,17 +230,12 @@ pub(crate) async fn exec_worktree_sandbox_core(
     ) {
         return Err((StatusCode::CONFLICT, format!("worktree is {:?}", wt.status)));
     }
-    let runtime = state
-        .worktree_runtime
-        .read()
-        .get(&wt.id)
-        .cloned()
-        .ok_or_else(|| {
-            (
-                StatusCode::CONFLICT,
-                "worktree has no checkout on this server".to_owned(),
-            )
-        })?;
+    let runtime = state.get_worktree_runtime(wt.id).ok_or_else(|| {
+        (
+            StatusCode::CONFLICT,
+            "worktree has no checkout on this server".to_owned(),
+        )
+    })?;
     let _run_guard = runtime.exec_lock.clone().try_lock_owned().map_err(|_| {
         (
             StatusCode::CONFLICT,
@@ -249,28 +243,18 @@ pub(crate) async fn exec_worktree_sandbox_core(
         )
     })?;
 
-    if !state.worktree_runtime.read().contains_key(&wt.id) {
+    if state.get_worktree_runtime(wt.id).is_none() {
         return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
     }
 
-    // The shared repository config is readable inside the sandbox and may have changed since
-    // the worktree was created.
     let engine = state.git_engine.clone();
     tokio::task::spawn_blocking(move || engine.ensure_config_has_no_credentials())
         .await
         .map_err(internal_err)?
         .map_err(map_git_err)?;
 
-    {
-        let mut guard = state.worktrees.write();
-        let Some(w) = guard.iter_mut().find(|w| w.id == wt.id) else {
-            return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
-        };
-        if matches!(w.status, WorktreeStatus::Merged | WorktreeStatus::Discarded) {
-            return Err((StatusCode::CONFLICT, format!("worktree is {:?}", w.status)));
-        }
-        w.status = WorktreeStatus::Compiling;
-    }
+    state.try_begin_worktree_compiling(wt.id)?;
+
     let mut status_guard = RunStatusGuard {
         state: state.clone(),
         id: wt.id,
@@ -321,7 +305,7 @@ pub(crate) async fn discard_worktree_core(
     id: Uuid,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let wt = find_authorized_worktree(state, caller, id)?;
-    let runtime = state.worktree_runtime.read().get(&wt.id).cloned();
+    let runtime = state.get_worktree_runtime(wt.id);
     let is_privileged = matches!(
         caller.role,
         EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
@@ -346,20 +330,11 @@ pub(crate) async fn discard_worktree_core(
         let branch = wt.branch.clone();
         let base_commit = wt.base_commit.clone();
         let dir = runtime.worktree_dir.clone();
-        // The branch is kept if the agent committed anything, so work is never destroyed.
-        // Hold `run_guard` inside the blocking task and remove the in-memory entries before
-        // releasing `run_guard` so concurrent requests cannot observe an unlocked deleted worktree
-        // and client disconnects during `spawn_blocking` never leave zombie entries in `AppState`.
         tokio::task::spawn_blocking(move || {
             let _held_guard = run_guard;
             let res = engine.remove_agent_worktree(&dir, &branch, &base_commit);
             if res.is_ok() {
-                let _quota = state_for_cleanup.spawn_quota.lock();
-                state_for_cleanup.worktree_runtime.write().remove(&wt_id);
-                state_for_cleanup
-                    .worktrees
-                    .write()
-                    .retain(|w| w.id != wt_id);
+                state_for_cleanup.remove_worktree_entry(wt_id);
             }
             res
         })
@@ -369,9 +344,7 @@ pub(crate) async fn discard_worktree_core(
         return Ok(StatusCode::NO_CONTENT);
     }
 
-    let _quota = state.spawn_quota.lock();
-    state.worktree_runtime.write().remove(&wt.id);
-    state.worktrees.write().retain(|w| w.id != wt.id);
+    state.remove_worktree_entry(wt.id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -388,7 +361,6 @@ pub(crate) async fn approve_worktree_handler(
     caller: AuthenticatedPrincipal,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AgentWorktree>, (StatusCode, String)> {
-    // Only SiteAdmin or Maintainer can approve merges and trigger outbound GitHub sync
     if !matches!(
         caller.role,
         EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
@@ -397,17 +369,12 @@ pub(crate) async fn approve_worktree_handler(
     }
 
     let wt_initial = find_authorized_worktree(&state, &caller, id)?;
-    let runtime = state
-        .worktree_runtime
-        .read()
-        .get(&wt_initial.id)
-        .cloned()
-        .ok_or_else(|| {
-            (
-                StatusCode::CONFLICT,
-                "worktree has no checkout on this server".to_owned(),
-            )
-        })?;
+    let runtime = state.get_worktree_runtime(wt_initial.id).ok_or_else(|| {
+        (
+            StatusCode::CONFLICT,
+            "worktree has no checkout on this server".to_owned(),
+        )
+    })?;
     let run_guard = runtime.exec_lock.try_lock_owned().map_err(|_| {
         (
             StatusCode::CONFLICT,
@@ -415,9 +382,7 @@ pub(crate) async fn approve_worktree_handler(
         )
     })?;
 
-    // Re-verify runtime presence and `Verified` status AFTER acquiring `exec_lock` so a concurrent
-    // discard or failed sandbox run that completed just before `try_lock_owned` cannot be bypassed.
-    if !state.worktree_runtime.read().contains_key(&wt_initial.id) {
+    if state.get_worktree_runtime(wt_initial.id).is_none() {
         return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
     }
     let wt = find_authorized_worktree(&state, &caller, id)?;
@@ -431,44 +396,32 @@ pub(crate) async fn approve_worktree_handler(
         ));
     }
 
+    let repo_guard = state
+        .repo_mutation_lock
+        .clone()
+        .try_lock_owned()
+        .map_err(|_| {
+            (
+                StatusCode::CONFLICT,
+                "another repository merge or mirror sync is currently in progress".to_owned(),
+            )
+        })?;
+
     let engine = state.git_engine.clone();
     let state_for_merge = state.clone();
+    let wt_id = wt.id;
     let branch = wt.branch.clone();
     let base_branch = wt.base_branch.clone();
     let merged_wt = tokio::task::spawn_blocking(move || {
-        let _held = run_guard;
+        let _held_wt = run_guard;
+        let _held_repo = repo_guard;
         let merged_sha = engine
             .merge_agent_branch(&branch, &base_branch)
             .map_err(map_git_err)?;
-        let mut guard = state_for_merge.worktrees.write();
-        if let Some(wt) = guard.iter_mut().find(|w| w.id.0 == id) {
-            wt.approve_and_merge(false)
-                .map_err(|e| (StatusCode::CONFLICT, e.to_string()))?;
-            wt.base_commit = merged_sha;
-            return Ok(wt.clone());
-        }
-        Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")))
+        state_for_merge.complete_worktree_merge(wt_id, merged_sha)
     })
     .await
     .map_err(internal_err)??;
 
     Ok(Json(merged_wt))
-}
-
-pub(crate) async fn sync_github_handler(
-    State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
-) -> Result<Json<SyncStatusReport>, (StatusCode, String)> {
-    if !matches!(
-        caller.role,
-        EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
-    ) {
-        return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
-    }
-    check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
-
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        "GitHub synchronization is not implemented".to_owned(),
-    ))
 }

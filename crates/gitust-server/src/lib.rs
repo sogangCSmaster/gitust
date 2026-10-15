@@ -13,6 +13,7 @@ use tower_http::cors::CorsLayer;
 pub mod auth;
 pub mod mcp;
 pub mod oauth;
+pub mod repo;
 pub mod state;
 pub mod worktrees;
 
@@ -29,6 +30,7 @@ pub use oauth::{
     OAuthClientRegistrationResponse, OAuthProtectedResourceMetadata, OAuthTokenRequest,
     OAuthTokenResponse,
 };
+pub use repo::{RepoBlobQuery, RepoCommitsQuery, RepoDiffQuery, RepoTreeQuery};
 pub use state::{
     AppState, OAuthMcpStore, PendingOAuthCode, RegisteredOAuthClient, SpawnQuotaTracker,
     WorktreeRuntime, MAX_MCP_LINE_BYTES, MAX_OAUTH_CLIENTS, MAX_OAUTH_CODES,
@@ -92,6 +94,11 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/health", get(health_handler))
         .route("/api/v1/git/head", get(worktrees::git_head_handler))
+        // Step 2-4: Blazing-Fast (<30ms) In-Process gix Code, Commit, Tree & Diff Browsing
+        .route("/api/v1/repo/commits", get(repo::repo_commits_handler))
+        .route("/api/v1/repo/tree", get(repo::repo_tree_handler))
+        .route("/api/v1/repo/blob", get(repo::repo_blob_handler))
+        .route("/api/v1/repo/diff", get(repo::repo_diff_handler))
         // OAuth 2.0 Discovery, Dynamic Client Registration & PKCE (S256) for HTTP MCP
         .route(
             "/.well-known/oauth-protected-resource",
@@ -173,7 +180,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/swarm/worktrees/{id}/approve",
             post(worktrees::approve_worktree_handler),
         )
-        .route("/api/v1/sync/github", post(worktrees::sync_github_handler))
+        .route("/api/v1/sync/github", post(repo::sync_github_handler))
         .route("/api/v1/mcp/tools", get(mcp::mcp_tools_handler))
         .route(
             "/api/v1/enterprise/policy",
@@ -190,13 +197,18 @@ pub async fn serve(
     github_mirror_url: String,
     auth_store: AuthStore,
     trusted_sandbox_exec: bool,
+    sync_timeout_secs: Option<u64>,
 ) -> Result<(), std::io::Error> {
     let (state, _service_lock) = tokio::task::spawn_blocking(
-        move || -> Result<(AppState, std::fs::File), std::io::Error> {
-            let lock = gitust_git::GitEngine::new(&repo_path)
+        move || -> Result<(AppState, gitust_git::WorktreeServiceLock), std::io::Error> {
+            let mut engine = gitust_git::GitEngine::new(&repo_path);
+            if let Some(secs) = sync_timeout_secs {
+                engine = engine.with_fetch_timeout(std::time::Duration::from_secs(secs.max(1)));
+            }
+            let lock = engine
                 .lock_worktree_service()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::WouldBlock, e))?;
-            let state = AppState::with_auth_store(repo_path, github_mirror_url, auth_store)
+            let state = AppState::with_engine_and_auth_store(engine, github_mirror_url, auth_store)
                 .with_trusted_sandbox_exec(trusted_sandbox_exec);
             Ok((state, lock))
         },

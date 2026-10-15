@@ -185,13 +185,19 @@ Phase 2부터는 **사내 GitHub로 실제 사용**하는 것을 목표로, GitH
 - **Gate A — 코드 품질·성능·아키텍처 감사 ([`adversarial-audit` 스킬](.agents/skills/adversarial-audit/SKILL.md))**:
   1. **속도 (Blazing Speed)**: 락 경합(Lock Contention), 비동기 런타임 내 블로킹 I/O 및 CPU 병목, N+1 쿼리, 불필요한 메모리 할당/복사 여부.
   2. **안정성 (Stability & Edge Cases)**: `unwrap()`/`expect()` 제거, `spawn_blocking` 취소 시 가드/리소스 누수, 경계값 및 엣지케이스 처리 여부.
-  3. **스파게티 코드 방지 (Clean Architecture)**: 크레이트/모듈 간 책임 분리, 600줄 이상 파일 분리 검토, 상태 이원화(Split-Brain) 방지, 허위 측정치 금지.
+  3. **스파게티 코드 방지 (Clean Architecture & Hard `<600` Line Gate)**: 모든 Rust/TS/TSX 소스 및 테스트 파일은 **단일 파일 600줄 미만(`wc -l < 600`)을 강제(Hard P1 Gate)** 하며, 다중 맵 락 순서 조합(`AppState` 등)은 반드시 단일 상태 전이 메서드로 캡슐화하고, 실서버 API 클라이언트와 쇼케이스 데모 상태를 한 파일에 섞지 않으며, 상태 이원화(Split-Brain) 및 허위 측정치를 엄격히 금지합니다.
 - **Gate B — 독립 외부 해킹 & 실전 익스플로잇 프로브 감사 ([`redteam-pentest` 스킬](.agents/skills/redteam-pentest/SKILL.md) + 독립 `redteam-pentester` Subagent)**:
   - 작성자 관점의 코드 리뷰와 완전히 분리된 **외부 해커(Red Team) 전담 Subagent**를 스폰하여 `.agents/skills/redteam-pentest/SKILL.md`의 **7대 외부 공격 표면(Slow-loris 네트워크 스트림 TOCTOU, 멀티 프로세스 락 우회, OAuth/PKCE/토큰 탈취·재사용, BOLA/IDOR/BFLA 및 비활성 계정 우회, 샌드박스/심볼릭 링크 탈출, Git 파서/플래그/훅 인젝션, 파이프/메모리 고갈 DoS)** 에 대해 **임시 디렉터리(`mktemp -d`)에서 실제 공격 프로브(PoC)를 실행**하여 검증합니다.
 
 ---
 
 ## 8. Business & Monetization Architecture (Open-Core + Enterprise Agent Infrastructure)
+
+**핵심 과금 포인트**
+
+- 에이전트별 권한과 외부 통신의 중앙 통제.
+- 누가 어떤 결과를 검증하고 승인했는지 추적하는 감사 이력.
+- 여러 사내 머신에 작업을 배분하고 자원을 관리하는 클러스터 운영.
 
 1. **Community Edition (Open Source — GitHub Trending & 개발자 표준 선점)**
    - 단일 바이너리(`gitust`) 올인원 패키지: 사내 Git 서버 + GitHub 양방향 싱크 + `gitust` CLI/MCP + 기본 Microsandbox 워커(동시 4개).

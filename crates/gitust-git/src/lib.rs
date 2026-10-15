@@ -1,16 +1,23 @@
 //! `gitust-git`: Git engine for Gitust.
 //!
-//! - Read paths (HEAD / root tree inspection) run in-process on `gitoxide` (`gix`) through a cached
-//!   `gix::ThreadSafeRepository`.
+//! - Read paths (HEAD / root tree / commit history / directory tree / blob inspection) run
+//!   in-process on `gitoxide` (`gix`) through a cached `gix::ThreadSafeRepository`.
 //! - Agent branches are created and deleted with `gix` reference transactions: create-only
 //!   (`PreviousValue::MustNotExist`), scoped to the `agent/` namespace, with reflog entries.
 //! - Agent worktrees are standard Git *linked worktrees*. They share refs and objects with the main
 //!   repository, so `git gc` is aware of them, agent commits are immediately visible to the main
 //!   repository, and bare mirrors are supported.
-//!
-//! Temporary exception to the pure-Rust goal: `gix` 0.70 exposes no public linked-worktree
-//! creation/checkout API, so worktree add/remove/list shell out to the `git` binary (which is
-//! already required for the `git fsck` verification gate). Replace once `gix` grows the API.
+//! - Inbound read-only mirror synchronization (`sync_inbound_read_only`) fetches upstream branches
+//!   and tags while strictly preserving private on-premise `refs/heads/agent/*` branches.
+
+mod ancestry;
+mod browse;
+mod config_guard;
+mod diff;
+mod mirror;
+#[cfg(test)]
+mod tests;
+mod worktree;
 
 use std::ffi::OsStr;
 use std::fs;
@@ -19,20 +26,28 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use chrono::Utc;
-use gitust_core::{AgentKind, AgentWorktree, CommitSha, RepoId, WorktreeId, WorktreeStatus};
-use gix::refs::transaction::{Change, PreviousValue, RefEdit, RefLog};
-use gix::refs::{FullName, Target};
+use gitust_core::CommitSha;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+pub use browse::{
+    CommitEntry, RepoBlobSnapshot, RepoCommitList, RepoTreeNode, RepoTreeSnapshot,
+    MAX_BLOB_VIEW_BYTES, MAX_TREE_ENTRIES,
+};
+pub use diff::{
+    DiffLineKind, RepoDiffFileSummary, RepoDiffLine, RepoDiffSnapshot, MAX_DIFF_BYTES,
+    MAX_DIFF_LINES,
+};
+pub use mirror::InboundMirrorSyncOutcome;
+pub use worktree::{ManagedWorktreeEntry, MaterializedWorktree};
 
 /// Every branch created on behalf of an agent lives under this namespace. The sync engine keeps
 /// this namespace on-premise, and the engine refuses to create or delete refs outside of it.
 pub const AGENT_BRANCH_PREFIX: &str = "agent/";
 /// Directory (inside the common git dir) holding agent linked worktrees of bare repositories.
-const WORKTREES_DIR_NAME: &str = "gitust-worktrees";
+pub(crate) const WORKTREES_DIR_NAME: &str = "gitust-worktrees";
 /// Directory (inside the common git dir) holding per-run sandbox scratch space.
-const SANDBOX_SCRATCH_DIR_NAME: &str = "gitust-sandbox-scratch";
+pub(crate) const SANDBOX_SCRATCH_DIR_NAME: &str = "gitust-sandbox-scratch";
 
 #[derive(Debug, Error)]
 pub enum GitEngineError {
@@ -47,6 +62,21 @@ pub enum GitEngineError {
 
     #[error("invalid or unsafe git branch name '{0}'")]
     InvalidBranchName(String),
+
+    #[error("invalid or unsafe git revision '{0}'")]
+    InvalidRevision(String),
+
+    #[error("git revision '{0}' not found")]
+    RevisionNotFound(String),
+
+    #[error("invalid or unsafe repository path '{0}'")]
+    InvalidRepoPath(String),
+
+    #[error("repository path '{0}' not found")]
+    PathNotFound(String),
+
+    #[error("invalid or unsafe upstream mirror URL '{0}'")]
+    InvalidRemoteUrl(String),
 
     #[error("branch '{0}' is outside the '{AGENT_BRANCH_PREFIX}' namespace")]
     BranchNotAgentScoped(String),
@@ -89,32 +119,6 @@ pub enum GitEngineError {
     FsckFailed { path: String, details: String },
 }
 
-/// A linked worktree created for an agent, plus the paths a sandbox needs to confine it.
-#[derive(Debug, Clone)]
-pub struct MaterializedWorktree {
-    pub worktree: AgentWorktree,
-    /// Checkout directory of the linked worktree (sandbox read-write root).
-    pub worktree_dir: PathBuf,
-    /// This worktree's admin dir inside the shared git dir (`<common>/worktrees/<name>`).
-    pub worktree_admin_dir: PathBuf,
-    /// Shared `.git` directory (sandbox read-only: objects, refs, config).
-    pub common_git_dir: PathBuf,
-    /// Main repository working tree, `None` for bare repositories (sandbox hidden).
-    pub main_workdir: Option<PathBuf>,
-    /// Parent directory of all agent worktrees (sandbox hidden, except the own worktree).
-    pub worktrees_base: PathBuf,
-    /// Parent directory of per-run sandbox scratch dirs.
-    pub sandbox_scratch_base: PathBuf,
-}
-
-/// An agent worktree discovered on disk via `git worktree list`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManagedWorktreeEntry {
-    pub worktree_dir: PathBuf,
-    pub branch: String,
-    pub head: CommitSha,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitTreeEntry {
     pub filename: String,
@@ -130,13 +134,37 @@ pub struct RepoHeadSnapshot {
     pub lookup_micros: u64,
 }
 
+/// Exclusive OS file lock guard for `<common_git_dir>/gitust-worktree-service.lock`.
+///
+/// Explicitly calls `File::unlock()` (`flock(fd, LOCK_UN)`) on [`Drop`] before closing the file
+/// descriptor so that concurrent `fork()`/`execve()` calls in other threads never prolong the lock.
+#[derive(Debug)]
+pub(crate) struct WorktreeServiceLockInner(fs::File);
+
+impl Drop for WorktreeServiceLockInner {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorktreeServiceLock(#[allow(dead_code)] Arc<WorktreeServiceLockInner>);
+
+/// Default overall ceiling for incremental `git fetch` (5 minutes), paired with 30s stall detection.
+pub const DEFAULT_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+/// Default overall ceiling for initial mirror `git fetch` of large monorepos (30 minutes).
+pub const INITIAL_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1800);
+
 /// Git engine wrapping a shared `gix::ThreadSafeRepository` for object database reuse across
 /// threads and requests.
 #[derive(Debug, Clone)]
 pub struct GitEngine {
-    repo_path: PathBuf,
-    worktree_base_dir: Option<PathBuf>,
-    shared_repo: Arc<OnceLock<gix::ThreadSafeRepository>>,
+    pub(crate) repo_path: PathBuf,
+    pub(crate) worktree_base_dir: Option<PathBuf>,
+    pub(crate) shared_repo: Arc<OnceLock<gix::ThreadSafeRepository>>,
+    pub(crate) service_lock: Arc<std::sync::Mutex<std::sync::Weak<WorktreeServiceLockInner>>>,
+    pub(crate) fetch_timeout: std::time::Duration,
+    pub(crate) fetch_timeout_overridden: bool,
 }
 
 impl GitEngine {
@@ -151,19 +179,24 @@ impl GitEngine {
             repo_path: path,
             worktree_base_dir: None,
             shared_repo: Arc::new(lock),
+            service_lock: Arc::new(std::sync::Mutex::new(std::sync::Weak::new())),
+            fetch_timeout: DEFAULT_FETCH_TIMEOUT,
+            fetch_timeout_overridden: false,
         }
     }
 
     /// Overrides where agent worktrees are created.
-    ///
-    /// Default: for a repository with a working tree at `<parent>/<name>`, a sibling directory
-    /// `<parent>/.<name>.gitust-worktrees`; for a bare repository, `<git dir>/gitust-worktrees`.
-    /// Worktrees are deliberately kept outside the main working tree: tools such as cargo, npm
-    /// and rustfmt search parent directories for configuration and would otherwise pick up (or
-    /// fail on) the main repository's files.
     #[must_use]
     pub fn with_worktree_base_dir(mut self, base_dir: impl AsRef<Path>) -> Self {
         self.worktree_base_dir = Some(base_dir.as_ref().to_path_buf());
+        self
+    }
+
+    /// Overrides the network/command timeout ceiling for `git fetch` in inbound mirror sync.
+    #[must_use]
+    pub fn with_fetch_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.fetch_timeout = timeout;
+        self.fetch_timeout_overridden = true;
         self
     }
 
@@ -174,7 +207,7 @@ impl GitEngine {
 
     /// Acquires a thread-local `gix::Repository` from the shared `ThreadSafeRepository`,
     /// opening and caching it on first access.
-    fn acquire_repo(&self) -> Result<gix::Repository, GitEngineError> {
+    pub(crate) fn acquire_repo(&self) -> Result<gix::Repository, GitEngineError> {
         if let Some(shared) = self.shared_repo.get() {
             return Ok(shared.to_thread_local());
         }
@@ -274,12 +307,12 @@ impl GitEngine {
         })
     }
 
-    fn common_git_dir(repo: &gix::Repository) -> PathBuf {
+    pub(crate) fn common_git_dir(repo: &gix::Repository) -> PathBuf {
         let common = repo.common_dir();
         fs::canonicalize(common).unwrap_or_else(|_| common.to_path_buf())
     }
 
-    fn worktrees_base(&self, repo: &gix::Repository, common_git_dir: &Path) -> PathBuf {
+    pub(crate) fn worktrees_base(&self, repo: &gix::Repository, common_git_dir: &Path) -> PathBuf {
         if let Some(custom) = &self.worktree_base_dir {
             return custom.clone();
         }
@@ -292,251 +325,16 @@ impl GitEngine {
             .unwrap_or_else(|| common_git_dir.join(WORKTREES_DIR_NAME))
     }
 
-    /// Creates a new `agent/` branch from `base_branch` and checks it out as a Git linked worktree.
-    ///
-    /// - The branch is created with a `gix` transaction that fails if it already exists, so
-    ///   existing branches can never be overwritten.
-    /// - The worktree is a clean checkout of the base commit; uncommitted or untracked files of
-    ///   the main working tree are never copied.
-    /// - Refuses to run when the shared repository config holds embedded credentials, because the
-    ///   sandboxed agent can read that config.
-    pub fn materialize_agent_worktree(
-        &self,
-        worktree_id: WorktreeId,
-        repo_id: RepoId,
-        agent: AgentKind,
-        branch: &str,
-        base_branch: &str,
-        prompt_summary: impl Into<String>,
-    ) -> Result<MaterializedWorktree, GitEngineError> {
-        let start = Instant::now();
-        let clean_branch = Self::validate_agent_branch_name(branch)?;
-        let clean_base = Self::validate_branch_name(base_branch)?;
-
-        let mut repo = self.acquire_repo()?;
-        let common_git_dir = Self::common_git_dir(&repo);
-        reject_credentials_in_config(&common_git_dir)?;
-        ensure_reflog_identity(&mut repo)?;
-
-        let base_ref = format!("refs/heads/{clean_base}");
-        let base_id = repo
-            .find_reference(base_ref.as_str())
-            .map_err(|_| GitEngineError::BaseBranchNotFound(clean_base.clone()))?
-            .peel_to_id_in_place()
-            .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?
-            .detach();
-
-        let full_branch = format!("refs/heads/{clean_branch}");
-        let branch_exists = repo
-            .try_find_reference(full_branch.as_str())
-            .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?
-            .is_some();
-        if branch_exists {
-            return Err(GitEngineError::BranchAlreadyExists(clean_branch));
-        }
-        if let Err(e) = repo.reference(
-            full_branch.as_str(),
-            base_id,
-            PreviousValue::MustNotExist,
-            format!("gitust: create agent branch from {clean_base}"),
-        ) {
-            // A concurrent creator won the race between the pre-check and the transaction.
-            if matches!(repo.try_find_reference(full_branch.as_str()), Ok(Some(_))) {
-                return Err(GitEngineError::BranchAlreadyExists(clean_branch));
-            }
-            return Err(GitEngineError::RefTransaction(e.to_string()));
-        }
-
-        let worktrees_base = self.worktrees_base(&repo, &common_git_dir);
-        let worktree_dir = worktrees_base.join(worktree_id.0.to_string());
-        let checkout = fs::create_dir_all(&worktrees_base)
-            .map_err(|e| io_err(&worktrees_base, &e))
-            .and_then(|()| {
-                run_git(
-                    &self.repo_path,
-                    [
-                        OsStr::new("worktree"),
-                        OsStr::new("add"),
-                        OsStr::new("--quiet"),
-                        worktree_dir.as_os_str(),
-                        OsStr::new(clean_branch.as_str()),
-                    ],
-                )
-            })
-            .and_then(|_| read_worktree_admin_dir(&worktree_dir));
-        let worktree_admin_dir = match checkout {
-            Ok(dir) => dir,
-            Err(e) => {
-                let _ = run_git(
-                    &self.repo_path,
-                    [
-                        OsStr::new("worktree"),
-                        OsStr::new("remove"),
-                        OsStr::new("--force"),
-                        worktree_dir.as_os_str(),
-                    ],
-                );
-                let _ = fs::remove_dir_all(&worktree_dir);
-                let _ = run_git(
-                    &self.repo_path,
-                    [OsStr::new("worktree"), OsStr::new("prune")],
-                );
-                // Roll back the branch only if it still points where we created it.
-                let _ = delete_branch_ref(
-                    &repo,
-                    &full_branch,
-                    PreviousValue::MustExistAndMatch(Target::Object(base_id)),
-                );
-                return Err(e);
-            }
-        };
-
-        let worktree_dir = fs::canonicalize(&worktree_dir).unwrap_or(worktree_dir);
-        let worktrees_base = fs::canonicalize(&worktrees_base).unwrap_or(worktrees_base);
-        let main_workdir = repo
-            .work_dir()
-            .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()));
-        let materialize_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
-
-        Ok(MaterializedWorktree {
-            worktree: AgentWorktree {
-                id: worktree_id,
-                repo_id,
-                agent,
-                branch: clean_branch,
-                base_branch: clean_base,
-                base_commit: CommitSha(base_id.to_string()),
-                prompt_summary: prompt_summary.into(),
-                materialize_micros,
-                status: WorktreeStatus::Pending,
-                last_sandbox_duration_ms: 0,
-                tests_passed: 0,
-                tests_total: 0,
-                files_changed: 0,
-                additions: 0,
-                deletions: 0,
-                github_synced: false,
-                created_at: Utc::now(),
-            },
-            worktree_dir,
-            worktree_admin_dir,
-            sandbox_scratch_base: common_git_dir.join(SANDBOX_SCRATCH_DIR_NAME),
-            common_git_dir,
-            main_workdir,
-            worktrees_base,
-        })
-    }
-
-    /// Fails closed if the shared repository config currently holds credentials. Call before
-    /// every sandbox run: the config can change after a worktree was created.
-    pub fn ensure_config_has_no_credentials(&self) -> Result<(), GitEngineError> {
-        let repo = self.acquire_repo()?;
-        reject_credentials_in_config(&Self::common_git_dir(&repo))
-    }
-
-    /// Removes an agent linked worktree checkout (discarding uncommitted changes).
-    ///
-    /// The `agent/` branch is deleted only if it still points at `unchanged_from` (i.e. the agent
-    /// produced no commits); otherwise it is kept so committed work is never destroyed.
-    /// Returns whether the branch was deleted. Refuses paths outside the worktree base directory.
-    pub fn remove_agent_worktree(
-        &self,
-        worktree_dir: &Path,
-        branch: &str,
-        unchanged_from: &CommitSha,
-    ) -> Result<bool, GitEngineError> {
-        let clean_branch = Self::validate_agent_branch_name(branch)?;
-        if fs::symlink_metadata(worktree_dir)
-            .map(|m| m.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            return Err(GitEngineError::WorktreeNotManaged(
-                worktree_dir.display().to_string(),
-            ));
-        }
-        let repo = self.acquire_repo()?;
-        let common_git_dir = Self::common_git_dir(&repo);
-        let base = self.worktrees_base(&repo, &common_git_dir);
-        let base = canonicalize_existing_ancestors(&base);
-        let target = canonicalize_existing_ancestors(worktree_dir);
-        if target.parent() != Some(base.as_path()) {
-            return Err(GitEngineError::WorktreeNotManaged(
-                worktree_dir.display().to_string(),
-            ));
-        }
-
-        if target.exists() {
-            run_git(
-                &self.repo_path,
-                [
-                    OsStr::new("worktree"),
-                    OsStr::new("remove"),
-                    OsStr::new("--force"),
-                    target.as_os_str(),
-                ],
-            )?;
-        }
-        run_git(
-            &self.repo_path,
-            [OsStr::new("worktree"), OsStr::new("prune")],
-        )?;
-        // Best effort: only succeeds when no other worktree remains (`git worktree add`
-        // recreates missing parent directories, so a concurrent create is unaffected).
-        let _ = fs::remove_dir(&base);
-
-        let full_branch = format!("refs/heads/{clean_branch}");
-        let Some(mut current) = repo
-            .try_find_reference(full_branch.as_str())
-            .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?
-        else {
-            return Ok(false);
-        };
-        let tip = current
-            .peel_to_id_in_place()
-            .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?
-            .detach();
-        if tip.to_string() != unchanged_from.0 {
-            return Ok(false);
-        }
-        delete_branch_ref(
-            &repo,
-            &full_branch,
-            PreviousValue::MustExistAndMatch(Target::Object(tip)),
-        )?;
-        Ok(true)
-    }
-
-    /// Lists agent worktrees managed by this engine (linked worktrees under the worktree base
-    /// directory, including worktrees whose `HEAD` was detached inside the sandbox).
-    pub fn list_agent_worktrees(&self) -> Result<Vec<ManagedWorktreeEntry>, GitEngineError> {
-        let repo = self.acquire_repo()?;
-        let common_git_dir = Self::common_git_dir(&repo);
-        let base = self.worktrees_base(&repo, &common_git_dir);
-        let base = canonicalize_existing_ancestors(&base);
-
-        let stdout = run_git(
-            &self.repo_path,
-            [
-                OsStr::new("worktree"),
-                OsStr::new("list"),
-                OsStr::new("--porcelain"),
-                OsStr::new("-z"),
-            ],
-        )?;
-        Ok(parse_worktree_list(&stdout, Some(&base))
-            .into_iter()
-            .filter(|e| e.worktree_dir.parent() == Some(base.as_path()))
-            .collect())
-    }
-
     /// Acquires an exclusive non-blocking OS file lock (`gitust-worktree-service.lock`) inside
     /// the canonical common `.git` directory.
     ///
-    /// Every independent worktree owner process (`gitust serve` or `gitust mcp`) must acquire and
-    /// retain this `File` handle before running `recover_agent_worktrees` so two processes cannot
-    /// concurrently mutate or discard the same on-disk worktrees with separate in-memory `exec_lock`s.
-    /// Never unlink the lock file on release to avoid inode replacement races.
-    pub fn lock_worktree_service(&self) -> Result<fs::File, GitEngineError> {
+    /// Re-entrant across clones of the same `GitEngine` instance (e.g. inside a single `AppState`),
+    /// while strictly rejecting any second `GitEngine` instance or external OS process.
+    pub fn lock_worktree_service(&self) -> Result<WorktreeServiceLock, GitEngineError> {
+        let mut slot = self.service_lock.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(existing) = slot.upgrade() {
+            return Ok(WorktreeServiceLock(existing));
+        }
         let repo = self.acquire_repo()?;
         let path = Self::common_git_dir(&repo).join("gitust-worktree-service.lock");
         let lock = fs::File::options()
@@ -547,77 +345,14 @@ impl GitEngine {
             .open(&path)
             .map_err(|e| io_err(&path, &e))?;
         match lock.try_lock() {
-            Ok(()) => Ok(lock),
+            Ok(()) => {
+                let inner = Arc::new(WorktreeServiceLockInner(lock));
+                *slot = Arc::downgrade(&inner);
+                Ok(WorktreeServiceLock(inner))
+            }
             Err(fs::TryLockError::WouldBlock) => Err(GitEngineError::WorktreeServiceBusy(path)),
             Err(fs::TryLockError::Error(e)) => Err(io_err(&path, &e)),
         }
-    }
-
-    /// Reconstructs [`MaterializedWorktree`] descriptors for existing managed `agent/` worktrees
-    /// on disk (e.g. across server restarts), pruning stale Git worktree admin entries first.
-    pub fn recover_agent_worktrees(
-        &self,
-        repo_id: RepoId,
-    ) -> Result<Vec<MaterializedWorktree>, GitEngineError> {
-        let repo = self.acquire_repo()?;
-        let common_git_dir = Self::common_git_dir(&repo);
-        reject_credentials_in_config(&common_git_dir)?;
-        let _ = run_git(
-            &self.repo_path,
-            [OsStr::new("worktree"), OsStr::new("prune")],
-        );
-        let worktrees_base = self.worktrees_base(&repo, &common_git_dir);
-        let worktrees_base = canonicalize_existing_ancestors(&worktrees_base);
-        let main_workdir = repo
-            .work_dir()
-            .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()));
-        let sandbox_scratch_base = common_git_dir.join(SANDBOX_SCRATCH_DIR_NAME);
-
-        let entries = self.list_agent_worktrees()?;
-        let mut recovered = Vec::with_capacity(entries.len());
-        for entry in entries {
-            let Ok(worktree_admin_dir) = read_worktree_admin_dir(&entry.worktree_dir) else {
-                continue;
-            };
-            let worktree_id = entry
-                .worktree_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .and_then(WorktreeId::parse_str)
-                .unwrap_or_else(WorktreeId::new);
-            let (base_branch, base_commit) =
-                read_branch_creation_reflog(&common_git_dir, &entry.branch);
-            let agent = infer_agent_kind(&entry.branch);
-
-            recovered.push(MaterializedWorktree {
-                worktree: AgentWorktree {
-                    id: worktree_id,
-                    repo_id,
-                    agent,
-                    branch: entry.branch,
-                    base_branch,
-                    base_commit,
-                    prompt_summary: "recovered from disk".to_owned(),
-                    materialize_micros: 0,
-                    status: WorktreeStatus::Pending,
-                    last_sandbox_duration_ms: 0,
-                    tests_passed: 0,
-                    tests_total: 0,
-                    files_changed: 0,
-                    additions: 0,
-                    deletions: 0,
-                    github_synced: false,
-                    created_at: Utc::now(),
-                },
-                worktree_dir: entry.worktree_dir,
-                worktree_admin_dir,
-                common_git_dir: common_git_dir.clone(),
-                main_workdir: main_workdir.clone(),
-                worktrees_base: worktrees_base.clone(),
-                sandbox_scratch_base: sandbox_scratch_base.clone(),
-            });
-        }
-        Ok(recovered)
     }
 
     /// Runs `git fsck --full --strict` against a repository or worktree path (Verification Gate 7.4).
@@ -637,118 +372,9 @@ impl GitEngine {
             details: e.to_string(),
         })
     }
-
-    /// Merges (fast-forwards) a verified `agent/` branch into `base_branch` (`refs/heads/<base>`)
-    /// using an atomic `gix` CAS reference transaction, and updates the main working tree if it is
-    /// non-bare and currently checked out on `base_branch`.
-    pub fn merge_agent_branch(
-        &self,
-        branch: &str,
-        base_branch: &str,
-    ) -> Result<CommitSha, GitEngineError> {
-        let clean_branch = Self::validate_agent_branch_name(branch)?;
-        let clean_base = Self::validate_branch_name(base_branch)?;
-
-        let mut repo = self.acquire_repo()?;
-        ensure_reflog_identity(&mut repo)?;
-
-        let full_agent = format!("refs/heads/{clean_branch}");
-        let agent_id = repo
-            .find_reference(full_agent.as_str())
-            .map_err(|_| GitEngineError::BaseBranchNotFound(clean_branch.clone()))?
-            .peel_to_id_in_place()
-            .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?
-            .detach();
-
-        let full_base = format!("refs/heads/{clean_base}");
-        let base_id = repo
-            .find_reference(full_base.as_str())
-            .map_err(|_| GitEngineError::BaseBranchNotFound(clean_base.clone()))?
-            .peel_to_id_in_place()
-            .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?
-            .detach();
-
-        let agent_hex = agent_id.to_string();
-        if agent_id == base_id {
-            return Err(GitEngineError::MergeConflict(format!(
-                "agent branch '{clean_branch}' has no commits ahead of '{clean_base}' to merge"
-            )));
-        }
-
-        let base_hex = base_id.to_string();
-        run_git(
-            &self.repo_path,
-            [
-                OsStr::new("merge-base"),
-                OsStr::new("--is-ancestor"),
-                OsStr::new(base_hex.as_str()),
-                OsStr::new(agent_hex.as_str()),
-            ],
-        )
-        .map_err(|_| {
-            GitEngineError::MergeConflict(format!(
-                "base branch '{clean_base}' has diverged from '{clean_branch}'; fast-forward not possible"
-            ))
-        })?;
-
-        let head_on_base = repo.work_dir().is_some()
-            && repo
-                .head_name()
-                .ok()
-                .flatten()
-                .is_some_and(|n| n.as_bstr() == full_base.as_bytes());
-
-        if head_on_base {
-            let status_out = run_git(
-                &self.repo_path,
-                [
-                    OsStr::new("status"),
-                    OsStr::new("--porcelain"),
-                    OsStr::new("--untracked-files=no"),
-                ],
-            )?;
-            if !status_out.iter().all(u8::is_ascii_whitespace) {
-                return Err(GitEngineError::MergeConflict(format!(
-                    "main working tree has uncommitted changes on '{clean_base}'; cannot fast-forward"
-                )));
-            }
-            // `git merge --ff-only` acquires `.git/index.lock` + the branch ref lock atomically,
-            // verifies that current `HEAD` is still an ancestor of `agent_hex` (preventing
-            // concurrent sibling approvals from clobbering each other), and refuses to overwrite
-            // untracked working-tree files.
-            run_git(
-                &self.repo_path,
-                [
-                    OsStr::new("merge"),
-                    OsStr::new("--ff-only"),
-                    OsStr::new("--quiet"),
-                    OsStr::new(agent_hex.as_str()),
-                ],
-            )
-            .map_err(|_| {
-                GitEngineError::MergeConflict(format!(
-                    "cannot fast-forward '{clean_base}' to '{clean_branch}'"
-                ))
-            })?;
-        } else {
-            repo.reference(
-                full_base.as_str(),
-                agent_id,
-                PreviousValue::MustExistAndMatch(Target::Object(base_id)),
-                format!("gitust: fast-forward {clean_base} to {clean_branch}"),
-            )
-            .map_err(|_| {
-                GitEngineError::MergeConflict(format!(
-                    "base branch '{clean_base}' changed concurrently; fast-forward aborted"
-                ))
-            })?;
-        }
-
-        Ok(CommitSha(agent_hex))
-    }
 }
 
-fn canonicalize_existing_ancestors(path: &Path) -> PathBuf {
+pub(crate) fn canonicalize_existing_ancestors(path: &Path) -> PathBuf {
     if let Ok(canonical) = fs::canonicalize(path) {
         return canonical;
     }
@@ -771,7 +397,7 @@ fn canonicalize_existing_ancestors(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-fn io_err(path: &Path, e: &std::io::Error) -> GitEngineError {
+pub(crate) fn io_err(path: &Path, e: &std::io::Error) -> GitEngineError {
     GitEngineError::Io {
         path: path.display().to_string(),
         message: e.to_string(),
@@ -780,7 +406,7 @@ fn io_err(path: &Path, e: &std::io::Error) -> GitEngineError {
 
 /// Runs the host `git` binary with a hardened, deterministic environment:
 /// no system/global config, no hooks, no fsmonitor, no prompts, and no inherited `GIT_*` overrides.
-fn run_git<I, S>(dir: &Path, args: I) -> Result<Vec<u8>, GitEngineError>
+pub(crate) fn run_git<I, S>(dir: &Path, args: I) -> Result<Vec<u8>, GitEngineError>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -829,7 +455,7 @@ fn display_args(args: &[std::ffi::OsString]) -> String {
 }
 
 /// Ensures a committer identity exists for reflog entries, without touching any config on disk.
-fn ensure_reflog_identity(repo: &mut gix::Repository) -> Result<(), GitEngineError> {
+pub(crate) fn ensure_reflog_identity(repo: &mut gix::Repository) -> Result<(), GitEngineError> {
     if matches!(repo.committer(), Some(Ok(_))) {
         return Ok(());
     }
@@ -844,830 +470,4 @@ fn ensure_reflog_identity(repo: &mut gix::Repository) -> Result<(), GitEngineErr
         .commit()
         .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
     Ok(())
-}
-
-/// Deletes an `agent/` branch ref (with reflog) using a `gix` transaction.
-fn delete_branch_ref(
-    repo: &gix::Repository,
-    full_branch: &str,
-    expected: PreviousValue,
-) -> Result<(), GitEngineError> {
-    let short = full_branch
-        .strip_prefix("refs/heads/")
-        .unwrap_or(full_branch);
-    if !short.starts_with(AGENT_BRANCH_PREFIX) {
-        return Err(GitEngineError::BranchNotAgentScoped(short.to_owned()));
-    }
-    let name: FullName = full_branch
-        .try_into()
-        .map_err(|_| GitEngineError::InvalidBranchName(full_branch.to_owned()))?;
-    repo.edit_reference(RefEdit {
-        change: Change::Delete {
-            expected,
-            log: RefLog::AndReference,
-        },
-        name,
-        deref: false,
-    })
-    .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
-    Ok(())
-}
-
-/// Fails closed if the shared repository config (`config` or `config.worktree`) contains
-/// credentials or external config includes an agent could read: userinfo in `http(s)://` URLs
-/// (`https://user:token@host`, `https://token@host`), any `http.extraHeader` setting,
-/// `credential.helper = store` / `!cmd`, or `[include]` / `[includeIf]` directives.
-fn reject_credentials_in_config(common_git_dir: &Path) -> Result<(), GitEngineError> {
-    for name in ["config", "config.worktree"] {
-        let config_path = common_git_dir.join(name);
-        let text = match fs::read_to_string(&config_path) {
-            Ok(t) => t,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(io_err(&config_path, &e)),
-        };
-        if config_contains_credentials(&text) {
-            return Err(GitEngineError::CredentialsInRepoConfig);
-        }
-    }
-    Ok(())
-}
-
-/// Resolves `<worktree>/.git` (`gitdir: <common>/worktrees/<name>`) to the admin dir path.
-fn read_worktree_admin_dir(worktree_dir: &Path) -> Result<PathBuf, GitEngineError> {
-    let pointer = worktree_dir.join(".git");
-    let text = fs::read_to_string(&pointer).map_err(|e| io_err(&pointer, &e))?;
-    let raw = text
-        .trim()
-        .strip_prefix("gitdir:")
-        .map(str::trim)
-        .ok_or_else(|| GitEngineError::Io {
-            path: pointer.display().to_string(),
-            message: "not a linked worktree pointer".to_owned(),
-        })?;
-    let path = Path::new(raw);
-    let path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        worktree_dir.join(path)
-    };
-    fs::canonicalize(&path).map_err(|e| io_err(&path, &e))
-}
-
-fn contains_http_userinfo(text: &str) -> bool {
-    for scheme in ["http://", "https://"] {
-        let mut rest = text;
-        while let Some(idx) = rest.find(scheme) {
-            let after = &rest[idx + scheme.len()..];
-            let authority_end = after
-                .find(|c: char| c == '/' || c == '\'' || c == ']' || c.is_whitespace())
-                .unwrap_or(after.len());
-            if after[..authority_end].contains('@') {
-                return true;
-            }
-            rest = &after[authority_end..];
-        }
-    }
-    false
-}
-
-fn config_contains_credentials(text: &str) -> bool {
-    // 1. Formal RFC-compliant `git-config` AST inspection via `gix::config::File`.
-    // Fails closed if the config cannot be parsed by `gitoxide`, and inspects all unquoted
-    // section names, subsection headers, keys, and escape-decoded values.
-    let Ok(cfg) = gix::config::File::try_from(text) else {
-        return true;
-    };
-    for section in cfg.sections() {
-        let header = section.header();
-        let sec_name = String::from_utf8_lossy(header.name().as_ref()).to_ascii_lowercase();
-        if sec_name == "include" || sec_name == "includeif" {
-            return true;
-        }
-        if let Some(sub) = header.subsection_name() {
-            let sub_lower = String::from_utf8_lossy(sub.as_ref())
-                .to_ascii_lowercase()
-                .replace('"', "");
-            if contains_http_userinfo(&sub_lower) {
-                return true;
-            }
-        }
-        for key in section.body().value_names() {
-            let key_str: &str = key.as_ref();
-            let key_lower = key_str.to_ascii_lowercase();
-            if key_lower == "extraheader" {
-                return true;
-            }
-            for val in section.values(key_str) {
-                let decoded = String::from_utf8_lossy(val.as_ref())
-                    .to_ascii_lowercase()
-                    .replace('"', "");
-                let trimmed_val = decoded.trim();
-                if key_lower == "helper"
-                    && (trimmed_val.starts_with("store") || trimmed_val.starts_with('!'))
-                {
-                    return true;
-                }
-                if contains_http_userinfo(trimmed_val) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    // 2. Defense-in-depth lexical scan (folds backslash line continuations and strips mid-token quotes).
-    let folded: std::borrow::Cow<'_, str> = if text.contains('\\') {
-        std::borrow::Cow::Owned(text.replace("\\\r\n", "").replace("\\\n", ""))
-    } else {
-        std::borrow::Cow::Borrowed(text)
-    };
-    for raw in folded.lines() {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
-            continue;
-        }
-        let line = trimmed.to_ascii_lowercase().replace('"', "");
-        if line.contains("extraheader") {
-            return true;
-        }
-        if let Some(section) = line.strip_prefix('[') {
-            let header = section.trim_start();
-            if let Some(rest) = header.strip_prefix("include") {
-                if rest.starts_with(']')
-                    || rest.starts_with(char::is_whitespace)
-                    || rest.starts_with("if")
-                {
-                    return true;
-                }
-            }
-        }
-        if let Some((key, value)) = line.split_once('=') {
-            let key = key.trim();
-            let unquoted = value
-                .trim()
-                .trim_matches(|c: char| c.is_whitespace() || c == '\'');
-            if key == "include.path" || (key.starts_with("includeif.") && key.ends_with(".path")) {
-                return true;
-            }
-            if (key == "helper" || key.ends_with(".helper"))
-                && (unquoted.starts_with("store") || unquoted.starts_with('!'))
-            {
-                return true;
-            }
-        }
-        if contains_http_userinfo(&line) {
-            return true;
-        }
-    }
-    false
-}
-
-/// Reads the initial reflog line of `refs/heads/<branch>` to recover `base_branch` and
-/// `base_commit` across restarts. If the reflog is absent, returns an empty `base_commit` so
-/// [`GitEngine::remove_agent_worktree`] preserves the branch on discard.
-fn read_branch_creation_reflog(common_git_dir: &Path, branch: &str) -> (String, CommitSha) {
-    use std::io::{BufRead, BufReader};
-    let default = || ("main".to_owned(), CommitSha(String::new()));
-    let Ok(clean) = GitEngine::validate_agent_branch_name(branch) else {
-        return default();
-    };
-    let log_path = common_git_dir.join("logs/refs/heads").join(&clean);
-    let Ok(file) = fs::File::open(log_path) else {
-        return default();
-    };
-    let mut first_line = String::new();
-    if BufReader::new(file).read_line(&mut first_line).is_err() || first_line.is_empty() {
-        return default();
-    };
-    let first_line = first_line.trim_end_matches(['\r', '\n']);
-    let (meta, msg) = first_line.split_once('\t').unwrap_or((first_line, ""));
-    let mut parts = meta.split_whitespace();
-    let (Some(old_oid), Some(new_oid)) = (parts.next(), parts.next()) else {
-        return default();
-    };
-    if old_oid.is_empty()
-        || !old_oid.chars().all(|c| c == '0')
-        || new_oid.is_empty()
-        || !new_oid.chars().all(|c| c.is_ascii_hexdigit())
-    {
-        return default();
-    }
-    let base_branch = msg
-        .trim()
-        .strip_prefix("gitust: create agent branch from ")
-        .filter(|b| !b.is_empty())
-        .unwrap_or("main")
-        .to_owned();
-    (base_branch, CommitSha(new_oid.to_owned()))
-}
-
-fn infer_agent_kind(branch: &str) -> AgentKind {
-    let rest = branch.strip_prefix(AGENT_BRANCH_PREFIX).unwrap_or(branch);
-    let seg = rest.split('/').next().unwrap_or("");
-    if seg.eq_ignore_ascii_case("cursor") {
-        AgentKind::CursorAgent
-    } else if seg.eq_ignore_ascii_case("codex") {
-        AgentKind::CodexSwarm
-    } else if seg.eq_ignore_ascii_case("cli") || seg.eq_ignore_ascii_case("bot") {
-        AgentKind::InternalBot
-    } else {
-        AgentKind::ClaudeCode
-    }
-}
-
-/// Parses `git worktree list --porcelain -z`, keeping entries on `agent/` branches or detached
-/// worktrees located directly inside `managed_base`.
-fn parse_worktree_list(stdout: &[u8], managed_base: Option<&Path>) -> Vec<ManagedWorktreeEntry> {
-    let mut entries = Vec::new();
-    let mut path: Option<PathBuf> = None;
-    let mut head: Option<String> = None;
-    let mut branch: Option<String> = None;
-
-    let mut flush =
-        |path: &mut Option<PathBuf>, head: &mut Option<String>, branch: &mut Option<String>| {
-            if let (Some(p), Some(h)) = (path.take(), head.take()) {
-                let canon_p = canonicalize_existing_ancestors(&p);
-                let resolved_branch = match branch.take() {
-                    Some(b) => b
-                        .strip_prefix("refs/heads/")
-                        .filter(|short| short.starts_with(AGENT_BRANCH_PREFIX))
-                        .map(str::to_owned),
-                    None if managed_base.is_some_and(|base| canon_p.parent() == Some(base)) => {
-                        let leaf = canon_p
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("detached");
-                        let sanitized: String = leaf
-                            .chars()
-                            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-                            .collect();
-                        let suffix = if sanitized.is_empty() {
-                            "worktree"
-                        } else {
-                            sanitized.as_str()
-                        };
-                        Some(format!("{AGENT_BRANCH_PREFIX}detached/{suffix}"))
-                    }
-                    None => None,
-                };
-                if let Some(short) = resolved_branch {
-                    entries.push(ManagedWorktreeEntry {
-                        worktree_dir: canon_p,
-                        branch: short,
-                        head: CommitSha(h),
-                    });
-                }
-            }
-            *path = None;
-            *head = None;
-            *branch = None;
-        };
-
-    for field in stdout.split(|b| *b == 0) {
-        let field = String::from_utf8_lossy(field);
-        if field.is_empty() {
-            flush(&mut path, &mut head, &mut branch);
-        } else if let Some(p) = field.strip_prefix("worktree ") {
-            path = Some(PathBuf::from(p));
-        } else if let Some(h) = field.strip_prefix("HEAD ") {
-            head = Some(h.to_owned());
-        } else if let Some(b) = field.strip_prefix("branch ") {
-            branch = Some(b.to_owned());
-        }
-    }
-    flush(&mut path, &mut head, &mut branch);
-    entries
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    fn git(dir: &Path, args: &[&str]) -> String {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
-            .args(args)
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_AUTHOR_NAME", "Gitust Test")
-            .env("GIT_AUTHOR_EMAIL", "test@company.internal")
-            .env("GIT_COMMITTER_NAME", "Gitust Test")
-            .env("GIT_COMMITTER_EMAIL", "test@company.internal")
-            .output()
-            .expect("spawn git");
-        assert!(
-            out.status.success(),
-            "git {:?} failed in {}: {}",
-            args,
-            dir.display(),
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8_lossy(&out.stdout).trim().to_owned()
-    }
-
-    fn init_repo(dir: &Path) {
-        fs::create_dir_all(dir.join("src")).expect("mkdir");
-        git(dir, &["init", "-q", "-b", "main"]);
-        fs::write(dir.join("src/lib.rs"), "pub fn answer() -> u32 { 42 }\n").expect("write");
-        git(dir, &["add", "."]);
-        git(dir, &["commit", "-q", "-m", "initial commit"]);
-    }
-
-    fn materialize(
-        engine: &GitEngine,
-        branch: &str,
-    ) -> Result<MaterializedWorktree, GitEngineError> {
-        engine.materialize_agent_worktree(
-            WorktreeId::new(),
-            RepoId::new(),
-            AgentKind::ClaudeCode,
-            branch,
-            "main",
-            "test",
-        )
-    }
-
-    #[test]
-    fn gate_agent_worktree_is_clean_checkout_create_only_and_shares_refs() {
-        let tmp = TempDir::new().expect("tempdir");
-        let repo_dir = tmp.path().join("repo");
-        init_repo(&repo_dir);
-        let base_commit = git(&repo_dir, &["rev-parse", "main"]);
-        git(&repo_dir, &["branch", "release/1.0"]);
-
-        // Dirty main working tree: uncommitted change + untracked secret.
-        fs::write(
-            repo_dir.join("src/lib.rs"),
-            "pub fn answer() -> u32 { 0 }\n",
-        )
-        .expect("write");
-        fs::write(repo_dir.join(".env"), "SECRET=1\n").expect("write");
-
-        let engine = GitEngine::new(&repo_dir);
-
-        // Namespace and traversal guards.
-        assert!(matches!(
-            materialize(&engine, "release/1.0"),
-            Err(GitEngineError::BranchNotAgentScoped(_))
-        ));
-        assert!(matches!(
-            materialize(&engine, "agent/../../etc/passwd"),
-            Err(GitEngineError::InvalidBranchName(_))
-        ));
-        assert!(matches!(
-            materialize(&engine, "agent/"),
-            Err(GitEngineError::InvalidBranchName(_) | GitEngineError::BranchNotAgentScoped(_))
-        ));
-        assert_eq!(git(&repo_dir, &["rev-parse", "release/1.0"]), base_commit);
-
-        let m = materialize(&engine, "agent/claude/task-1.2").expect("materialize");
-        assert_eq!(m.worktree.status, WorktreeStatus::Pending);
-        assert_eq!(m.worktree.base_commit.0, base_commit);
-
-        // Clean checkout of the base commit: no uncommitted changes, no untracked files.
-        assert_eq!(
-            fs::read_to_string(m.worktree_dir.join("src/lib.rs")).expect("read"),
-            "pub fn answer() -> u32 { 42 }\n"
-        );
-        assert!(!m.worktree_dir.join(".env").exists());
-
-        // Create-only: the same branch cannot be created twice.
-        assert!(matches!(
-            materialize(&engine, "agent/claude/task-1.2"),
-            Err(GitEngineError::BranchAlreadyExists(_))
-        ));
-
-        // Reflog written for the agent branch.
-        assert!(repo_dir
-            .join(".git/logs/refs/heads/agent/claude/task-1.2")
-            .is_file());
-
-        // Edits in the worktree do not touch the main working tree; commits share refs/objects.
-        fs::write(m.worktree_dir.join("src/agent.rs"), "// agent\n").expect("write");
-        git(&m.worktree_dir, &["add", "."]);
-        git(&m.worktree_dir, &["commit", "-q", "-m", "agent change"]);
-        assert!(!repo_dir.join("src/agent.rs").exists());
-        let wt_head = git(&m.worktree_dir, &["rev-parse", "HEAD"]);
-        assert_eq!(
-            git(&repo_dir, &["rev-parse", "agent/claude/task-1.2"]),
-            wt_head
-        );
-
-        // GC in the main repo is worktree-aware: nothing the worktree needs is pruned.
-        git(&repo_dir, &["gc", "-q", "--prune=now"]);
-        GitEngine::verify_git_fsck(&m.worktree_dir).expect("worktree fsck after gc");
-        GitEngine::verify_git_fsck(&repo_dir).expect("main fsck after gc");
-
-        // Listing and removal.
-        let listed = engine.list_agent_worktrees().expect("list");
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].worktree_dir, m.worktree_dir);
-        assert_eq!(listed[0].branch, "agent/claude/task-1.2");
-
-        assert!(matches!(
-            engine.remove_agent_worktree(
-                &repo_dir,
-                "agent/claude/task-1.2",
-                &m.worktree.base_commit
-            ),
-            Err(GitEngineError::WorktreeNotManaged(_))
-        ));
-        // The branch has an agent commit: the checkout goes, the branch (the work) stays.
-        let deleted = engine
-            .remove_agent_worktree(
-                &m.worktree_dir,
-                "agent/claude/task-1.2",
-                &m.worktree.base_commit,
-            )
-            .expect("remove");
-        assert!(!deleted);
-        assert!(!m.worktree_dir.exists());
-        assert!(engine.list_agent_worktrees().expect("list").is_empty());
-        assert_eq!(
-            git(&repo_dir, &["rev-parse", "agent/claude/task-1.2"]),
-            wt_head
-        );
-
-        // An untouched worktree: both checkout and branch are removed.
-        let untouched = materialize(&engine, "agent/claude/untouched").expect("materialize");
-        let deleted = engine
-            .remove_agent_worktree(
-                &untouched.worktree_dir,
-                "agent/claude/untouched",
-                &untouched.worktree.base_commit,
-            )
-            .expect("remove");
-        assert!(deleted);
-        let branches = git(&repo_dir, &["branch", "--list", "agent/claude/untouched"]);
-        assert!(
-            branches.is_empty(),
-            "untouched branch must be deleted: {branches}"
-        );
-        // Removing again is a no-op, not an error.
-        assert!(!engine
-            .remove_agent_worktree(
-                &untouched.worktree_dir,
-                "agent/claude/untouched",
-                &untouched.worktree.base_commit,
-            )
-            .expect("idempotent remove"));
-        GitEngine::verify_git_fsck(&repo_dir).expect("main fsck after remove");
-    }
-
-    #[test]
-    fn gate_agent_worktree_from_bare_mirror() {
-        let tmp = TempDir::new().expect("tempdir");
-        let src = tmp.path().join("src-repo");
-        init_repo(&src);
-        let bare = tmp.path().join("mirror.git");
-        git(
-            tmp.path(),
-            &[
-                "clone",
-                "-q",
-                "--bare",
-                src.to_str().expect("utf8"),
-                bare.to_str().expect("utf8"),
-            ],
-        );
-
-        let engine = GitEngine::new(&bare);
-        let m = materialize(&engine, "agent/cursor/bare").expect("materialize from bare");
-        assert!(m.main_workdir.is_none());
-        assert_eq!(
-            fs::read_to_string(m.worktree_dir.join("src/lib.rs")).expect("read"),
-            "pub fn answer() -> u32 { 42 }\n"
-        );
-        GitEngine::verify_git_fsck(&m.worktree_dir).expect("fsck");
-    }
-
-    #[test]
-    fn recover_agent_worktrees_reconstructs_id_base_commit_and_prunes_stale() {
-        let tmp = TempDir::new().expect("tempdir");
-        let repo_dir = tmp.path().join("repo");
-        init_repo(&repo_dir);
-        let engine = GitEngine::new(&repo_dir);
-
-        let untouched = materialize(&engine, "agent/claude/untouched").expect("materialize");
-        let committed = materialize(&engine, "agent/cursor/committed").expect("materialize");
-        let stale = materialize(&engine, "agent/codex/stale").expect("materialize");
-        fs::write(committed.worktree_dir.join("src/new.rs"), "// work\n").expect("write");
-        git(&committed.worktree_dir, &["add", "."]);
-        git(&committed.worktree_dir, &["commit", "-q", "-m", "work"]);
-        // Simulate an ungraceful crash where a worktree dir was deleted externally.
-        fs::remove_dir_all(&stale.worktree_dir).expect("rm stale");
-
-        let recovered = GitEngine::new(&repo_dir)
-            .recover_agent_worktrees(RepoId::new())
-            .expect("recover");
-        assert_eq!(recovered.len(), 2);
-
-        let rec_untouched = recovered
-            .iter()
-            .find(|w| w.worktree.branch == "agent/claude/untouched")
-            .expect("untouched");
-        assert_eq!(rec_untouched.worktree.id, untouched.worktree.id);
-        assert_eq!(
-            rec_untouched.worktree.base_commit,
-            untouched.worktree.base_commit
-        );
-        assert_eq!(rec_untouched.worktree.base_branch, "main");
-        assert_eq!(rec_untouched.worktree.agent, AgentKind::ClaudeCode);
-
-        let rec_committed = recovered
-            .iter()
-            .find(|w| w.worktree.branch == "agent/cursor/committed")
-            .expect("committed");
-        assert_eq!(rec_committed.worktree.id, committed.worktree.id);
-        assert_eq!(
-            rec_committed.worktree.base_commit,
-            committed.worktree.base_commit
-        );
-        assert_eq!(rec_committed.worktree.agent, AgentKind::CursorAgent);
-    }
-
-    #[test]
-    fn gate_refuses_repos_with_credentials_in_config() {
-        let tmp = TempDir::new().expect("tempdir");
-        let repo_dir = tmp.path().join("repo");
-        init_repo(&repo_dir);
-        git(
-            &repo_dir,
-            &[
-                "remote",
-                "add",
-                "origin",
-                "https://x-access-token:ghp_secret@github.com/acme/app.git",
-            ],
-        );
-        let engine = GitEngine::new(&repo_dir);
-        assert!(matches!(
-            materialize(&engine, "agent/claude/creds"),
-            Err(GitEngineError::CredentialsInRepoConfig)
-        ));
-        // Nothing was created.
-        assert!(git(&repo_dir, &["branch", "--list", "agent/*"]).is_empty());
-
-        // Also reject credentials placed inside `.git/config.worktree`.
-        git(
-            &repo_dir,
-            &[
-                "remote",
-                "set-url",
-                "origin",
-                "https://github.com/acme/app.git",
-            ],
-        );
-        fs::write(
-            repo_dir.join(".git/config.worktree"),
-            "[http]\n\textraHeader = Authorization: Bearer ghp_worktree_secret\n",
-        )
-        .expect("write config.worktree");
-        assert!(matches!(
-            materialize(&engine, "agent/claude/creds-wt"),
-            Err(GitEngineError::CredentialsInRepoConfig)
-        ));
-    }
-
-    #[test]
-    fn credential_detection_cases() {
-        assert!(config_contains_credentials(
-            "[remote \"o\"]\n\turl = https://user:pw@host/r.git\n"
-        ));
-        assert!(config_contains_credentials(
-            "[remote \"o\"]\n\turl = https://\"user:pw@host\"/r.git\n"
-        ));
-        assert!(config_contains_credentials(
-            "[remote \"o\"]\n\turl = \"https://user:pw@\"host/r.git\n"
-        ));
-        assert!(config_contains_credentials(
-            "[remote \"o\"]\n\turl = https://ghp_token@github.com/r.git\n"
-        ));
-        assert!(config_contains_credentials(
-            "[http]\n\textraHeader = Authorization: Bearer x\n"
-        ));
-        assert!(config_contains_credentials(
-            "[url \"https://tok@github.com/\"]\n\tinsteadOf = https://github.com/\n"
-        ));
-        assert!(config_contains_credentials(
-            "[credential]\n\thelper = store --file .git/creds\n"
-        ));
-        assert!(config_contains_credentials(
-            "[credential]\n\thelper = \"st\"\"ore --file .git/creds\"\n"
-        ));
-        assert!(config_contains_credentials(
-            "[credential]\n\thelper = \"store --file .git/creds\"\n"
-        ));
-        assert!(config_contains_credentials(
-            "[credential]\n\thelper = !f() { echo password=ghp_secret; }; f\n"
-        ));
-        assert!(config_contains_credentials(
-            "[credential \"https://tok@github.com\"]\n\thelper = osxkeychain\n"
-        ));
-        assert!(config_contains_credentials(
-            "[include]\n\tpath = ~/.gitconfig-secrets\n"
-        ));
-        assert!(config_contains_credentials(
-            "[include\t]\n\tpath = ~/.gitconfig-secrets\n"
-        ));
-        assert!(config_contains_credentials(
-            "[credential]\n\thelper = \\\n\tstore --file .git/creds\n"
-        ));
-        assert!(config_contains_credentials(
-            "[includeIf \"gitdir:~/work/\"]\n\tpath = ~/.gitconfig-work\n"
-        ));
-        assert!(!config_contains_credentials(
-            "[credential]\n\thelper = osxkeychain\n"
-        ));
-        assert!(!config_contains_credentials(
-            "[remote \"o\"]\n\turl = https://github.com/acme/r.git\n"
-        ));
-        assert!(!config_contains_credentials(
-            "[remote \"o\"]\n\turl = git@github.com:acme/r.git\n"
-        ));
-        assert!(!config_contains_credentials(
-            "[remote \"o\"]\n\turl = ssh://git@github.com/acme/r.git\n"
-        ));
-    }
-
-    #[test]
-    fn idempotent_remove_already_deleted_dir_and_detached_head_recovery() {
-        let tmp = TempDir::new().expect("tempdir");
-        let repo_dir = tmp.path().join("repo");
-        init_repo(&repo_dir);
-        let engine = GitEngine::new(&repo_dir);
-
-        let m1 = materialize(&engine, "agent/claude/idempotent-1").expect("m1");
-        let m2 = materialize(&engine, "agent/claude/detached-2").expect("m2");
-
-        // Simulate crash after m1's directory was deleted on disk while m2 keeps `worktrees_base`
-        // alive; pass a non-canonical path through the tempdir root.
-        fs::remove_dir_all(&m1.worktree_dir).expect("delete m1 dir");
-        let non_canonical_m1 = repo_dir
-            .parent()
-            .expect("parent")
-            .join(m1.worktrees_base.file_name().expect("base name"))
-            .join(m1.worktree_dir.file_name().expect("leaf name"));
-        let deleted = engine
-            .remove_agent_worktree(
-                &non_canonical_m1,
-                &m1.worktree.branch,
-                &m1.worktree.base_commit,
-            )
-            .expect("idempotent remove should succeed even when dir was already gone");
-        assert!(deleted, "unchanged branch should still be cleaned up");
-
-        // Detach HEAD inside m2 and verify list/recover still see it.
-        git(&m2.worktree_dir, &["checkout", "-q", "--detach", "HEAD"]);
-        let listed = engine.list_agent_worktrees().expect("list");
-        assert_eq!(listed.len(), 1, "detached worktree must remain visible");
-        let recovered = engine
-            .recover_agent_worktrees(m2.worktree.repo_id)
-            .expect("recover");
-        assert_eq!(recovered.len(), 1);
-        assert_eq!(recovered[0].worktree.id, m2.worktree.id);
-    }
-
-    #[test]
-    fn gate_7_4_git_integrity_clone_commit_push_fetch_roundtrip_and_fsck() {
-        let tmp = TempDir::new().expect("create tempdir");
-        let server_repo = tmp.path().join("server.git");
-        let seed_client = tmp.path().join("seed-client");
-        let clone_a = tmp.path().join("client-a");
-        let clone_b = tmp.path().join("client-b");
-
-        fs::create_dir_all(&server_repo).expect("mkdir server");
-        fs::create_dir_all(&seed_client).expect("mkdir seed");
-
-        git(&server_repo, &["init", "-q", "--bare", "-b", "main"]);
-
-        git(&seed_client, &["init", "-q", "-b", "main"]);
-        fs::write(seed_client.join("README.md"), "# Gitust Integrity Gate\n").expect("write");
-        git(&seed_client, &["add", "README.md"]);
-        git(&seed_client, &["commit", "-q", "-m", "seed commit"]);
-        git(
-            &seed_client,
-            &["remote", "add", "origin", server_repo.to_str().expect("p")],
-        );
-        git(&seed_client, &["push", "-q", "-u", "origin", "main"]);
-
-        git(
-            tmp.path(),
-            &[
-                "clone",
-                "-q",
-                server_repo.to_str().expect("p"),
-                clone_a.to_str().expect("p"),
-            ],
-        );
-        fs::create_dir_all(clone_a.join("crates")).expect("mkdir crates");
-        fs::write(clone_a.join("crates/engine.rs"), "pub const A: u64 = 1;\n").expect("write");
-        git(&clone_a, &["add", "."]);
-        git(&clone_a, &["commit", "-q", "-m", "feat: add engine module"]);
-        git(&clone_a, &["push", "-q", "origin", "main"]);
-
-        git(
-            tmp.path(),
-            &[
-                "clone",
-                "-q",
-                server_repo.to_str().expect("p"),
-                clone_b.to_str().expect("p"),
-            ],
-        );
-        fs::write(
-            clone_a.join("crates/engine.rs"),
-            "pub const A: u64 = 1;\npub const B: bool = true;\n",
-        )
-        .expect("update");
-        git(&clone_a, &["commit", "-q", "-am", "feat: second change"]);
-        git(&clone_a, &["push", "-q", "origin", "main"]);
-
-        git(&clone_b, &["fetch", "-q", "origin", "main"]);
-        git(&clone_b, &["merge", "-q", "--ff-only", "origin/main"]);
-
-        let server_head = GitEngine::new(&server_repo)
-            .inspect_head_zero_copy()
-            .expect("inspect server head");
-        let client_b_head = GitEngine::new(&clone_b)
-            .inspect_head_zero_copy()
-            .expect("inspect client_b head");
-
-        assert_eq!(server_head.head_sha, client_b_head.head_sha);
-        assert!(server_head
-            .root_entries
-            .iter()
-            .any(|e| e.filename == "crates" && e.is_dir));
-
-        GitEngine::verify_git_fsck(&server_repo).expect("server git fsck");
-        GitEngine::verify_git_fsck(&clone_a).expect("client A git fsck");
-        GitEngine::verify_git_fsck(&clone_b).expect("client B git fsck");
-    }
-
-    #[test]
-    fn worktree_service_lock_rejects_second_concurrent_owner() {
-        let tmp = TempDir::new().expect("tempdir");
-        let repo_dir = tmp.path().join("repo");
-        fs::create_dir_all(&repo_dir).expect("mkdir");
-        git(&repo_dir, &["init", "-q", "-b", "main"]);
-        fs::write(repo_dir.join("README.md"), "# Lock Test\n").expect("write");
-        git(&repo_dir, &["add", "README.md"]);
-        git(&repo_dir, &["commit", "-q", "-m", "initial"]);
-
-        let engine_a = GitEngine::new(&repo_dir);
-        let engine_b = GitEngine::new(&repo_dir);
-
-        let guard_a = engine_a
-            .lock_worktree_service()
-            .expect("first service lock must succeed");
-        let err = engine_b
-            .lock_worktree_service()
-            .expect_err("second concurrent service lock must be rejected");
-        assert!(
-            matches!(err, GitEngineError::WorktreeServiceBusy(_)),
-            "expected WorktreeServiceBusy, got: {err:?}"
-        );
-
-        drop(guard_a);
-        let _guard_b = engine_b
-            .lock_worktree_service()
-            .expect("service lock must succeed after first owner releases it");
-    }
-
-    /// Benchmark: `cargo test -p gitust-git --release -- --ignored --nocapture bench_`
-    #[test]
-    #[ignore = "benchmark; run explicitly"]
-    fn bench_materialize_agent_worktree() {
-        for file_count in [10_usize, 1_000, 10_000] {
-            let tmp = TempDir::new().expect("tempdir");
-            let repo_dir = tmp.path().join("repo");
-            fs::create_dir_all(&repo_dir).expect("mkdir");
-            git(&repo_dir, &["init", "-q", "-b", "main"]);
-            for i in 0..file_count {
-                let dir = repo_dir.join(format!("d{}", i % 100));
-                fs::create_dir_all(&dir).expect("mkdir");
-                fs::write(
-                    dir.join(format!("f{i}.rs")),
-                    format!("pub const X: usize = {i};\n"),
-                )
-                .expect("write");
-            }
-            git(&repo_dir, &["add", "."]);
-            git(&repo_dir, &["commit", "-q", "-m", "bench"]);
-
-            let engine = GitEngine::new(&repo_dir);
-            let mut samples = Vec::new();
-            for run in 0..5 {
-                let m = materialize(&engine, &format!("agent/bench/r{run}")).expect("materialize");
-                samples.push(m.worktree.materialize_micros);
-            }
-            samples.sort_unstable();
-            println!(
-                "files={file_count:>6} materialize_micros min={} median={} max={}",
-                samples[0], samples[2], samples[4]
-            );
-        }
-    }
 }

@@ -78,9 +78,15 @@ impl BiDirectionalSyncConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncStatusReport {
     pub github_remote_url: String,
-    pub last_synced_commit: CommitSha,
+    pub last_synced_commit: Option<CommitSha>,
     pub sync_latency_ms: u64,
     pub private_agent_branches_filtered: u32,
+    #[serde(default)]
+    pub skipped_branches: Vec<(String, String)>,
+    #[serde(default)]
+    pub skipped_tags: Vec<(String, String)>,
+    #[serde(default)]
+    pub local_only_branches: Vec<String>,
     pub synced_at: DateTime<Utc>,
 }
 

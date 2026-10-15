@@ -75,6 +75,11 @@ enum Commands {
         /// trusted single-user deployment.
         #[arg(long)]
         trusted_single_user_sandbox: bool,
+
+        /// Optional wall-clock ceiling in seconds for `git fetch` during mirror synchronization
+        /// (defaults to 1800s for initial mirror sync, 300s for incremental sync, plus Git stall detection)
+        #[arg(long)]
+        sync_timeout: Option<u64>,
     },
 
     /// Start or inspect the built-in MCP (Model Context Protocol) stdio server for Claude Code / Cursor
@@ -86,6 +91,10 @@ enum Commands {
         /// Path to the local Git repository to serve
         #[arg(long, default_value = ".")]
         repo: PathBuf,
+
+        /// Upstream GitHub repository URL for mirror metadata
+        #[arg(long, default_value = "https://github.com/sogangCSmaster/gitust.git")]
+        sync_github: String,
     },
 
     /// Run a command in a fresh agent worktree of the current branch's last commit, inside the
@@ -109,15 +118,25 @@ enum Commands {
         timeout: u64,
     },
 
-    /// Inspect HEAD and root tree via zero-copy `gitoxide` (`gix`) engine and verify GitHub Two-Way Sync
+    /// Synchronize an upstream GitHub (or local) repository into `--repo` as a read-only mirror
+    /// while keeping all local `agent/*` branches private on-premise
     Sync {
-        /// Upstream GitHub repository URL
+        /// Upstream GitHub repository URL or local repository path
         #[arg(default_value = "https://github.com/sogangCSmaster/gitust.git")]
         github_url: String,
 
-        /// Local repository path
-        #[arg(long, default_value = ".")]
+        /// Explicit target mirror repository path (required so working trees are never synced accidentally)
+        #[arg(long)]
         repo: PathBuf,
+
+        /// Only inspect local HEAD via zero-copy `gix` without fetching from the remote
+        #[arg(long)]
+        inspect_only: bool,
+
+        /// Optional wall-clock ceiling in seconds for `git fetch` (defaults to 1800s for initial
+        /// mirror sync and 300s for incremental sync, alongside Git stall detection)
+        #[arg(long)]
+        timeout: Option<u64>,
     },
 
     /// List agent worktrees of a repository (approval/merge arrives in Phase 3)
@@ -165,6 +184,7 @@ async fn main() -> Result<()> {
             sync_github,
             auth_db,
             trusted_single_user_sandbox,
+            sync_timeout,
         } => {
             let auth_store = AuthStore::open_persistent(&auth_db)?;
             gitust_server::serve(
@@ -173,15 +193,20 @@ async fn main() -> Result<()> {
                 sync_github,
                 auth_store,
                 trusted_single_user_sandbox,
+                sync_timeout,
             )
             .await?;
         }
-        Commands::Mcp { list_tools, repo } => {
+        Commands::Mcp {
+            list_tools,
+            repo,
+            sync_github,
+        } => {
             if list_tools {
                 let tools = builtin_mcp_tools();
                 println!("{}", serde_json::to_string_pretty(&tools)?);
             } else {
-                gitust_server::serve_mcp_stdio(repo).await?;
+                gitust_server::serve_mcp_stdio(repo, sync_github).await?;
             }
         }
         Commands::Sandbox {
@@ -195,11 +220,49 @@ async fn main() -> Result<()> {
                 std::process::exit(exit_code);
             }
         }
-        Commands::Sync { github_url, repo } => {
-            let engine = GitEngine::new(&repo);
-            let snapshot = engine.inspect_head_zero_copy()?;
+        Commands::Sync {
+            github_url,
+            repo,
+            inspect_only,
+            timeout,
+        } => {
             let sync_cfg = BiDirectionalSyncConfig::new(RepoId::new(), &github_url);
+            let (outcome_opt, snapshot) = tokio::task::spawn_blocking(move || -> Result<_> {
+                let mut engine = GitEngine::new(&repo);
+                if let Some(secs) = timeout {
+                    engine = engine.with_fetch_timeout(std::time::Duration::from_secs(secs.max(1)));
+                }
+                let outcome = if inspect_only {
+                    None
+                } else {
+                    Some(engine.sync_inbound_read_only(&github_url)?)
+                };
+                let snap = engine.inspect_head_zero_copy()?;
+                Ok((outcome, snap))
+            })
+            .await??;
 
+            if let Some(outcome) = outcome_opt {
+                println!(
+                    "[gitust sync] Inbound read-only mirror synced in {}ms ({} branches, {} tags, {} agent/* branches kept on-prem)",
+                    outcome.sync_latency_ms,
+                    outcome.synced_branches_count,
+                    outcome.synced_tags_count,
+                    outcome.private_agent_branches_filtered
+                );
+                for (branch, reason) in &outcome.skipped_branches {
+                    println!("   [skipped branch] {branch}: {reason}");
+                }
+                for (tag, reason) in &outcome.skipped_tags {
+                    println!("   [skipped tag] {tag}: {reason}");
+                }
+                if !outcome.local_only_branches.is_empty() {
+                    println!(
+                        "   [local-only branches preserved] {}",
+                        outcome.local_only_branches.join(", ")
+                    );
+                }
+            }
             println!(
                 "[gitust sync] gix HEAD lookup: {}µs",
                 snapshot.lookup_micros

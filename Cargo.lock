@@ -648,11 +648,9 @@ dependencies = [
  "chrono",
  "gitust-core",
  "gix",
- "libc",
  "serde",
  "tempfile",
  "thiserror",
- "uuid",
 ]
 
 [[package]]
@@ -683,6 +681,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tower",
  "tower-http",

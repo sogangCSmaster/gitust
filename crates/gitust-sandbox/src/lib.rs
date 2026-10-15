@@ -1,29 +1,43 @@
-//! `gitust-sandbox`: Pure Rust Microsandbox & Container-Use Agent Isolation Engine.
-//! Executes isolated agent commands inside OS-hardened sandboxes and provides structured MCP
-//! (Model Context Protocol) tool definitions for Claude Code, Cursor, and Codex without external
-//! Docker/Dagger daemons.
+//! `gitust-sandbox`: local OS-level sandbox for running agent commands in a worktree.
 //!
-//! Hardened Isolation Controls (Verification Gate 7.4):
-//! 1. **Filesystem Isolation**:
-//!    - macOS: Kernel Seatbelt (`sandbox-exec`) profile denying all file writes outside the
-//!      isolated worktree & ephemeral scratch dir (and protecting `.git/hooks`, `.git/config`,
-//!      and `.git/objects/info` from tampering), and denying `file-read-data` to host user home
-//!      directories (`~/.ssh`, `~/.aws`, sibling repositories, `/tmp`, `/var/folders`).
-//!    - Linux: `bwrap` (Bubblewrap) or `unshare -r -n -m` namespace isolation when available.
-//! 2. **Secret & Environment Sanitization**:
-//!    - `env_clear()` strips 100% of host environment secrets (`AWS_*`, `GITHUB_TOKEN`, `OPENAI_API_KEY`,
-//!      `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, etc.).
-//!    - `HOME` and `TMPDIR` are bound to an ephemeral sandbox scratch directory inside the worktree
-//!      (never leaking the host user's real `$HOME`).
-//! 3. **Zero Outbound Network by Default**:
-//!    - Seatbelt `(deny network*)` on macOS and network namespace (`unshare -n` / `bwrap --unshare-net`)
-//!      on Linux prevent rogue agent commands from exfiltrating source code to external cloud endpoints.
-//! 4. **Process Group Containment (`setpgid` + `killpg` + RAII Drop Guard)**:
-//!    - Spawns the sandboxed process in its own process group (`process_group(0)`) and reaps the
-//!      entire process group (`killpg(pgid, SIGKILL)`) immediately when the lead process exits,
-//!      times out, or if the async execution future is cancelled/dropped.
+//! # Scope (read before relying on this crate)
+//!
+//! This is the **local / trusted single-user tier**, modelled on OS sandboxes used by local coding
+//! agents (macOS Seatbelt, Linux Bubblewrap). It protects the developer's own machine from
+//! accidental damage and casual exfiltration by an agent. It is **not** a multi-tenant security
+//! boundary; server-side multi-tenant execution belongs to the microVM tier (microsandbox).
+//!
+//! # Policy
+//!
+//! - **Fail closed**: if no isolation backend is available, execution is refused.
+//! - **Writes**: only the worktree checkout and a per-run scratch dir. The worktree's `.git`
+//!   pointer file and the shared git dir are read-only, so the agent can run `git status`,
+//!   `git diff` and `git log`, but commits are made host-side by Gitust.
+//! - **Reads**: host home directories, temp directories, external volumes, the main repository
+//!   working tree, and sibling agent worktrees are hidden. Rules are applied shallow-to-deep so a
+//!   deeper rule (e.g. the own worktree) overrides a shallower one (e.g. the hidden worktree base).
+//!   System paths (`/usr`, `/bin`, ...) stay readable so toolchains work.
+//! - **Network**: denied unless explicitly allowed.
+//! - **Environment**: cleared; `HOME`/`TMPDIR` point to the per-run scratch dir.
+//! - **Processes**: the command runs in its own process group, which is killed when the lead
+//!   process exits, times out, or the future is dropped.
+//!
+//! # Known limitations
+//!
+//! - macOS: a process that calls `setsid()` leaves the process group and survives the run (it
+//!   remains sandboxed with the same file/network policy). Linux Bubblewrap runs the command in a
+//!   PID namespace (`--unshare-all --die-with-parent`), which does contain such processes.
+//! - macOS Seatbelt profiles start from `(allow default)`: Mach IPC and other non-file,
+//!   non-network operations are not restricted.
+//! - Reads are a denylist: paths outside user homes, temp dirs and external volumes (e.g.
+//!   `/srv`, `/opt`, other repositories there) stay readable, and hidden paths are only
+//!   protected against reading contents, not against `stat`/existence checks.
+//! - The shared object database is readable (see [`SandboxSpec::for_linked_worktree`]), and so
+//!   is the shared repository config (repositories with credentials in it are refused).
+//! - The agent can create symlinks in its worktree pointing anywhere. Host-side code must never
+//!   follow worktree symlinks when reading files (read from Git objects or use `O_NOFOLLOW`).
 
-use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -37,15 +51,23 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 
-/// Maximum bytes captured per stream (`stdout` / `stderr`) to prevent OOM from rogue agent commands.
-const MAX_SANDBOX_STREAM_BYTES: u64 = 1024 * 1024; // 1 MiB per stream
-/// Default wall-clock execution timeout for an isolated sandbox run.
+/// Maximum bytes captured per stream (`stdout` / `stderr`).
+const MAX_SANDBOX_STREAM_BYTES: u64 = 1024 * 1024;
+/// Default wall-clock execution timeout for a sandbox run.
 const DEFAULT_SANDBOX_TIMEOUT_SECS: u64 = 60;
+/// How long to keep draining output after the lead process exited and its group was killed.
+const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Error)]
 pub enum SandboxError {
-    #[error("sandbox working directory '{path}' is invalid or inaccessible: {message}")]
-    InvalidWorkingDir { path: String, message: String },
+    #[error("no sandbox isolation backend available: {0}")]
+    IsolationUnavailable(String),
+
+    #[error("path '{0}' cannot be expressed safely in a sandbox policy")]
+    UnsupportedPath(String),
+
+    #[error("failed to prepare sandbox at '{path}': {message}")]
+    Prepare { path: String, message: String },
 
     #[error("sandbox execution failed to spawn command '{command}': {message}")]
     SpawnFailed { command: String, message: String },
@@ -57,6 +79,144 @@ pub enum SandboxError {
     TimedOut { command: String, timeout_secs: u64 },
 }
 
+/// Isolation backend actually used for a run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxBackend {
+    MacosSeatbelt,
+    LinuxBubblewrap,
+}
+
+impl SandboxBackend {
+    /// Detects the isolation backend for this host, failing closed if none is available.
+    pub fn detect() -> Result<(Self, PathBuf), SandboxError> {
+        #[cfg(target_os = "macos")]
+        {
+            let p = PathBuf::from("/usr/bin/sandbox-exec");
+            if p.is_file() {
+                return Ok((Self::MacosSeatbelt, p));
+            }
+            Err(SandboxError::IsolationUnavailable(
+                "/usr/bin/sandbox-exec not found".to_owned(),
+            ))
+        }
+        #[cfg(target_os = "linux")]
+        {
+            for candidate in ["/usr/bin/bwrap", "/usr/local/bin/bwrap"] {
+                let p = PathBuf::from(candidate);
+                if p.is_file() {
+                    return Ok((Self::LinuxBubblewrap, p));
+                }
+            }
+            Err(SandboxError::IsolationUnavailable(
+                "bubblewrap (bwrap) not found; install it to run sandboxed commands".to_owned(),
+            ))
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            Err(SandboxError::IsolationUnavailable(
+                "unsupported operating system".to_owned(),
+            ))
+        }
+    }
+}
+
+/// Access granted to a path (and everything below it) inside the sandbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PathAccess {
+    /// Contents cannot be read or written.
+    Hidden,
+    ReadOnly,
+    ReadWrite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathRule {
+    pub path: PathBuf,
+    pub access: PathAccess,
+}
+
+impl PathRule {
+    #[must_use]
+    pub fn new(path: impl Into<PathBuf>, access: PathAccess) -> Self {
+        Self {
+            path: path.into(),
+            access,
+        }
+    }
+}
+
+/// What a sandbox run may see and modify.
+#[derive(Debug, Clone)]
+pub struct SandboxSpec {
+    /// Working directory of the command.
+    pub workdir: PathBuf,
+    /// Parent of per-run scratch dirs (`HOME`/`TMPDIR`); hidden except for the own run.
+    pub scratch_base: PathBuf,
+    /// Path rules on top of the built-in host rules.
+    pub rules: Vec<PathRule>,
+}
+
+impl SandboxSpec {
+    /// Policy for a Git linked worktree.
+    ///
+    /// - The checkout is writable; its `.git` pointer file is read-only.
+    /// - The shared git dir is read-only so `git status/diff/log` work, but main-repository
+    ///   working state inside it is hidden: the main index (staged files), the loose
+    ///   `refs/stash` ref, reflogs, message files, and every other worktree's admin dir.
+    ///   `packed-refs` stays readable, so after `git gc` / `git pack-refs --all` the stash commit
+    ///   id is visible there.
+    /// - The main working tree and sibling worktree checkouts are hidden.
+    ///
+    /// Limitation: the object database stays readable. Any blob that was ever written to it
+    /// (including staged or stashed content that is no longer referenced) can be found by
+    /// listing `objects/`. Isolating that requires a per-sandbox object store.
+    #[must_use]
+    pub fn for_linked_worktree(
+        worktree_dir: &Path,
+        worktree_admin_dir: &Path,
+        common_git_dir: &Path,
+        main_workdir: Option<&Path>,
+        worktrees_base: &Path,
+        scratch_base: &Path,
+    ) -> Self {
+        let mut rules = Vec::with_capacity(16);
+        if let Some(main) = main_workdir {
+            rules.push(PathRule::new(main, PathAccess::Hidden));
+        }
+        rules.push(PathRule::new(common_git_dir, PathAccess::ReadOnly));
+        for private in [
+            "index",
+            "logs",
+            "refs/stash",
+            "COMMIT_EDITMSG",
+            "MERGE_MSG",
+            "SQUASH_MSG",
+            "ORIG_HEAD",
+            "FETCH_HEAD",
+            "worktrees",
+        ] {
+            rules.push(PathRule::new(
+                common_git_dir.join(private),
+                PathAccess::Hidden,
+            ));
+        }
+        rules.push(PathRule::new(worktree_admin_dir, PathAccess::ReadOnly));
+        rules.push(PathRule::new(worktrees_base, PathAccess::Hidden));
+        rules.push(PathRule::new(worktree_dir, PathAccess::ReadWrite));
+        rules.push(PathRule::new(
+            worktree_dir.join(".git"),
+            PathAccess::ReadOnly,
+        ));
+        Self {
+            workdir: worktree_dir.to_path_buf(),
+            scratch_base: scratch_base.to_path_buf(),
+            rules,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxExecutionResult {
     pub run_id: SandboxRunId,
@@ -66,17 +226,15 @@ pub struct SandboxExecutionResult {
     pub duration_ms: u64,
     pub stdout: String,
     pub stderr: String,
-    pub isolated_on_premise: bool,
+    pub backend: SandboxBackend,
     pub network_isolated: bool,
 }
 
-/// RAII cleanup guard ensuring that even if the async execution future is cancelled or dropped early,
-/// the entire sandbox process group (`killpg`) is terminated and the ephemeral scratch directory
-/// (`.gitust-sandbox-env/<run_id>`) is removed from disk.
+/// Kills the run's process group and removes its scratch dir, including when the execution
+/// future is cancelled. The shared scratch base is never removed (concurrent runs use it).
 struct SandboxCleanupGuard {
     pid: Option<u32>,
-    scratch_root: PathBuf,
-    env_parent_dir: PathBuf,
+    run_dir: PathBuf,
 }
 
 impl Drop for SandboxCleanupGuard {
@@ -84,16 +242,23 @@ impl Drop for SandboxCleanupGuard {
         if let Some(pid) = self.pid.take() {
             kill_process_group(pid);
         }
-        let _ = fs::remove_dir_all(&self.scratch_root);
-        // Remove `.gitust-sandbox-env` parent directory if it is now empty
-        let _ = fs::remove_dir(&self.env_parent_dir);
+        let _ = fs::remove_dir_all(&self.run_dir);
     }
 }
 
-/// Pure Rust Microsandbox Executor.
-/// Runs commands inside an OS-hardened isolated environment with sanitized environment variables,
-/// isolated `HOME`/`TMPDIR`, outbound network blocking, filesystem read/write confinement,
-/// process-group teardown (`killpg`), concurrency semaphore enforcement, and execution timeouts.
+/// Everything resolved on a blocking thread before spawning.
+struct PreparedRun {
+    backend: SandboxBackend,
+    program: PathBuf,
+    args: Vec<OsString>,
+    workdir: PathBuf,
+    home: PathBuf,
+    tmp: PathBuf,
+    run_dir: PathBuf,
+    /// Toolchain variables (`RUSTUP_HOME`, `CARGO_HOME`, ...).
+    toolchain_env: Vec<(&'static str, OsString)>,
+}
+
 #[derive(Debug, Clone)]
 pub struct MicrosandboxExecutor {
     pub max_concurrent_sandboxes: usize,
@@ -126,12 +291,11 @@ impl MicrosandboxExecutor {
         self
     }
 
-    /// Executes a command inside an isolated on-premise worktree sandbox and returns
-    /// structured timing and output telemetry in `<100ms` startup overhead.
-    pub async fn execute_in_worktree(
+    /// Runs `command_str` with `/bin/sh -c` inside the sandbox described by `spec`.
+    pub async fn execute(
         &self,
         worktree_id: WorktreeId,
-        working_dir: impl AsRef<Path>,
+        spec: &SandboxSpec,
         command_str: &str,
     ) -> Result<SandboxExecutionResult, SandboxError> {
         let _permit = self
@@ -141,50 +305,33 @@ impl MicrosandboxExecutor {
             .map_err(|_| SandboxError::ConcurrencyLimiterClosed)?;
 
         let start = Instant::now();
-        let raw_dir = working_dir.as_ref();
-        let canonical_workdir =
-            fs::canonicalize(raw_dir).map_err(|e| SandboxError::InvalidWorkingDir {
-                path: raw_dir.display().to_string(),
-                message: e.to_string(),
-            })?;
-
         let run_id = SandboxRunId::new();
-        let env_parent_dir = canonical_workdir.join(".gitust-sandbox-env");
-        let sandbox_scratch_root = env_parent_dir.join(run_id.0.to_string());
-        let sandbox_home = sandbox_scratch_root.join("home");
-        let sandbox_tmp = sandbox_scratch_root.join("tmp");
-
-        fs::create_dir_all(&sandbox_home).map_err(|e| SandboxError::InvalidWorkingDir {
-            path: sandbox_home.display().to_string(),
+        let spec_owned = spec.clone();
+        let command_owned = command_str.to_owned();
+        let allow_network = self.allow_network;
+        let prepared = tokio::task::spawn_blocking(move || {
+            prepare_run(&spec_owned, run_id, &command_owned, allow_network)
+        })
+        .await
+        .map_err(|e| SandboxError::Prepare {
+            path: spec.workdir.display().to_string(),
             message: e.to_string(),
-        })?;
-        fs::create_dir_all(&sandbox_tmp).map_err(|e| SandboxError::InvalidWorkingDir {
-            path: sandbox_tmp.display().to_string(),
-            message: e.to_string(),
-        })?;
+        })??;
 
         let mut cleanup_guard = SandboxCleanupGuard {
             pid: None,
-            scratch_root: sandbox_scratch_root.clone(),
-            env_parent_dir,
+            run_dir: prepared.run_dir.clone(),
         };
 
-        let safe_path = build_sanitized_path();
-        let mut cmd = build_os_sandboxed_command(
-            &canonical_workdir,
-            &sandbox_home,
-            &sandbox_tmp,
-            command_str,
-            self.allow_network,
-        );
-
-        cmd.current_dir(&canonical_workdir)
+        let mut cmd = Command::new(&prepared.program);
+        cmd.args(&prepared.args)
+            .current_dir(&prepared.workdir)
             .env_clear()
-            .env("PATH", safe_path)
-            .env("HOME", &sandbox_home)
-            .env("TMPDIR", &sandbox_tmp)
-            .env("TEMP", &sandbox_tmp)
-            .env("TMP", &sandbox_tmp)
+            .env("PATH", build_sanitized_path())
+            .env("HOME", &prepared.home)
+            .env("TMPDIR", &prepared.tmp)
+            .env("TEMP", &prepared.tmp)
+            .env("TMP", &prepared.tmp)
             .env("USER", "gitust-sandbox")
             .env("LOGNAME", "gitust-sandbox")
             .env("LANG", "C.UTF-8")
@@ -193,59 +340,29 @@ impl MicrosandboxExecutor {
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GITUST_SANDBOX_ISOLATED", "1")
-            .env("GITUST_PRIVACY_MODE", "STRICT_ON_PREMISE")
+            .envs(prepared.toolchain_env.iter().map(|(k, v)| (*k, v)))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
         #[cfg(unix)]
-        {
-            // Place the sandboxed process in its own process group (`pgid == pid`) so that all
-            // spawned child/daemon processes can be atomically terminated via `killpg(pgid, SIGKILL)`.
-            cmd.process_group(0);
-        }
+        cmd.process_group(0);
 
         let mut child = cmd.spawn().map_err(|e| SandboxError::SpawnFailed {
             command: command_str.to_owned(),
             message: e.to_string(),
         })?;
+        cleanup_guard.pid = child.id();
 
-        let child_pid = child.id();
-        cleanup_guard.pid = child_pid;
-
-        let mut stdout_pipe = child.stdout.take();
-        let mut stderr_pipe = child.stderr.take();
-
-        // Spawn concurrent stream readers so pipes never deadlock even if the process writes >64KB
-        // before exiting, and kill the process group immediately once the lead process exits so
-        // background grandchildren (`(sleep 300 &)`) cannot hold stdout/stderr open.
-        let stdout_task = tokio::spawn(async move {
-            let mut buf = Vec::new();
-            if let Some(ref mut out) = stdout_pipe {
-                let _ = out
-                    .take(MAX_SANDBOX_STREAM_BYTES)
-                    .read_to_end(&mut buf)
-                    .await;
-            }
-            buf
-        });
-        let stderr_task = tokio::spawn(async move {
-            let mut buf = Vec::new();
-            if let Some(ref mut err) = stderr_pipe {
-                let _ = err
-                    .take(MAX_SANDBOX_STREAM_BYTES)
-                    .read_to_end(&mut buf)
-                    .await;
-            }
-            buf
-        });
+        let stdout_task = tokio::spawn(read_capped(child.stdout.take()));
+        let stderr_task = tokio::spawn(read_capped(child.stderr.take()));
 
         let timeout_duration = Duration::from_secs(self.timeout_secs.max(1));
         let wait_outcome = tokio::time::timeout(timeout_duration, child.wait()).await;
 
-        // Immediately reap the entire process group as soon as `child.wait()` finishes or times out,
-        // closing any file descriptors held by background grandchildren.
+        // Kill the group as soon as the lead process is gone so background children cannot keep
+        // the output pipes open.
         if let Some(pid) = cleanup_guard.pid.take() {
             kill_process_group(pid);
         }
@@ -270,12 +387,12 @@ impl MicrosandboxExecutor {
             }
         };
 
-        let stdout_bytes = tokio::time::timeout(Duration::from_millis(500), stdout_task)
+        let stdout_bytes = tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, stdout_task)
             .await
             .ok()
             .and_then(Result::ok)
             .unwrap_or_default();
-        let stderr_bytes = tokio::time::timeout(Duration::from_millis(500), stderr_task)
+        let stderr_bytes = tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, stderr_task)
             .await
             .ok()
             .and_then(Result::ok)
@@ -283,30 +400,276 @@ impl MicrosandboxExecutor {
 
         drop(cleanup_guard);
 
-        let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let exit_code = status.code().unwrap_or(-1);
-
         Ok(SandboxExecutionResult {
             run_id,
             worktree_id,
             command: command_str.to_owned(),
-            exit_code,
-            duration_ms,
+            exit_code: status.code().unwrap_or(-1),
+            duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
             stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
             stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
-            isolated_on_premise: true,
+            backend: prepared.backend,
             network_isolated: !self.allow_network,
         })
     }
 }
 
-/// Kills the entire Unix process group `pgid` (`killpg`) so background child processes
-/// spawned inside the sandbox (`(sleep 999 &)` or daemon escape attempts) are immediately reaped.
+async fn read_capped<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> Vec<u8> {
+    let mut buf = Vec::new();
+    if let Some(p) = pipe {
+        let _ = p.take(MAX_SANDBOX_STREAM_BYTES).read_to_end(&mut buf).await;
+    }
+    buf
+}
+
+fn prepare_err(path: &Path, e: &std::io::Error) -> SandboxError {
+    SandboxError::Prepare {
+        path: path.display().to_string(),
+        message: e.to_string(),
+    }
+}
+
+fn prepare_run(
+    spec: &SandboxSpec,
+    run_id: SandboxRunId,
+    command_str: &str,
+    allow_network: bool,
+) -> Result<PreparedRun, SandboxError> {
+    let (backend, program) = SandboxBackend::detect()?;
+
+    let workdir = fs::canonicalize(&spec.workdir).map_err(|e| prepare_err(&spec.workdir, &e))?;
+    let run_dir = spec.scratch_base.join(run_id.0.to_string());
+    let home = run_dir.join("home");
+    let tmp = run_dir.join("tmp");
+    for dir in [&home, &tmp] {
+        fs::create_dir_all(dir).map_err(|e| prepare_err(dir, &e))?;
+    }
+    let scratch_base =
+        fs::canonicalize(&spec.scratch_base).map_err(|e| prepare_err(&spec.scratch_base, &e))?;
+    let run_dir = fs::canonicalize(&run_dir).map_err(|e| prepare_err(&run_dir, &e))?;
+
+    let toolchain_env = prepare_toolchain_env(&run_dir)?;
+
+    let mut rules = host_rules();
+    rules.extend(spec.rules.iter().cloned());
+    rules.push(PathRule::new(&scratch_base, PathAccess::Hidden));
+    rules.push(PathRule::new(&run_dir, PathAccess::ReadWrite));
+    let rules = resolve_rules(rules)?;
+
+    let args = match backend {
+        SandboxBackend::MacosSeatbelt => {
+            let profile = seatbelt_profile(&rules, allow_network)?;
+            vec![
+                OsString::from("-p"),
+                OsString::from(profile),
+                OsString::from("/bin/sh"),
+                OsString::from("-c"),
+                OsString::from(command_str),
+            ]
+        }
+        SandboxBackend::LinuxBubblewrap => bwrap_args(&rules, &workdir, command_str, allow_network),
+    };
+
+    Ok(PreparedRun {
+        backend,
+        program,
+        args,
+        workdir,
+        home: run_dir.join("home"),
+        tmp: run_dir.join("tmp"),
+        run_dir,
+        toolchain_env,
+    })
+}
+
+/// Points rustup/cargo at the host toolchain without exposing the host home:
+/// - `RUSTUP_HOME` is the host `~/.rustup` (read-only in the policy).
+/// - `CARGO_HOME` is a per-run writable dir (cargo writes lock/cache files there) whose
+///   `registry/` and `git/` link to the host's read-only copies.
+/// - Network is denied, so cargo runs offline. Crates not already extracted in the host
+///   registry cannot be extracted (read-only) and will fail to build.
+fn prepare_toolchain_env(run_dir: &Path) -> Result<Vec<(&'static str, OsString)>, SandboxError> {
+    let mut env = vec![("CARGO_NET_OFFLINE", OsString::from("true"))];
+    let Some(host_home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Ok(env);
+    };
+    let rustup_home = host_home.join(".rustup");
+    if rustup_home.is_dir() {
+        env.push(("RUSTUP_HOME", rustup_home.into_os_string()));
+    }
+    let cargo_home = run_dir.join("cargo");
+    fs::create_dir_all(&cargo_home).map_err(|e| prepare_err(&cargo_home, &e))?;
+    #[cfg(unix)]
+    for sub in ["registry", "git"] {
+        let host_dir = host_home.join(".cargo").join(sub);
+        if host_dir.is_dir() {
+            let link = cargo_home.join(sub);
+            std::os::unix::fs::symlink(&host_dir, &link).map_err(|e| prepare_err(&link, &e))?;
+        }
+    }
+    env.push(("CARGO_HOME", cargo_home.into_os_string()));
+    Ok(env)
+}
+
+/// Built-in host rules: hide user homes, temp dirs and external volumes; expose the Rust
+/// toolchain read-only.
+fn host_rules() -> Vec<PathRule> {
+    #[cfg(target_os = "macos")]
+    let hidden: &[&str] = &[
+        "/Users",
+        "/System/Volumes/Data/Users",
+        "/Volumes",
+        "/private/tmp",
+        "/private/var/tmp",
+        "/private/var/folders",
+        "/private/etc/master.passwd",
+    ];
+    #[cfg(not(target_os = "macos"))]
+    let hidden: &[&str] = &[
+        "/home",
+        "/root",
+        "/tmp",
+        "/var/tmp",
+        "/run/user",
+        "/mnt",
+        "/media",
+    ];
+
+    let mut rules: Vec<PathRule> = hidden
+        .iter()
+        .map(|p| PathRule::new(*p, PathAccess::Hidden))
+        .collect();
+
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        rules.push(PathRule::new(&home, PathAccess::Hidden));
+        for sub in [".rustup", ".cargo/bin", ".cargo/registry", ".cargo/git"] {
+            rules.push(PathRule::new(home.join(sub), PathAccess::ReadOnly));
+        }
+    }
+    rules
+}
+
+/// Canonicalizes rule paths (dropping ones that do not exist) and orders them shallow-to-deep,
+/// so that deeper rules take precedence. Equal depth keeps insertion order (later wins).
+fn resolve_rules(rules: Vec<PathRule>) -> Result<Vec<PathRule>, SandboxError> {
+    let mut resolved = Vec::with_capacity(rules.len());
+    for rule in rules {
+        let Ok(path) = fs::canonicalize(&rule.path) else {
+            continue;
+        };
+        let lossy = path.to_string_lossy();
+        if path.to_str().is_none() || lossy.chars().any(char::is_control) {
+            return Err(SandboxError::UnsupportedPath(lossy.into_owned()));
+        }
+        resolved.push(PathRule::new(path, rule.access));
+    }
+    resolved.sort_by_key(|r| r.path.components().count());
+    Ok(resolved)
+}
+
+/// Builds a Seatbelt profile. Seatbelt applies the last matching rule, so emitting rules in
+/// shallow-to-deep order makes deeper rules win.
+fn seatbelt_profile(rules: &[PathRule], allow_network: bool) -> Result<String, SandboxError> {
+    let mut profile = String::with_capacity(256 + rules.len() * 96);
+    profile.push_str("(version 1)\n(allow default)\n");
+    if !allow_network {
+        profile.push_str("(deny network*)\n");
+    }
+    profile.push_str("(deny file-write*)\n(allow file-write* (subpath \"/dev\"))\n");
+    for rule in rules {
+        let p = seatbelt_quote(&rule.path)?;
+        match rule.access {
+            PathAccess::Hidden => {
+                profile.push_str(&format!("(deny file-read-data (subpath {p}))\n"));
+                profile.push_str(&format!("(deny file-write* (subpath {p}))\n"));
+            }
+            PathAccess::ReadOnly => {
+                profile.push_str(&format!("(allow file-read-data (subpath {p}))\n"));
+                profile.push_str(&format!("(deny file-write* (subpath {p}))\n"));
+            }
+            PathAccess::ReadWrite => {
+                profile.push_str(&format!("(allow file-read-data (subpath {p}))\n"));
+                profile.push_str(&format!("(allow file-write* (subpath {p}))\n"));
+            }
+        }
+    }
+    Ok(profile)
+}
+
+fn seatbelt_quote(path: &Path) -> Result<String, SandboxError> {
+    let s = path
+        .to_str()
+        .ok_or_else(|| SandboxError::UnsupportedPath(path.to_string_lossy().into_owned()))?;
+    if s.chars().any(char::is_control) {
+        return Err(SandboxError::UnsupportedPath(s.to_owned()));
+    }
+    Ok(format!(
+        "\"{}\"",
+        s.replace('\\', "\\\\").replace('"', "\\\"")
+    ))
+}
+
+/// Builds Bubblewrap arguments: read-only root, private `/dev` + `/proc`, all namespaces
+/// unshared (network shared only when allowed), then path rules shallow-to-deep (later mounts
+/// shadow earlier ones).
+fn bwrap_args(
+    rules: &[PathRule],
+    workdir: &Path,
+    command_str: &str,
+    allow_network: bool,
+) -> Vec<OsString> {
+    let mut args: Vec<OsString> = [
+        "--die-with-parent",
+        "--new-session",
+        "--unshare-all",
+        "--ro-bind",
+        "/",
+        "/",
+        "--dev",
+        "/dev",
+        "--proc",
+        "/proc",
+    ]
+    .iter()
+    .map(OsString::from)
+    .collect();
+    if allow_network {
+        args.push("--share-net".into());
+    }
+    for rule in rules {
+        let p = rule.path.as_os_str().to_owned();
+        match rule.access {
+            PathAccess::Hidden if rule.path.is_dir() => {
+                args.extend(["--tmpfs".into(), p]);
+            }
+            PathAccess::Hidden => {
+                args.extend(["--ro-bind".into(), "/dev/null".into(), p]);
+            }
+            PathAccess::ReadOnly => {
+                args.extend(["--ro-bind".into(), p.clone(), p]);
+            }
+            PathAccess::ReadWrite => {
+                args.extend(["--bind".into(), p.clone(), p]);
+            }
+        }
+    }
+    args.extend([
+        "--chdir".into(),
+        workdir.as_os_str().to_owned(),
+        "/bin/sh".into(),
+        "-c".into(),
+        command_str.into(),
+    ]);
+    args
+}
+
+/// Sends `SIGKILL` to the process group created via `process_group(0)`.
 #[cfg(unix)]
 fn kill_process_group(pid: u32) {
     if let Ok(pgid) = i32::try_from(pid) {
         if pgid > 1 {
-            // SAFETY: `killpg` sends `SIGKILL` to the isolated process group `pgid` created via `process_group(0)`.
+            // SAFETY: `killpg` has no memory-safety preconditions; `pgid` is the group id of the
+            // child we spawned as a group leader.
             unsafe {
                 let _ = libc::killpg(pgid, libc::SIGKILL);
             }
@@ -335,266 +698,6 @@ fn build_sanitized_path() -> String {
     dirs.join(":")
 }
 
-/// Constructs an OS-hardened command invocation:
-/// - On macOS: wraps `/bin/sh -c <command>` inside `/usr/bin/sandbox-exec -p <seatbelt_profile>`
-/// - On Linux: uses `bwrap` (Bubblewrap) or `unshare` namespace isolation when available
-fn build_os_sandboxed_command(
-    canonical_workdir: &Path,
-    sandbox_home: &Path,
-    sandbox_tmp: &Path,
-    command_str: &str,
-    allow_network: bool,
-) -> Command {
-    #[cfg(target_os = "macos")]
-    {
-        if Path::new("/usr/bin/sandbox-exec").is_file() {
-            let profile = generate_macos_seatbelt_profile(
-                canonical_workdir,
-                sandbox_home,
-                sandbox_tmp,
-                allow_network,
-            );
-            let mut cmd = Command::new("/usr/bin/sandbox-exec");
-            cmd.arg("-p")
-                .arg(profile)
-                .arg("/bin/sh")
-                .arg("-c")
-                .arg(command_str);
-            return cmd;
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(cmd) = build_linux_sandboxed_command(
-            canonical_workdir,
-            sandbox_home,
-            sandbox_tmp,
-            command_str,
-            allow_network,
-        ) {
-            return cmd;
-        }
-    }
-
-    let _ = (sandbox_home, sandbox_tmp, allow_network, canonical_workdir);
-    let mut cmd = Command::new("/bin/sh");
-    cmd.arg("-c").arg(command_str);
-    cmd
-}
-
-#[cfg(target_os = "linux")]
-fn build_linux_sandboxed_command(
-    canonical_workdir: &Path,
-    sandbox_home: &Path,
-    sandbox_tmp: &Path,
-    command_str: &str,
-    allow_network: bool,
-) -> Option<Command> {
-    if Path::new("/usr/bin/bwrap").is_file() {
-        let mut cmd = Command::new("/usr/bin/bwrap");
-        cmd.args([
-            "--die-with-parent",
-            "--unshare-pid",
-            "--unshare-ipc",
-            "--unshare-uts",
-            "--ro-bind",
-            "/usr",
-            "/usr",
-            "--ro-bind",
-            "/bin",
-            "/bin",
-            "--ro-bind",
-            "/lib",
-            "/lib",
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-            "--tmpfs",
-            "/tmp",
-            "--tmpfs",
-            "/home",
-            "--tmpfs",
-            "/root",
-        ]);
-        if Path::new("/lib64").is_dir() {
-            cmd.args(["--ro-bind", "/lib64", "/lib64"]);
-        }
-        if !allow_network {
-            cmd.arg("--unshare-net");
-        }
-        let workdir_str = canonical_workdir.to_string_lossy().into_owned();
-        let home_str = sandbox_home.to_string_lossy().into_owned();
-        let tmp_str = sandbox_tmp.to_string_lossy().into_owned();
-        cmd.args([
-            "--bind",
-            &workdir_str,
-            &workdir_str,
-            "--bind",
-            &home_str,
-            &home_str,
-            "--bind",
-            &tmp_str,
-            &tmp_str,
-            "--chdir",
-            &workdir_str,
-            "/bin/sh",
-            "-c",
-            command_str,
-        ]);
-        return Some(cmd);
-    }
-    None
-}
-
-/// Validates that a candidate Git alternates path is a genuine Git `objects` directory
-/// (`.../objects` whose parent contains a `HEAD` file) and not a poisoned host directory
-/// (such as `/Users`, `/private/etc`, or `/`).
-#[must_use]
-pub fn is_valid_git_alternates_objects_dir(canon_alt: &Path) -> bool {
-    if canon_alt.file_name() != Some(OsStr::new("objects")) {
-        return false;
-    }
-    let Some(parent_git_dir) = canon_alt.parent() else {
-        return false;
-    };
-    parent_git_dir.join("HEAD").is_file() && canon_alt.join("pack").is_dir()
-}
-
-/// Generates a strict macOS Seatbelt (`sandbox-exec`) policy that enforces Verification Gate 7.4:
-/// 1. Denies all outbound/inbound network access (`(deny network*)`) unless explicitly allowed.
-/// 2. Denies all filesystem writes anywhere on the host (`(deny file-write*)`), allowing writes ONLY
-///    inside `canonical_workdir` (which includes `sandbox_home` and `sandbox_tmp`) and `/dev/null`,
-///    while explicitly blocking writes to `.git/objects/info`, `.git/hooks`, and `.git/config` inside
-///    the worktree so a sandboxed command cannot poison Git alternates or plant malicious Git hooks.
-/// 3. Denies `file-read-data` to `/Users`, `/System/Volumes/Data/Users`, `/private/tmp`,
-///    `/private/var/tmp`, `/var/tmp`, `/private/var/folders`, `/var/folders`, and `/etc/passwd`
-///    so the sandboxed process cannot read host secrets (`~/.ssh`, `~/.aws`, sibling repos, or other tempdirs),
-///    while allowing `file-read-data` to `canonical_workdir`, validated Git alternates object directories,
-///    and read-only Rust toolchain directories (`~/.rustup`, `~/.cargo`).
-#[cfg(target_os = "macos")]
-fn generate_macos_seatbelt_profile(
-    canonical_workdir: &Path,
-    sandbox_home: &Path,
-    sandbox_tmp: &Path,
-    allow_network: bool,
-) -> String {
-    let workdir_escaped = escape_seatbelt_path(canonical_workdir);
-    let home_escaped = escape_seatbelt_path(sandbox_home);
-    let tmp_escaped = escape_seatbelt_path(sandbox_tmp);
-
-    let wt_git_objects_info = escape_seatbelt_path(&canonical_workdir.join(".git/objects/info"));
-    let wt_git_hooks = escape_seatbelt_path(&canonical_workdir.join(".git/hooks"));
-    let wt_git_config = escape_seatbelt_path(&canonical_workdir.join(".git/config"));
-
-    let mut profile = String::with_capacity(1536);
-    profile.push_str("(version 1)\n(allow default)\n");
-
-    if !allow_network {
-        profile.push_str("(deny network*)\n");
-    }
-
-    // 1. Write isolation: deny all writes everywhere except the isolated worktree and /dev
-    profile.push_str("(deny file-write*)\n");
-    profile.push_str("(allow file-write* (subpath \"/dev\"))\n");
-    profile.push_str(&format!(
-        "(allow file-write* (subpath \"{workdir_escaped}\"))\n"
-    ));
-    profile.push_str(&format!(
-        "(allow file-write* (subpath \"{home_escaped}\"))\n"
-    ));
-    profile.push_str(&format!(
-        "(allow file-write* (subpath \"{tmp_escaped}\"))\n"
-    ));
-    // Protect critical .git metadata inside the worktree from tampering/poisoning across runs
-    profile.push_str(&format!(
-        "(deny file-write* (subpath \"{wt_git_objects_info}\"))\n"
-    ));
-    profile.push_str(&format!(
-        "(deny file-write* (subpath \"{wt_git_hooks}\"))\n"
-    ));
-    profile.push_str(&format!(
-        "(deny file-write* (literal \"{wt_git_config}\"))\n"
-    ));
-
-    // 2. Read isolation: block reading host user files, firmlinks, sibling directories, and temp directories
-    profile.push_str("(deny file-read-data (subpath \"/Users\"))\n");
-    profile.push_str("(deny file-read-data (subpath \"/System/Volumes/Data/Users\"))\n");
-    profile.push_str("(deny file-read-data (subpath \"/private/tmp\"))\n");
-    profile.push_str("(deny file-read-data (subpath \"/private/var/tmp\"))\n");
-    profile.push_str("(deny file-read-data (subpath \"/var/tmp\"))\n");
-    profile.push_str("(deny file-read-data (subpath \"/private/var/folders\"))\n");
-    profile
-        .push_str("(deny file-read-data (subpath \"/System/Volumes/Data/private/var/folders\"))\n");
-    profile.push_str("(deny file-read-data (subpath \"/var/folders\"))\n");
-    profile.push_str("(deny file-read-data (literal \"/etc/passwd\"))\n");
-    profile.push_str("(deny file-read-data (literal \"/private/etc/passwd\"))\n");
-    profile.push_str("(deny file-read-data (literal \"/private/etc/master.passwd\"))\n");
-
-    // Allow reading inside the isolated worktree and its scratch dirs
-    profile.push_str(&format!(
-        "(allow file-read-data (subpath \"{workdir_escaped}\"))\n"
-    ));
-    profile.push_str(&format!(
-        "(allow file-read-data (subpath \"{home_escaped}\"))\n"
-    ));
-    profile.push_str(&format!(
-        "(allow file-read-data (subpath \"{tmp_escaped}\"))\n"
-    ));
-
-    // If the worktree links to a shared Git ODB via `.git/objects/info/alternates`, validate that
-    // the target is a genuine Git `objects` directory (`parent/HEAD` file + `pack/` dir) before
-    // allowing read access so `.git/objects/info/alternates` can never be abused to read host paths.
-    let alternates_path = canonical_workdir
-        .join(".git")
-        .join("objects")
-        .join("info")
-        .join("alternates");
-    if let Ok(alt_contents) = fs::read_to_string(&alternates_path) {
-        for line in alt_contents.lines() {
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                let alt_dir = Path::new(trimmed);
-                if let Ok(canon_alt) = fs::canonicalize(alt_dir) {
-                    if is_valid_git_alternates_objects_dir(&canon_alt) {
-                        let alt_escaped = escape_seatbelt_path(&canon_alt);
-                        profile.push_str(&format!(
-                            "(allow file-read-data (subpath \"{alt_escaped}\"))\n"
-                        ));
-                    }
-                }
-            }
-        }
-    }
-
-    // Allow read-only access to the Rust toolchain (`~/.rustup` and `~/.cargo/bin`) if present
-    if let Ok(host_home) = std::env::var("HOME") {
-        for sub in [".rustup", ".cargo/bin", ".cargo/registry"] {
-            let tool_dir = Path::new(&host_home).join(sub);
-            if let Ok(canon_tool) = fs::canonicalize(&tool_dir) {
-                let tool_escaped = escape_seatbelt_path(&canon_tool);
-                profile.push_str(&format!(
-                    "(allow file-read-data (subpath \"{tool_escaped}\"))\n"
-                ));
-            }
-        }
-    }
-
-    profile
-}
-
-#[cfg(target_os = "macos")]
-fn escape_seatbelt_path(path: &Path) -> String {
-    path.display()
-        .to_string()
-        .chars()
-        .filter(|c| !c.is_control())
-        .collect::<String>()
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-}
-
 // ============================================================================
 // Built-in Model Context Protocol (MCP) Tool Definitions (Replaces container-use)
 // ============================================================================
@@ -610,15 +713,15 @@ pub fn builtin_mcp_tools() -> Vec<McpToolDescriptor> {
     vec![
         McpToolDescriptor {
             name: "gitust_worktree_spawn",
-            description: "Spawn an isolated <1ms Copy-on-Write Git worktree branch for an AI coding agent without touching the main working tree.",
+            description: "Create a new agent/ branch and a Git linked worktree for an AI coding agent without touching the main working tree.",
         },
         McpToolDescriptor {
             name: "gitust_sandbox_exec",
-            description: "Run build, test, or lint commands inside the isolated on-premise Microsandbox and return structured AST/compiler output.",
+            description: "Run build, test, or lint commands inside the agent worktree under an OS sandbox (no network, writes confined to the worktree).",
         },
         McpToolDescriptor {
             name: "gitust_worktree_merge_and_sync",
-            description: "Fast-forward merge a verified agent worktree into main and bi-directionally sync with the upstream GitHub mirror.",
+            description: "Merge a verified agent worktree into main and sync approved commits with the upstream GitHub mirror.",
         },
     ]
 }
@@ -627,214 +730,283 @@ pub fn builtin_mcp_tools() -> Vec<McpToolDescriptor> {
 mod tests {
     use super::*;
     use gitust_core::{AgentKind, RepoId};
-    use gitust_git::GitEngine;
+    use gitust_git::{GitEngine, MaterializedWorktree};
+    use std::io::{Read, Write};
     use tempfile::TempDir;
 
-    #[tokio::test]
-    async fn gate_7_4_sandbox_isolation_blocks_outside_read_write_env_secrets_network_and_process_escape(
-    ) {
-        let tmp = TempDir::new().expect("create tempdir");
-        let host_secret_dir = tmp.path().join("host-secrets");
-        let repo_dir = tmp.path().join("repo");
-        let worktree_base = tmp.path().join("worktrees");
-
-        fs::create_dir_all(&host_secret_dir).expect("mkdir host-secrets");
-        fs::create_dir_all(&repo_dir).expect("mkdir repo");
-
-        let host_secret_file = host_secret_dir.join("production-master.key");
-        fs::write(&host_secret_file, "TOP_SECRET_ON_PREM_KEY_999").expect("write secret");
-        let host_immutable_target = host_secret_dir.join("host-pwned.txt");
-
-        // Initialize a real Git repo and materialize a CoW worktree
-        std::process::Command::new("git")
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
             .arg("-C")
-            .arg(&repo_dir)
-            .args(["init", "-b", "main"])
-            .output()
-            .expect("git init");
-        fs::write(repo_dir.join("app.rs"), "fn main() {}\n").expect("write app.rs");
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(&repo_dir)
-            .args(["add", "."])
-            .output()
-            .expect("git add");
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(&repo_dir)
+            .arg(dir)
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_AUTHOR_NAME", "Test")
             .env("GIT_AUTHOR_EMAIL", "test@company.internal")
             .env("GIT_COMMITTER_NAME", "Test")
             .env("GIT_COMMITTER_EMAIL", "test@company.internal")
-            .args(["-c", "commit.gpgsign=false", "commit", "-m", "initial"])
             .output()
-            .expect("git commit");
+            .expect("spawn git");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
 
-        let engine = GitEngine::new(&repo_dir).with_worktree_base_dir(&worktree_base);
-        let materialized = engine
-            .materialize_cow_agent_worktree(
+    fn spec_for(m: &MaterializedWorktree) -> SandboxSpec {
+        SandboxSpec::for_linked_worktree(
+            &m.worktree_dir,
+            &m.worktree_admin_dir,
+            &m.common_git_dir,
+            m.main_workdir.as_deref(),
+            &m.worktrees_base,
+            &m.sandbox_scratch_base,
+        )
+    }
+
+    /// Serves one minimal HTTP response per connection on 127.0.0.1; returns the port.
+    fn spawn_local_http_server() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut buf = [0_u8; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok");
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn gate_7_4_sandbox_isolation() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_dir = tmp.path().join("repo");
+        let secret_dir = tmp.path().join("host-secrets");
+        fs::create_dir_all(&repo_dir).expect("mkdir");
+        fs::create_dir_all(&secret_dir).expect("mkdir");
+        let secret_file = secret_dir.join("prod.key");
+        fs::write(&secret_file, "TOP_SECRET_ON_PREM_KEY_999").expect("write");
+        let outside_target = secret_dir.join("pwned.txt");
+
+        git(&repo_dir, &["init", "-q", "-b", "main"]);
+        fs::write(repo_dir.join("app.rs"), "fn main() {}\n").expect("write");
+        git(&repo_dir, &["add", "."]);
+        git(&repo_dir, &["commit", "-q", "-m", "initial"]);
+        // Main-repo state that must not be readable from the sandbox:
+        // a stashed untracked secret, a staged secret, and an uncommitted file.
+        fs::write(repo_dir.join(".env"), "STASHED_SECRET_1").expect("write");
+        git(&repo_dir, &["stash", "push", "-q", "-u", "-m", "wip"]);
+        fs::write(repo_dir.join("staged.env"), "STAGED_SECRET_2").expect("write");
+        git(&repo_dir, &["add", "staged.env"]);
+        fs::write(repo_dir.join("MAIN_ONLY.txt"), "MAIN_WORKTREE_CONTENT").expect("write");
+
+        let engine = GitEngine::new(&repo_dir);
+        let mk = |branch: &str| {
+            engine
+                .materialize_agent_worktree(
+                    WorktreeId::new(),
+                    RepoId::new(),
+                    AgentKind::ClaudeCode,
+                    branch,
+                    "main",
+                    "sandbox gate",
+                )
+                .expect("materialize")
+        };
+        let m = mk("agent/claude/sandbox-gate");
+        let sibling = mk("agent/cursor/sibling");
+        fs::write(sibling.worktree_dir.join("SIBLING.txt"), "SIBLING_CONTENT").expect("write");
+        let spec = spec_for(&m);
+        let exec = MicrosandboxExecutor::new(4).with_timeout_secs(10);
+        let run = |cmd: String| {
+            let exec = exec.clone();
+            let spec = spec.clone();
+            let id = m.worktree.id;
+            async move { exec.execute(id, &spec, &cmd).await.expect("execute") }
+        };
+
+        // Allowed: read/write inside the worktree, read-only git commands.
+        let ok = run("cat app.rs && echo '// edit' >> app.rs && git status --short".into()).await;
+        assert_eq!(ok.exit_code, 0, "stderr: {}", ok.stderr);
+        assert!(ok.stdout.contains("fn main()"));
+        assert!(
+            ok.stdout.contains("app.rs"),
+            "git status must work: {}",
+            ok.stdout
+        );
+        assert!(ok.network_isolated);
+
+        // Scratch dir cleaned up after the run.
+        assert!(
+            !m.sandbox_scratch_base
+                .join(ok.run_id.0.to_string())
+                .exists(),
+            "per-run scratch dir must be removed"
+        );
+
+        // Denied: committing (shared git dir is read-only) and rewriting the .git pointer.
+        let commit = run("git -c user.name=a -c user.email=a@a commit -qam x".into()).await;
+        assert_ne!(
+            commit.exit_code, 0,
+            "commit must be blocked inside the sandbox"
+        );
+        let gitfile = run("echo 'gitdir: /etc' > .git".into()).await;
+        assert_ne!(gitfile.exit_code, 0, ".git pointer must be read-only");
+
+        // Denied: reading the main working tree, sibling worktrees and host secrets.
+        for (path, marker) in [
+            (repo_dir.join("MAIN_ONLY.txt"), "MAIN_WORKTREE_CONTENT"),
+            (sibling.worktree_dir.join("SIBLING.txt"), "SIBLING_CONTENT"),
+            (secret_file.clone(), "TOP_SECRET_ON_PREM_KEY_999"),
+        ] {
+            let res = run(format!("cat '{}'", path.display())).await;
+            assert_ne!(res.exit_code, 0, "read of {} must fail", path.display());
+            assert!(!res.stdout.contains(marker), "{} leaked", path.display());
+        }
+
+        // Denied: reading main-repo staged/stashed content through the shared git dir.
+        let common = m.common_git_dir.display().to_string();
+        for probe in [
+            format!("git --git-dir='{common}' ls-files -s staged.env"),
+            format!("cat '{common}/index'"),
+            format!("git --git-dir='{common}' show stash@{{0}}^3:.env"),
+            format!("cat '{common}/refs/stash'"),
+            format!("cat '{common}/logs/HEAD'"),
+            format!("ls '{common}/worktrees'"),
+            format!("cat '{}/index'", sibling.worktree_admin_dir.display()),
+        ] {
+            let res = run(probe.clone()).await;
+            assert!(
+                res.exit_code != 0 || res.stdout.trim().is_empty(),
+                "probe must not succeed: {probe}\nstdout: {}",
+                res.stdout
+            );
+            assert!(!res.stdout.contains("SECRET"), "{probe} leaked a secret");
+        }
+
+        // Denied: writing outside the worktree.
+        let write = run(format!("echo pwned > '{}'", outside_target.display())).await;
+        assert_ne!(write.exit_code, 0);
+        assert!(!outside_target.exists());
+
+        // Environment: no host variables, HOME is the per-run scratch dir.
+        std::env::set_var("GITUST_TEST_HOST_SECRET_TOKEN", "SUPER_SENSITIVE_777");
+        let env = run("env; echo HOME=$HOME".into()).await;
+        assert_eq!(env.exit_code, 0);
+        assert!(!env.stdout.contains("SUPER_SENSITIVE_777"));
+        // `sandbox_scratch_base` is derived from the canonical common git dir.
+        assert!(
+            env.stdout
+                .contains(&format!("HOME={}", m.sandbox_scratch_base.display())),
+            "HOME must be under the scratch base: {}",
+            env.stdout
+        );
+
+        // Network: a local HTTP server is reachable from the host but not from the sandbox.
+        let port = spawn_local_http_server();
+        let curl = format!("curl -s --max-time 2 http://127.0.0.1:{port}/");
+        let host = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&curl)
+            .output()
+            .expect("host curl");
+        assert_eq!(
+            String::from_utf8_lossy(&host.stdout),
+            "ok",
+            "sanity: server must be reachable without sandbox"
+        );
+        let net = run(curl).await;
+        assert_ne!(net.exit_code, 0, "network must be blocked");
+        assert!(!net.stdout.contains("ok"));
+
+        // Background children do not keep the run alive.
+        let started = Instant::now();
+        let bg = run("(sleep 30 &) ; echo lead-exited".into()).await;
+        assert_eq!(bg.exit_code, 0);
+        assert!(bg.stdout.contains("lead-exited"));
+        assert!(started.elapsed() < Duration::from_secs(5));
+
+        // Timeouts.
+        let fast = MicrosandboxExecutor::new(1).with_timeout_secs(1);
+        let timed_out = fast.execute(m.worktree.id, &spec, "sleep 30").await;
+        assert!(matches!(timed_out, Err(SandboxError::TimedOut { .. })));
+    }
+
+    /// The host Rust toolchain must work inside the sandbox (offline build of a tiny crate).
+    #[tokio::test]
+    async fn gate_rust_toolchain_works_in_sandbox() {
+        let has_rustup = std::env::var_os("HOME")
+            .map(|h| Path::new(&h).join(".rustup").is_dir())
+            .unwrap_or(false);
+        if !has_rustup {
+            eprintln!("skipping: host has no ~/.rustup");
+            return;
+        }
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_dir = tmp.path().join("crate");
+        fs::create_dir_all(repo_dir.join("src")).expect("mkdir");
+        git(&repo_dir, &["init", "-q", "-b", "main"]);
+        fs::write(
+            repo_dir.join("Cargo.toml"),
+            "[package]\nname = \"tiny\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .expect("write");
+        fs::write(repo_dir.join("src/lib.rs"), "pub fn one() -> u8 { 1 }\n").expect("write");
+        git(&repo_dir, &["add", "."]);
+        git(&repo_dir, &["commit", "-q", "-m", "tiny crate"]);
+
+        let m = GitEngine::new(&repo_dir)
+            .materialize_agent_worktree(
+                WorktreeId::new(),
                 RepoId::new(),
                 AgentKind::ClaudeCode,
-                "agent/claude/sandbox-security-gate",
+                "agent/claude/cargo",
                 "main",
-                "Verify 7.4 sandbox security gates",
+                "cargo",
             )
-            .expect("materialize worktree");
-
-        let executor = MicrosandboxExecutor::new(4).with_timeout_secs(5);
-
-        // 1. Positive check: reading & writing inside the isolated worktree succeeds, and `.gitust-sandbox-env` is cleaned up
-        let ok_res = executor
-            .execute_in_worktree(
-                materialized.worktree.id,
-                &materialized.worktree_dir,
-                "cat app.rs && echo '// sandbox write ok' >> app.rs",
+            .expect("materialize");
+        let res = MicrosandboxExecutor::new(1)
+            .with_timeout_secs(120)
+            .execute(
+                m.worktree.id,
+                &spec_for(&m),
+                "cargo build --offline -q && cargo --version",
             )
             .await
-            .expect("execute inside worktree");
-        assert_eq!(ok_res.exit_code, 0, "stderr: {}", ok_res.stderr);
-        assert!(ok_res.stdout.contains("fn main()"));
-        assert!(ok_res.isolated_on_premise);
-        assert!(ok_res.network_isolated);
-        assert!(
-            !materialized
-                .worktree_dir
-                .join(".gitust-sandbox-env")
-                .exists(),
-            "ephemeral .gitust-sandbox-env directory must be cleaned up on completion"
+            .expect("execute");
+        assert_eq!(
+            res.exit_code, 0,
+            "stdout: {}\nstderr: {}",
+            res.stdout, res.stderr
         );
+        assert!(res.stdout.contains("cargo "), "{}", res.stdout);
+    }
 
-        // 2. Gate 7.4 (a): Reading files outside the sandbox (host secret file & parent repo working tree) MUST FAIL
-        let read_escape_cmd = format!("cat '{}'", host_secret_file.display());
-        let read_escape_res = executor
-            .execute_in_worktree(
-                materialized.worktree.id,
-                &materialized.worktree_dir,
-                &read_escape_cmd,
-            )
-            .await
-            .expect("run read escape attempt");
-        assert_ne!(
-            read_escape_res.exit_code, 0,
-            "reading outside sandbox must be blocked!"
-        );
-        assert!(
-            !read_escape_res
-                .stdout
-                .contains("TOP_SECRET_ON_PREM_KEY_999"),
-            "secret content leaked into stdout!"
-        );
+    #[test]
+    fn rules_are_ordered_shallow_to_deep() {
+        let tmp = TempDir::new().expect("tempdir");
+        let deep = tmp.path().join("a/b/c");
+        fs::create_dir_all(&deep).expect("mkdir");
+        let rules = resolve_rules(vec![
+            PathRule::new(&deep, PathAccess::ReadWrite),
+            PathRule::new(tmp.path().join("a"), PathAccess::Hidden),
+            PathRule::new(tmp.path().join("missing"), PathAccess::ReadOnly),
+        ])
+        .expect("resolve");
+        assert_eq!(rules.len(), 2, "missing paths are dropped");
+        assert_eq!(rules[0].access, PathAccess::Hidden);
+        assert_eq!(rules[1].access, PathAccess::ReadWrite);
+    }
 
-        // 3. Gate 7.4 (b): Writing files outside the sandbox (and tampering with `.git/objects/info/alternates` or `.git/hooks`) MUST FAIL
-        let write_escape_cmd = format!("echo 'pwned' > '{}'", host_immutable_target.display());
-        let write_escape_res = executor
-            .execute_in_worktree(
-                materialized.worktree.id,
-                &materialized.worktree_dir,
-                &write_escape_cmd,
-            )
-            .await
-            .expect("run write escape attempt");
-        assert_ne!(
-            write_escape_res.exit_code, 0,
-            "writing outside sandbox must be blocked!"
-        );
-        assert!(
-            !host_immutable_target.exists(),
-            "file was created outside sandbox!"
-        );
-
-        // Verify `.git/objects/info/alternates` poisoning is blocked inside the sandbox
-        let poison_alt_res = executor
-            .execute_in_worktree(
-                materialized.worktree.id,
-                &materialized.worktree_dir,
-                "echo '/Users' > .git/objects/info/alternates",
-            )
-            .await
-            .expect("run alternates poison attempt");
-        assert_ne!(
-            poison_alt_res.exit_code, 0,
-            "modifying .git/objects/info/alternates inside sandbox must be denied!"
-        );
-        assert!(!is_valid_git_alternates_objects_dir(Path::new("/Users")));
-
-        // 4. Gate 7.4 (c): Host environment secrets (`AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, real `$HOME`) MUST NOT LEAK
-        std::env::set_var(
-            "GITUST_TEST_HOST_SECRET_TOKEN",
-            "SUPER_SENSITIVE_CLOUD_CREDENTIAL_777",
-        );
-        let env_probe_res = executor
-            .execute_in_worktree(
-                materialized.worktree.id,
-                &materialized.worktree_dir,
-                "env && echo HOME=$HOME",
-            )
-            .await
-            .expect("run env probe");
-        assert_eq!(env_probe_res.exit_code, 0);
-        assert!(
-            !env_probe_res
-                .stdout
-                .contains("GITUST_TEST_HOST_SECRET_TOKEN"),
-            "host secret env var leaked into sandbox!"
-        );
-        assert!(
-            !env_probe_res
-                .stdout
-                .contains("SUPER_SENSITIVE_CLOUD_CREDENTIAL_777"),
-            "host secret value leaked into sandbox!"
-        );
-        assert!(
-            env_probe_res.stdout.contains(".gitust-sandbox-env"),
-            "sandbox HOME must point to isolated ephemeral dir, got: {}",
-            env_probe_res.stdout
-        );
-
-        // 5. Gate 7.4 (d): Unauthorized network access MUST FAIL
-        let net_escape_res = executor
-            .execute_in_worktree(
-                materialized.worktree.id,
-                &materialized.worktree_dir,
-                "/usr/bin/nc -z -G 1 1.1.1.1 80 || /usr/bin/curl -sS --max-time 1 http://1.1.1.1",
-            )
-            .await
-            .expect("run network escape attempt");
-        assert_ne!(
-            net_escape_res.exit_code, 0,
-            "outbound network access must be blocked inside sandbox!"
-        );
-
-        // 6. Gate 7.4 (e): Background daemon / pipe-holding grandchild must be reaped immediately without hanging, and timeout reaps process group
-        let bg_start = Instant::now();
-        let bg_res = executor
-            .execute_in_worktree(
-                materialized.worktree.id,
-                &materialized.worktree_dir,
-                "(sleep 30 &) && echo 'lead exited'",
-            )
-            .await
-            .expect("run background grandchild test");
-        assert_eq!(bg_res.exit_code, 0);
-        assert!(bg_res.stdout.contains("lead exited"));
-        assert!(
-            bg_start.elapsed() < Duration::from_secs(3),
-            "background grandchild holding stdout must be killed immediately on lead exit"
-        );
-
-        let fast_timeout_executor = MicrosandboxExecutor::new(2).with_timeout_secs(1);
-        let timeout_res = fast_timeout_executor
-            .execute_in_worktree(
-                materialized.worktree.id,
-                &materialized.worktree_dir,
-                "sleep 30",
-            )
-            .await;
-        assert!(
-            matches!(timeout_res, Err(SandboxError::TimedOut { .. })),
-            "long-running runaway command must time out and reap process group"
+    #[test]
+    fn seatbelt_quote_rejects_control_chars() {
+        assert!(seatbelt_quote(Path::new("/tmp/a\nb")).is_err());
+        assert_eq!(
+            seatbelt_quote(Path::new("/tmp/a\"b")).expect("quote"),
+            "\"/tmp/a\\\"b\""
         );
     }
 }

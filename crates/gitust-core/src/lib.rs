@@ -271,6 +271,8 @@ impl AgentKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WorktreeStatus {
+    /// Worktree exists but no sandbox verification has run yet.
+    Pending,
     Compiling,
     Verified,
     Failed,
@@ -278,6 +280,10 @@ pub enum WorktreeStatus {
     Discarded,
 }
 
+/// Public agent worktree model.
+///
+/// Deliberately contains no server filesystem paths: on-disk locations are runtime state owned
+/// by the server and are never serialized to API clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentWorktree {
     pub id: WorktreeId,
@@ -285,8 +291,11 @@ pub struct AgentWorktree {
     pub agent: AgentKind,
     pub branch: String,
     pub base_branch: String,
+    /// Commit the agent branch was created from.
+    pub base_commit: CommitSha,
     pub prompt_summary: String,
-    pub fork_latency_micros: u64,
+    /// Measured wall-clock time to create the branch and check out the worktree.
+    pub materialize_micros: u64,
     pub status: WorktreeStatus,
     pub last_sandbox_duration_ms: u64,
     pub tests_passed: u32,
@@ -296,20 +305,17 @@ pub struct AgentWorktree {
     pub deletions: u32,
     pub github_synced: bool,
     pub created_at: DateTime<Utc>,
-    #[serde(default)]
-    pub worktree_path: Option<String>,
-    #[serde(default)]
-    pub cow_strategy: String,
 }
 
 impl AgentWorktree {
     /// Transitions this agent worktree into the `Merged` state and records whether it was synced
-    /// to the upstream GitHub mirror.
+    /// to the upstream GitHub mirror. Only a `Verified` worktree may be merged.
     pub fn approve_and_merge(&mut self, synced_to_github: bool) -> Result<(), DomainError> {
-        if self.status == WorktreeStatus::Discarded {
-            return Err(DomainError::InvalidStateTransition(
-                "cannot merge a discarded worktree".to_owned(),
-            ));
+        if self.status != WorktreeStatus::Verified {
+            return Err(DomainError::InvalidStateTransition(format!(
+                "only a verified worktree can be merged (current status: {:?})",
+                self.status
+            )));
         }
         self.status = WorktreeStatus::Merged;
         self.github_synced = synced_to_github;

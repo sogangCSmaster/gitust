@@ -10,10 +10,6 @@ gix.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
-libc.workspace = true
-uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-
-

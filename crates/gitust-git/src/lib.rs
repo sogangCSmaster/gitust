@@ -1,27 +1,38 @@
-//! `gitust-git`: 100% Pure Rust Git Engine powered by `gitoxide` (`gix`) and OS-native CoW syscalls.
-//! Uses a cached `gix::ThreadSafeRepository` so thread-local repository handles are
-//! materialized in O(1) time (`<1µs`) with zero redundant filesystem/packfile rescans.
+//! `gitust-git`: Git engine for Gitust.
 //!
-//! Provides `<1ms` Copy-on-Write (CoW) agent worktree materialization using:
-//! - macOS APFS `clonefile(2)` (`libc::clonefile`)
-//! - Linux Btrfs/XFS `ioctl(FICLONE)`
-//! - POSIX Copy fallback on filesystems without reflink support (e.g. ext4/tmpfs)
-//! - Shared Git Object Database (`.git/objects/info/alternates`) for zero-copy packfile sharing.
+//! - Read paths (HEAD / root tree inspection) run in-process on `gitoxide` (`gix`) through a cached
+//!   `gix::ThreadSafeRepository`.
+//! - Agent branches are created and deleted with `gix` reference transactions: create-only
+//!   (`PreviousValue::MustNotExist`), scoped to the `agent/` namespace, with reflog entries.
+//! - Agent worktrees are standard Git *linked worktrees*. They share refs and objects with the main
+//!   repository, so `git gc` is aware of them, agent commits are immediately visible to the main
+//!   repository, and bare mirrors are supported.
+//!
+//! Temporary exception to the pure-Rust goal: `gix` 0.70 exposes no public linked-worktree
+//! creation/checkout API, so worktree add/remove/list shell out to the `git` binary (which is
+//! already required for the `git fsck` verification gate). Replace once `gix` grows the API.
 
-use std::ffi::CString;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
+use std::ffi::OsStr;
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use chrono::Utc;
 use gitust_core::{AgentKind, AgentWorktree, CommitSha, RepoId, WorktreeId, WorktreeStatus};
+use gix::refs::transaction::{Change, PreviousValue, RefEdit, RefLog};
+use gix::refs::{FullName, Target};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use uuid::Uuid;
+
+/// Every branch created on behalf of an agent lives under this namespace. The sync engine keeps
+/// this namespace on-premise, and the engine refuses to create or delete refs outside of it.
+pub const AGENT_BRANCH_PREFIX: &str = "agent/";
+/// Directory (inside the common git dir) holding agent linked worktrees of bare repositories.
+const WORKTREES_DIR_NAME: &str = "gitust-worktrees";
+/// Directory (inside the common git dir) holding per-run sandbox scratch space.
+const SANDBOX_SCRATCH_DIR_NAME: &str = "gitust-sandbox-scratch";
 
 #[derive(Debug, Error)]
 pub enum GitEngineError {
@@ -37,43 +48,61 @@ pub enum GitEngineError {
     #[error("invalid or unsafe git branch name '{0}'")]
     InvalidBranchName(String),
 
-    #[error("failed to materialize CoW agent worktree at '{path}': {message}")]
-    WorktreeMaterialization { path: String, message: String },
+    #[error("branch '{0}' is outside the '{AGENT_BRANCH_PREFIX}' namespace")]
+    BranchNotAgentScoped(String),
+
+    #[error("base branch '{0}' does not exist")]
+    BaseBranchNotFound(String),
+
+    #[error("branch '{0}' already exists")]
+    BranchAlreadyExists(String),
+
+    #[error("reference transaction failed: {0}")]
+    RefTransaction(String),
+
+    #[error(
+        "repository config contains embedded credentials (URL userinfo or http.extraHeader); \
+         agent worktrees share this config, so refusing to expose it"
+    )]
+    CredentialsInRepoConfig,
+
+    #[error("`git {args}` failed: {message}")]
+    GitCommand { args: String, message: String },
+
+    #[error("path '{0}' is not a worktree managed by this engine")]
+    WorktreeNotManaged(String),
+
+    #[error("filesystem error at '{path}': {message}")]
+    Io { path: String, message: String },
 
     #[error("git integrity check (`git fsck --full --strict`) failed at '{path}': {details}")]
     FsckFailed { path: String, details: String },
 }
 
-/// Strategy used to materialize the Copy-on-Write working tree on the underlying filesystem.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CowStrategy {
-    /// macOS APFS `clonefile(2)` zero-copy directory/file clone.
-    ApfsClonefile,
-    /// Linux Btrfs/XFS `ioctl(FICLONE)` reflink clone.
-    LinuxFiclone,
-    /// Fallback when the filesystem (e.g. ext4/tmpfs) does not support reflink/clonefile.
-    HardlinkOrCopyFallback,
-}
-
-impl CowStrategy {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::ApfsClonefile => "apfs_clonefile",
-            Self::LinuxFiclone => "linux_ficlone",
-            Self::HardlinkOrCopyFallback => "hardlink_or_copy_fallback",
-        }
-    }
-}
-
-/// Concrete on-disk CoW worktree checkout produced for an AI coding agent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A linked worktree created for an agent, plus the paths a sandbox needs to confine it.
+#[derive(Debug, Clone)]
 pub struct MaterializedWorktree {
     pub worktree: AgentWorktree,
+    /// Checkout directory of the linked worktree (sandbox read-write root).
     pub worktree_dir: PathBuf,
-    pub strategy: CowStrategy,
-    pub head_sha: CommitSha,
+    /// This worktree's admin dir inside the shared git dir (`<common>/worktrees/<name>`).
+    pub worktree_admin_dir: PathBuf,
+    /// Shared `.git` directory (sandbox read-only: objects, refs, config).
+    pub common_git_dir: PathBuf,
+    /// Main repository working tree, `None` for bare repositories (sandbox hidden).
+    pub main_workdir: Option<PathBuf>,
+    /// Parent directory of all agent worktrees (sandbox hidden, except the own worktree).
+    pub worktrees_base: PathBuf,
+    /// Parent directory of per-run sandbox scratch dirs.
+    pub sandbox_scratch_base: PathBuf,
+}
+
+/// An agent worktree discovered on disk via `git worktree list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManagedWorktreeEntry {
+    pub worktree_dir: PathBuf,
+    pub branch: String,
+    pub head: CommitSha,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,8 +120,8 @@ pub struct RepoHeadSnapshot {
     pub lookup_micros: u64,
 }
 
-/// Pure Rust Git Engine wrapping a shared `gix::ThreadSafeRepository` for O(1)
-/// zero-copy object database reuse across all threads and requests.
+/// Git engine wrapping a shared `gix::ThreadSafeRepository` for object database reuse across
+/// threads and requests.
 #[derive(Debug, Clone)]
 pub struct GitEngine {
     repo_path: PathBuf,
@@ -115,7 +144,13 @@ impl GitEngine {
         }
     }
 
-    /// Configures a custom base directory where isolated CoW agent worktrees are materialized.
+    /// Overrides where agent worktrees are created.
+    ///
+    /// Default: for a repository with a working tree at `<parent>/<name>`, a sibling directory
+    /// `<parent>/.<name>.gitust-worktrees`; for a bare repository, `<git dir>/gitust-worktrees`.
+    /// Worktrees are deliberately kept outside the main working tree: tools such as cargo, npm
+    /// and rustfmt search parent directories for configuration and would otherwise pick up (or
+    /// fail on) the main repository's files.
     #[must_use]
     pub fn with_worktree_base_dir(mut self, base_dir: impl AsRef<Path>) -> Self {
         self.worktree_base_dir = Some(base_dir.as_ref().to_path_buf());
@@ -127,17 +162,8 @@ impl GitEngine {
         &self.repo_path
     }
 
-    /// Resolves the base directory where agent worktrees are stored on disk.
-    #[must_use]
-    pub fn resolve_worktree_base_dir(&self) -> PathBuf {
-        if let Some(ref custom) = self.worktree_base_dir {
-            return custom.clone();
-        }
-        self.repo_path.join(".git").join("gitust-worktrees")
-    }
-
-    /// Acquires a thread-local `gix::Repository` in O(1) memory clone time (`<1µs`)
-    /// from the shared `ThreadSafeRepository`, or opens and caches it on first access.
+    /// Acquires a thread-local `gix::Repository` from the shared `ThreadSafeRepository`,
+    /// opening and caching it on first access.
     fn acquire_repo(&self) -> Result<gix::Repository, GitEngineError> {
         if let Some(shared) = self.shared_repo.get() {
             return Ok(shared.to_thread_local());
@@ -153,7 +179,8 @@ impl GitEngine {
         Ok(local)
     }
 
-    /// Validates a Git branch name against path traversal, control chars, and Git ref format rules.
+    /// Validates a Git branch name against path traversal, control chars, and ref format rules.
+    /// Returns the normalized short name (without `refs/heads/`).
     pub fn validate_branch_name(branch: &str) -> Result<String, GitEngineError> {
         let trimmed = branch.trim();
         let normalized = trimmed
@@ -163,12 +190,12 @@ impl GitEngine {
 
         if normalized.is_empty()
             || normalized == "@"
+            || normalized == "HEAD"
             || normalized.starts_with('-')
             || normalized.starts_with("refs/")
             || normalized.contains("..")
             || normalized.contains("//")
             || normalized.contains("@{")
-            || normalized.ends_with(".lock")
             || normalized.ends_with('.')
             || normalized
                 .split('/')
@@ -185,8 +212,16 @@ impl GitEngine {
         Ok(normalized.to_owned())
     }
 
-    /// Inspects the repository's `HEAD` commit and root tree in-process via `gitoxide` (`gix`)
-    /// using the cached `ThreadSafeRepository` Object Database.
+    /// Validates a branch name and additionally requires it to live under `agent/<something>`.
+    pub fn validate_agent_branch_name(branch: &str) -> Result<String, GitEngineError> {
+        let clean = Self::validate_branch_name(branch)?;
+        match clean.strip_prefix(AGENT_BRANCH_PREFIX) {
+            Some(rest) if !rest.is_empty() => Ok(clean),
+            _ => Err(GitEngineError::BranchNotAgentScoped(clean)),
+        }
+    }
+
+    /// Inspects the repository's `HEAD` commit and root tree in-process via `gix`.
     pub fn inspect_head_zero_copy(&self) -> Result<RepoHeadSnapshot, GitEngineError> {
         let start = Instant::now();
         let repo = self.acquire_repo()?;
@@ -229,549 +264,484 @@ impl GitEngine {
         })
     }
 
-    /// Materializes a real on-disk Copy-on-Write (CoW) agent worktree and branch in `<1ms` on
-    /// supported CoW filesystems (APFS `clonefile` / Linux `FICLONE`), with automatic fallback on ext4/tmpfs.
-    ///
-    /// - Creates the branch ref `refs/heads/<branch>` in the source repository pointing at `HEAD`.
-    /// - Creates an isolated worktree directory at `<worktree_base>/<worktree_id>` with its own `.git`
-    ///   linked via `.git/objects/info/alternates` to the main repository's ODB (zero packfile duplication).
-    /// - Clones working tree entries using OS-native CoW (`clonefile` / `FICLONE`).
-    pub fn materialize_cow_agent_worktree(
-        &self,
-        repo_id: RepoId,
-        agent: AgentKind,
-        branch: impl Into<String>,
-        base_branch: impl Into<String>,
-        prompt_summary: impl Into<String>,
-    ) -> Result<MaterializedWorktree, GitEngineError> {
-        self.materialize_cow_agent_worktree_with_id(
-            WorktreeId::new(),
-            repo_id,
-            agent,
-            branch,
-            base_branch,
-            prompt_summary,
-        )
+    fn common_git_dir(repo: &gix::Repository) -> PathBuf {
+        let common = repo.common_dir();
+        fs::canonicalize(common).unwrap_or_else(|_| common.to_path_buf())
     }
 
-    /// Materializes an on-disk Copy-on-Write (CoW) agent worktree using a specific `WorktreeId`.
-    pub fn materialize_cow_agent_worktree_with_id(
+    fn worktrees_base(&self, repo: &gix::Repository, common_git_dir: &Path) -> PathBuf {
+        if let Some(custom) = &self.worktree_base_dir {
+            return custom.clone();
+        }
+        repo.work_dir()
+            .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()))
+            .and_then(|w| {
+                let name = w.file_name()?.to_string_lossy().into_owned();
+                Some(w.parent()?.join(format!(".{name}.gitust-worktrees")))
+            })
+            .unwrap_or_else(|| common_git_dir.join(WORKTREES_DIR_NAME))
+    }
+
+    /// Creates a new `agent/` branch from `base_branch` and checks it out as a Git linked worktree.
+    ///
+    /// - The branch is created with a `gix` transaction that fails if it already exists, so
+    ///   existing branches can never be overwritten.
+    /// - The worktree is a clean checkout of the base commit; uncommitted or untracked files of
+    ///   the main working tree are never copied.
+    /// - Refuses to run when the shared repository config holds embedded credentials, because the
+    ///   sandboxed agent can read that config.
+    pub fn materialize_agent_worktree(
         &self,
         worktree_id: WorktreeId,
         repo_id: RepoId,
         agent: AgentKind,
-        branch: impl Into<String>,
-        base_branch: impl Into<String>,
+        branch: &str,
+        base_branch: &str,
         prompt_summary: impl Into<String>,
     ) -> Result<MaterializedWorktree, GitEngineError> {
         let start = Instant::now();
-        let raw_branch = branch.into();
-        let clean_branch = Self::validate_branch_name(&raw_branch)?;
-        let base_branch_str = base_branch.into();
-        let prompt_str = prompt_summary.into();
+        let clean_branch = Self::validate_agent_branch_name(branch)?;
+        let clean_base = Self::validate_branch_name(base_branch)?;
 
-        let repo = self.acquire_repo()?;
-        let mut head = repo
-            .head()
-            .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?;
-        let commit = head
-            .peel_to_commit_in_place()
-            .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?;
-        let commit_id = commit.id;
-        let head_sha = CommitSha(commit_id.to_string());
+        let mut repo = self.acquire_repo()?;
+        let common_git_dir = Self::common_git_dir(&repo);
+        reject_credentials_in_config(&common_git_dir)?;
+        ensure_reflog_identity(&mut repo)?;
 
-        let common_git_dir = repo.common_dir().to_path_buf();
-        let canonical_common_git_dir =
-            fs::canonicalize(&common_git_dir).unwrap_or_else(|_| common_git_dir.clone());
+        let base_ref = format!("refs/heads/{clean_base}");
+        let base_id = repo
+            .find_reference(base_ref.as_str())
+            .map_err(|_| GitEngineError::BaseBranchNotFound(clean_base.clone()))?
+            .peel_to_id_in_place()
+            .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?
+            .detach();
 
-        // 1. Write the isolated agent branch reference in the main repository (`refs/heads/<clean_branch>`)
-        write_branch_ref_atomic(&canonical_common_git_dir, &clean_branch, &head_sha.0)?;
-
-        // 2. Create the isolated worktree directory
-        let base_dir = self.resolve_worktree_base_dir();
-        let worktree_dir = base_dir.join(worktree_id.0.to_string());
-
-        fs::create_dir_all(&worktree_dir).map_err(|e| GitEngineError::WorktreeMaterialization {
-            path: worktree_dir.display().to_string(),
-            message: e.to_string(),
-        })?;
-
-        // 3. Initialize a lightweight `.git` directory inside the worktree sharing the main ODB via alternates
-        setup_worktree_git_dir(
-            &worktree_dir,
-            &canonical_common_git_dir,
-            &clean_branch,
-            &base_branch_str,
-            &head_sha.0,
-        )?;
-
-        // 4. Clone the working tree entries using OS-native CoW (`clonefile` on macOS, `FICLONE` on Linux, or fallback)
-        let mut detected_strategy = CowStrategy::HardlinkOrCopyFallback;
-        if let Some(workdir) = repo.work_dir() {
-            detected_strategy = clone_working_tree_cow(workdir, &worktree_dir)?;
+        let full_branch = format!("refs/heads/{clean_branch}");
+        let branch_exists = repo
+            .try_find_reference(full_branch.as_str())
+            .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?
+            .is_some();
+        if branch_exists {
+            return Err(GitEngineError::BranchAlreadyExists(clean_branch));
+        }
+        if let Err(e) = repo.reference(
+            full_branch.as_str(),
+            base_id,
+            PreviousValue::MustNotExist,
+            format!("gitust: create agent branch from {clean_base}"),
+        ) {
+            // A concurrent creator won the race between the pre-check and the transaction.
+            if matches!(repo.try_find_reference(full_branch.as_str()), Ok(Some(_))) {
+                return Err(GitEngineError::BranchAlreadyExists(clean_branch));
+            }
+            return Err(GitEngineError::RefTransaction(e.to_string()));
         }
 
-        let fork_latency_micros = u64::try_from(start.elapsed().as_micros())
-            .unwrap_or(u64::MAX)
-            .max(1);
-
-        let worktree = AgentWorktree {
-            id: worktree_id,
-            repo_id,
-            agent,
-            branch: clean_branch,
-            base_branch: base_branch_str,
-            prompt_summary: prompt_str,
-            fork_latency_micros,
-            status: WorktreeStatus::Verified,
-            last_sandbox_duration_ms: 0,
-            tests_passed: 0,
-            tests_total: 0,
-            files_changed: 0,
-            additions: 0,
-            deletions: 0,
-            github_synced: false,
-            created_at: Utc::now(),
-            worktree_path: Some(worktree_dir.display().to_string()),
-            cow_strategy: detected_strategy.as_str().to_owned(),
+        let worktrees_base = self.worktrees_base(&repo, &common_git_dir);
+        let worktree_dir = worktrees_base.join(worktree_id.0.to_string());
+        let checkout = fs::create_dir_all(&worktrees_base)
+            .map_err(|e| io_err(&worktrees_base, &e))
+            .and_then(|()| {
+                run_git(
+                    &self.repo_path,
+                    [
+                        OsStr::new("worktree"),
+                        OsStr::new("add"),
+                        OsStr::new("--quiet"),
+                        worktree_dir.as_os_str(),
+                        OsStr::new(clean_branch.as_str()),
+                    ],
+                )
+            })
+            .and_then(|_| read_worktree_admin_dir(&worktree_dir));
+        let worktree_admin_dir = match checkout {
+            Ok(dir) => dir,
+            Err(e) => {
+                let _ = run_git(
+                    &self.repo_path,
+                    [
+                        OsStr::new("worktree"),
+                        OsStr::new("remove"),
+                        OsStr::new("--force"),
+                        worktree_dir.as_os_str(),
+                    ],
+                );
+                let _ = fs::remove_dir_all(&worktree_dir);
+                let _ = run_git(
+                    &self.repo_path,
+                    [OsStr::new("worktree"), OsStr::new("prune")],
+                );
+                // Roll back the branch only if it still points where we created it.
+                let _ = delete_branch_ref(
+                    &repo,
+                    &full_branch,
+                    PreviousValue::MustExistAndMatch(Target::Object(base_id)),
+                );
+                return Err(e);
+            }
         };
 
+        let worktree_dir = fs::canonicalize(&worktree_dir).unwrap_or(worktree_dir);
+        let worktrees_base = fs::canonicalize(&worktrees_base).unwrap_or(worktrees_base);
+        let main_workdir = repo
+            .work_dir()
+            .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()));
+        let materialize_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
+
         Ok(MaterializedWorktree {
-            worktree,
+            worktree: AgentWorktree {
+                id: worktree_id,
+                repo_id,
+                agent,
+                branch: clean_branch,
+                base_branch: clean_base,
+                base_commit: CommitSha(base_id.to_string()),
+                prompt_summary: prompt_summary.into(),
+                materialize_micros,
+                status: WorktreeStatus::Pending,
+                last_sandbox_duration_ms: 0,
+                tests_passed: 0,
+                tests_total: 0,
+                files_changed: 0,
+                additions: 0,
+                deletions: 0,
+                github_synced: false,
+                created_at: Utc::now(),
+            },
             worktree_dir,
-            strategy: detected_strategy,
-            head_sha,
+            worktree_admin_dir,
+            sandbox_scratch_base: common_git_dir.join(SANDBOX_SCRATCH_DIR_NAME),
+            common_git_dir,
+            main_workdir,
+            worktrees_base,
         })
     }
 
-    /// Spawns a lightweight Copy-on-Write (CoW) agent branch/worktree descriptor in `<1ms`,
-    /// reusing the cached `gix::ThreadSafeRepository` Object Database handle with zero disk mutations.
-    /// For full on-disk CoW checkout materialization, call [`Self::materialize_cow_agent_worktree`].
-    #[must_use]
-    pub fn spawn_cow_agent_worktree(
-        &self,
-        repo_id: RepoId,
-        agent: AgentKind,
-        branch: impl Into<String>,
-        base_branch: impl Into<String>,
-        prompt_summary: impl Into<String>,
-    ) -> AgentWorktree {
-        let start = Instant::now();
-        let _ = self.acquire_repo().ok();
-        let fork_latency_micros = u64::try_from(start.elapsed().as_micros())
-            .unwrap_or(1)
-            .max(1);
-        let strategy = default_platform_cow_strategy();
-
-        AgentWorktree {
-            id: WorktreeId::new(),
-            repo_id,
-            agent,
-            branch: branch.into(),
-            base_branch: base_branch.into(),
-            prompt_summary: prompt_summary.into(),
-            fork_latency_micros,
-            status: WorktreeStatus::Verified,
-            last_sandbox_duration_ms: 82,
-            tests_passed: 24,
-            tests_total: 24,
-            files_changed: 3,
-            additions: 112,
-            deletions: 18,
-            github_synced: false,
-            created_at: Utc::now(),
-            worktree_path: None,
-            cow_strategy: strategy.as_str().to_owned(),
-        }
+    /// Fails closed if the shared repository config currently holds credentials. Call before
+    /// every sandbox run: the config can change after a worktree was created.
+    pub fn ensure_config_has_no_credentials(&self) -> Result<(), GitEngineError> {
+        let repo = self.acquire_repo()?;
+        reject_credentials_in_config(&Self::common_git_dir(&repo))
     }
 
-    /// Runs `git fsck --full --strict` against a repository or worktree path to verify
-    /// 100% Git Object Database and reference integrity (Verification Gate 7.4).
+    /// Removes an agent linked worktree checkout (discarding uncommitted changes).
+    ///
+    /// The `agent/` branch is deleted only if it still points at `unchanged_from` (i.e. the agent
+    /// produced no commits); otherwise it is kept so committed work is never destroyed.
+    /// Returns whether the branch was deleted. Refuses paths outside the worktree base directory.
+    pub fn remove_agent_worktree(
+        &self,
+        worktree_dir: &Path,
+        branch: &str,
+        unchanged_from: &CommitSha,
+    ) -> Result<bool, GitEngineError> {
+        let clean_branch = Self::validate_agent_branch_name(branch)?;
+        let repo = self.acquire_repo()?;
+        let common_git_dir = Self::common_git_dir(&repo);
+        let base = self.worktrees_base(&repo, &common_git_dir);
+        let base = fs::canonicalize(&base).unwrap_or(base);
+        let target = fs::canonicalize(worktree_dir).unwrap_or_else(|_| worktree_dir.to_path_buf());
+        if target.parent() != Some(base.as_path()) {
+            return Err(GitEngineError::WorktreeNotManaged(
+                worktree_dir.display().to_string(),
+            ));
+        }
+
+        if target.exists() {
+            run_git(
+                &self.repo_path,
+                [
+                    OsStr::new("worktree"),
+                    OsStr::new("remove"),
+                    OsStr::new("--force"),
+                    target.as_os_str(),
+                ],
+            )?;
+        }
+        run_git(
+            &self.repo_path,
+            [OsStr::new("worktree"), OsStr::new("prune")],
+        )?;
+        // Best effort: only succeeds when no other worktree remains (`git worktree add`
+        // recreates missing parent directories, so a concurrent create is unaffected).
+        let _ = fs::remove_dir(&base);
+
+        let full_branch = format!("refs/heads/{clean_branch}");
+        let Some(mut current) = repo
+            .try_find_reference(full_branch.as_str())
+            .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?
+        else {
+            return Ok(false);
+        };
+        let tip = current
+            .peel_to_id_in_place()
+            .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?
+            .detach();
+        if tip.to_string() != unchanged_from.0 {
+            return Ok(false);
+        }
+        delete_branch_ref(
+            &repo,
+            &full_branch,
+            PreviousValue::MustExistAndMatch(Target::Object(tip)),
+        )?;
+        Ok(true)
+    }
+
+    /// Lists agent worktrees managed by this engine (linked worktrees under the worktree base
+    /// directory whose branch is in the `agent/` namespace).
+    pub fn list_agent_worktrees(&self) -> Result<Vec<ManagedWorktreeEntry>, GitEngineError> {
+        let repo = self.acquire_repo()?;
+        let common_git_dir = Self::common_git_dir(&repo);
+        let base = self.worktrees_base(&repo, &common_git_dir);
+        let base = fs::canonicalize(&base).unwrap_or(base);
+
+        let stdout = run_git(
+            &self.repo_path,
+            [
+                OsStr::new("worktree"),
+                OsStr::new("list"),
+                OsStr::new("--porcelain"),
+                OsStr::new("-z"),
+            ],
+        )?;
+        Ok(parse_worktree_list(&stdout)
+            .into_iter()
+            .filter(|e| e.worktree_dir.parent() == Some(base.as_path()))
+            .collect())
+    }
+
+    /// Runs `git fsck --full --strict` against a repository or worktree path (Verification Gate 7.4).
     pub fn verify_git_fsck(repo_or_worktree_path: impl AsRef<Path>) -> Result<(), GitEngineError> {
         let path = repo_or_worktree_path.as_ref();
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(path)
-            .arg("fsck")
-            .arg("--full")
-            .arg("--strict")
-            .output()
-            .map_err(|e| GitEngineError::FsckFailed {
-                path: path.display().to_string(),
-                details: e.to_string(),
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(GitEngineError::FsckFailed {
-                path: path.display().to_string(),
-                details: format!("stdout: {stdout} | stderr: {stderr}"),
-            });
-        }
-        Ok(())
+        run_git(
+            path,
+            [
+                OsStr::new("fsck"),
+                OsStr::new("--full"),
+                OsStr::new("--strict"),
+            ],
+        )
+        .map(|_| ())
+        .map_err(|e| GitEngineError::FsckFailed {
+            path: path.display().to_string(),
+            details: e.to_string(),
+        })
     }
 }
 
-/// Atomically writes `refs/heads/<branch>` in the given `.git` directory using an exclusive
-/// per-writer temporary lockfile (`create_new(true)`) so concurrent branch updates or branch names
-/// containing dots (`agent/claude/v1.2`) never clobber or race on the same `.lock` file.
-fn write_branch_ref_atomic(
-    git_dir: &Path,
-    clean_branch: &str,
-    commit_hex: &str,
-) -> Result<(), GitEngineError> {
-    let ref_path = git_dir.join("refs").join("heads").join(clean_branch);
-    let Some(parent) = ref_path.parent() else {
-        return Err(GitEngineError::WorktreeMaterialization {
-            path: ref_path.display().to_string(),
-            message: "ref path missing parent directory".to_owned(),
+fn io_err(path: &Path, e: &std::io::Error) -> GitEngineError {
+    GitEngineError::Io {
+        path: path.display().to_string(),
+        message: e.to_string(),
+    }
+}
+
+/// Runs the host `git` binary with a hardened, deterministic environment:
+/// no system/global config, no hooks, no fsmonitor, no prompts, and no inherited `GIT_*` overrides.
+fn run_git<I, S>(dir: &Path, args: I) -> Result<Vec<u8>, GitEngineError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let args: Vec<_> = args.into_iter().map(|a| a.as_ref().to_owned()).collect();
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "core.fsmonitor=false",
+        ])
+        .args(&args)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| GitEngineError::GitCommand {
+            args: display_args(&args),
+            message: e.to_string(),
+        })?;
+
+    if !output.status.success() {
+        return Err(GitEngineError::GitCommand {
+            args: display_args(&args),
+            message: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
         });
+    }
+    Ok(output.stdout)
+}
+
+fn display_args(args: &[std::ffi::OsString]) -> String {
+    args.iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Ensures a committer identity exists for reflog entries, without touching any config on disk.
+fn ensure_reflog_identity(repo: &mut gix::Repository) -> Result<(), GitEngineError> {
+    if matches!(repo.committer(), Some(Ok(_))) {
+        return Ok(());
+    }
+    let mut snapshot = repo.config_snapshot_mut();
+    snapshot
+        .set_value(&gix::config::tree::Committer::NAME, "gitust")
+        .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
+    snapshot
+        .set_value(&gix::config::tree::Committer::EMAIL, "gitust@localhost")
+        .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
+    snapshot
+        .commit()
+        .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
+    Ok(())
+}
+
+/// Deletes an `agent/` branch ref (with reflog) using a `gix` transaction.
+fn delete_branch_ref(
+    repo: &gix::Repository,
+    full_branch: &str,
+    expected: PreviousValue,
+) -> Result<(), GitEngineError> {
+    let short = full_branch
+        .strip_prefix("refs/heads/")
+        .unwrap_or(full_branch);
+    if !short.starts_with(AGENT_BRANCH_PREFIX) {
+        return Err(GitEngineError::BranchNotAgentScoped(short.to_owned()));
+    }
+    let name: FullName = full_branch
+        .try_into()
+        .map_err(|_| GitEngineError::InvalidBranchName(full_branch.to_owned()))?;
+    repo.edit_reference(RefEdit {
+        change: Change::Delete {
+            expected,
+            log: RefLog::AndReference,
+        },
+        name,
+        deref: false,
+    })
+    .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
+    Ok(())
+}
+
+/// Fails closed if the shared repository config contains credentials an agent could read:
+/// userinfo in `http(s)://` URLs (`https://user:token@host`, `https://token@host`) or any
+/// `http.extraHeader` setting.
+///
+/// Limitation: `include.path` / `includeIf` targets are not followed.
+fn reject_credentials_in_config(common_git_dir: &Path) -> Result<(), GitEngineError> {
+    let config_path = common_git_dir.join("config");
+    let text = match fs::read_to_string(&config_path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io_err(&config_path, &e)),
     };
-    fs::create_dir_all(parent).map_err(|e| GitEngineError::WorktreeMaterialization {
-        path: parent.display().to_string(),
-        message: e.to_string(),
-    })?;
-
-    let leaf_name = ref_path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("ref");
-    let unique_lock_path = parent.join(format!(".{leaf_name}.{}.lock", Uuid::new_v4()));
-
-    let write_res = (|| -> Result<(), std::io::Error> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&unique_lock_path)?;
-        writeln!(file, "{commit_hex}")?;
-        file.flush()?;
-        Ok(())
-    })();
-
-    if let Err(e) = write_res {
-        let _ = fs::remove_file(&unique_lock_path);
-        return Err(GitEngineError::WorktreeMaterialization {
-            path: unique_lock_path.display().to_string(),
-            message: e.to_string(),
-        });
+    if config_contains_credentials(&text) {
+        return Err(GitEngineError::CredentialsInRepoConfig);
     }
-
-    if let Err(e) = fs::rename(&unique_lock_path, &ref_path) {
-        let _ = fs::remove_file(&unique_lock_path);
-        return Err(GitEngineError::WorktreeMaterialization {
-            path: ref_path.display().to_string(),
-            message: e.to_string(),
-        });
-    }
-
     Ok(())
 }
 
-/// Initializes a lightweight `.git` directory inside the isolated worktree with:
-/// - `objects/info/alternates` pointing to the source repository's `objects` directory
-/// - `info/exclude` ignoring `.gitust-sandbox-env/` so sandbox scratch dirs never pollute `git status`
-/// - `packed-refs` and `base_branch` ref copied so `git diff main` / `git log main..HEAD` work inside the worktree
-/// - CoW-cloned `index` so `git status`, `git diff`, `git commit`, and `git fsck` work immediately.
-fn setup_worktree_git_dir(
-    worktree_dir: &Path,
-    source_git_dir: &Path,
-    clean_branch: &str,
-    base_branch: &str,
-    commit_hex: &str,
-) -> Result<(), GitEngineError> {
-    let wt_git = worktree_dir.join(".git");
-    let wt_info = wt_git.join("info");
-    let wt_objects_info = wt_git.join("objects").join("info");
-    let wt_objects_pack = wt_git.join("objects").join("pack");
-    let wt_refs_tags = wt_git.join("refs").join("tags");
-
-    for dir in [&wt_info, &wt_objects_info, &wt_objects_pack, &wt_refs_tags] {
-        fs::create_dir_all(dir).map_err(|e| GitEngineError::WorktreeMaterialization {
-            path: dir.display().to_string(),
-            message: e.to_string(),
+/// Resolves `<worktree>/.git` (`gitdir: <common>/worktrees/<name>`) to the admin dir path.
+fn read_worktree_admin_dir(worktree_dir: &Path) -> Result<PathBuf, GitEngineError> {
+    let pointer = worktree_dir.join(".git");
+    let text = fs::read_to_string(&pointer).map_err(|e| io_err(&pointer, &e))?;
+    let raw = text
+        .trim()
+        .strip_prefix("gitdir:")
+        .map(str::trim)
+        .ok_or_else(|| GitEngineError::Io {
+            path: pointer.display().to_string(),
+            message: "not a linked worktree pointer".to_owned(),
         })?;
-    }
-
-    // Ensure `.gitust-sandbox-env/` is ignored by Git inside the worktree
-    let exclude_file = wt_info.join("exclude");
-    fs::write(&exclude_file, ".gitust-sandbox-env/\n").map_err(|e| {
-        GitEngineError::WorktreeMaterialization {
-            path: exclude_file.display().to_string(),
-            message: e.to_string(),
-        }
-    })?;
-
-    // Link source ODB via Git alternates so 0 packfiles/loose objects are duplicated
-    let source_objects = source_git_dir.join("objects");
-    let alternates_file = wt_objects_info.join("alternates");
-    fs::write(&alternates_file, format!("{}\n", source_objects.display())).map_err(|e| {
-        GitEngineError::WorktreeMaterialization {
-            path: alternates_file.display().to_string(),
-            message: e.to_string(),
-        }
-    })?;
-
-    // Copy packed-refs if present so tags and packed branches resolve inside the worktree
-    let src_packed_refs = source_git_dir.join("packed-refs");
-    if src_packed_refs.is_file() {
-        let _ = clone_entry_cow(&src_packed_refs, &wt_git.join("packed-refs"));
-    }
-
-    // Ensure base_branch (e.g. `main`) also resolves inside the worktree's `.git/refs/heads/`
-    if let Ok(clean_base) = GitEngine::validate_branch_name(base_branch) {
-        if clean_base != clean_branch {
-            let _ = write_branch_ref_atomic(&wt_git, &clean_base, commit_hex);
-        }
-    }
-
-    // Write HEAD and branch ref inside the worktree's own .git directory
-    write_branch_ref_atomic(&wt_git, clean_branch, commit_hex)?;
-    fs::write(
-        wt_git.join("HEAD"),
-        format!("ref: refs/heads/{clean_branch}\n"),
-    )
-    .map_err(|e| GitEngineError::WorktreeMaterialization {
-        path: wt_git.join("HEAD").display().to_string(),
-        message: e.to_string(),
-    })?;
-
-    // Copy or CoW-clone config and index if present
-    let src_config = source_git_dir.join("config");
-    if src_config.is_file() {
-        let _ = clone_entry_cow(&src_config, &wt_git.join("config"));
+    let path = Path::new(raw);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
     } else {
-        let default_cfg = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n";
-        let _ = fs::write(wt_git.join("config"), default_cfg);
-    }
-
-    let src_index = source_git_dir.join("index");
-    if src_index.is_file() {
-        let _ = clone_entry_cow(&src_index, &wt_git.join("index"));
-    }
-
-    Ok(())
+        worktree_dir.join(path)
+    };
+    fs::canonicalize(&path).map_err(|e| io_err(&path, &e))
 }
 
-/// Returns true if a directory/file entry name should be excluded from working-tree CoW cloning.
-#[must_use]
-fn should_skip_worktree_entry(name_str: &str) -> bool {
-    matches!(
-        name_str,
-        ".git"
-            | ".gitust"
-            | ".gitust-worktrees"
-            | ".gitust-sandbox-env"
-            | "target"
-            | "node_modules"
-    )
-}
-
-/// Clones top-level working tree entries from `src_workdir` into `dst_workdir`, skipping
-/// `.git`, `target`, `node_modules`, and `.gitust` so CoW worktree creation finishes in `<1ms`.
-fn clone_working_tree_cow(
-    src_workdir: &Path,
-    dst_workdir: &Path,
-) -> Result<CowStrategy, GitEngineError> {
-    let entries =
-        fs::read_dir(src_workdir).map_err(|e| GitEngineError::WorktreeMaterialization {
-            path: src_workdir.display().to_string(),
-            message: e.to_string(),
-        })?;
-
-    let mut strategy = None;
-
-    for entry_res in entries {
-        let entry = entry_res.map_err(|e| GitEngineError::WorktreeMaterialization {
-            path: src_workdir.display().to_string(),
-            message: e.to_string(),
-        })?;
-        let name = entry.file_name();
-        let Some(name_str) = name.to_str() else {
+fn config_contains_credentials(text: &str) -> bool {
+    for raw in text.lines() {
+        let line = raw.trim().to_ascii_lowercase();
+        if line.starts_with('#') || line.starts_with(';') {
             continue;
+        }
+        if line.contains("extraheader") {
+            return true;
+        }
+        // `credential.helper = store [--file ...]` keeps plaintext credentials on disk.
+        if let Some((key, value)) = line.split_once('=') {
+            if key.trim() == "helper" && value.trim().starts_with("store") {
+                return true;
+            }
+        }
+        for scheme in ["http://", "https://"] {
+            let mut rest = line.as_str();
+            while let Some(idx) = rest.find(scheme) {
+                let after = &rest[idx + scheme.len()..];
+                let authority_end = after
+                    .find(|c: char| c == '/' || c == '"' || c.is_whitespace())
+                    .unwrap_or(after.len());
+                if after[..authority_end].contains('@') {
+                    return true;
+                }
+                rest = &after[authority_end..];
+            }
+        }
+    }
+    false
+}
+
+/// Parses `git worktree list --porcelain -z`, keeping only entries on `agent/` branches.
+fn parse_worktree_list(stdout: &[u8]) -> Vec<ManagedWorktreeEntry> {
+    let mut entries = Vec::new();
+    let mut path: Option<PathBuf> = None;
+    let mut head: Option<String> = None;
+    let mut branch: Option<String> = None;
+
+    let mut flush =
+        |path: &mut Option<PathBuf>, head: &mut Option<String>, branch: &mut Option<String>| {
+            if let (Some(p), Some(h), Some(b)) = (path.take(), head.take(), branch.take()) {
+                if let Some(short) = b.strip_prefix("refs/heads/") {
+                    if short.starts_with(AGENT_BRANCH_PREFIX) {
+                        entries.push(ManagedWorktreeEntry {
+                            worktree_dir: fs::canonicalize(&p).unwrap_or(p),
+                            branch: short.to_owned(),
+                            head: CommitSha(h),
+                        });
+                    }
+                }
+            }
+            *path = None;
+            *head = None;
+            *branch = None;
         };
 
-        if should_skip_worktree_entry(name_str) {
-            continue;
-        }
-
-        let src_path = entry.path();
-        let dst_path = dst_workdir.join(&name);
-
-        // Guard against recursive self-cloning if dst_workdir is inside src_workdir
-        if dst_workdir.starts_with(&src_path) {
-            continue;
-        }
-
-        let used = clone_entry_cow(&src_path, &dst_path)?;
-        if strategy.is_none() || used != CowStrategy::HardlinkOrCopyFallback {
-            strategy = Some(used);
+    for field in stdout.split(|b| *b == 0) {
+        let field = String::from_utf8_lossy(field);
+        if field.is_empty() {
+            flush(&mut path, &mut head, &mut branch);
+        } else if let Some(p) = field.strip_prefix("worktree ") {
+            path = Some(PathBuf::from(p));
+        } else if let Some(h) = field.strip_prefix("HEAD ") {
+            head = Some(h.to_owned());
+        } else if let Some(b) = field.strip_prefix("branch ") {
+            branch = Some(b.to_owned());
         }
     }
-
-    Ok(strategy.unwrap_or_else(default_platform_cow_strategy))
-}
-
-/// Reports the default CoW strategy for the current OS platform when creating a descriptor-only
-/// worktree or when the source working tree is empty.
-#[must_use]
-const fn default_platform_cow_strategy() -> CowStrategy {
-    #[cfg(target_os = "macos")]
-    {
-        CowStrategy::ApfsClonefile
-    }
-    #[cfg(target_os = "linux")]
-    {
-        CowStrategy::LinuxFiclone
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        CowStrategy::HardlinkOrCopyFallback
-    }
-}
-
-/// Clones a single file or directory entry from `src` to `dst` using the fastest available CoW primitive:
-/// 1. On macOS (APFS): `libc::clonefile` clones an entire file or directory tree in a single kernel syscall.
-/// 2. On Linux (Btrfs/XFS): `ioctl(FICLONE)` clones file blocks zero-copy.
-/// 3. Fallback (ext4/tmpfs/cross-device): recursive directory traversal with file copy.
-fn clone_entry_cow(src: &Path, dst: &Path) -> Result<CowStrategy, GitEngineError> {
-    #[cfg(target_os = "macos")]
-    {
-        if try_macos_clonefile(src, dst).is_ok() {
-            return Ok(CowStrategy::ApfsClonefile);
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(strat) = try_linux_ficlone_recursive(src, dst) {
-            return Ok(strat);
-        }
-    }
-
-    copy_entry_fallback_recursive(src, dst)?;
-    Ok(CowStrategy::HardlinkOrCopyFallback)
-}
-
-#[cfg(target_os = "macos")]
-fn try_macos_clonefile(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
-    let src_c = CString::new(src.as_os_str().as_bytes())
-        .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
-    let dst_c = CString::new(dst.as_os_str().as_bytes())
-        .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
-
-    // SAFETY: `src_c` and `dst_c` are valid NUL-terminated C strings pointing to stack-owned buffers.
-    // Flags = 0 invokes default CoW clone semantics on APFS.
-    let rc = unsafe { libc::clonefile(src_c.as_ptr(), dst_c.as_ptr(), 0) };
-    if rc == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn try_linux_ficlone_recursive(src: &Path, dst: &Path) -> Result<CowStrategy, std::io::Error> {
-    use std::os::unix::io::AsRawFd;
-    const FICLONE_IOCTL: libc::c_ulong = 0x4004_9409;
-
-    let meta = fs::symlink_metadata(src)?;
-    if meta.file_type().is_symlink() {
-        let target = fs::read_link(src)?;
-        std::os::unix::fs::symlink(target, dst)?;
-        return Ok(CowStrategy::LinuxFiclone);
-    }
-
-    if meta.is_dir() {
-        fs::create_dir_all(dst)?;
-        let mut any_ficlone = false;
-        for entry_res in fs::read_dir(src)? {
-            let entry = entry_res?;
-            let fname = entry.file_name();
-            if fname.to_str().is_some_and(should_skip_worktree_entry) {
-                continue;
-            }
-            let child_src = entry.path();
-            let child_dst = dst.join(fname);
-            if let Ok(CowStrategy::LinuxFiclone) =
-                try_linux_ficlone_recursive(&child_src, &child_dst)
-            {
-                any_ficlone = true;
-            }
-        }
-        return if any_ficlone {
-            Ok(CowStrategy::LinuxFiclone)
-        } else {
-            Ok(CowStrategy::HardlinkOrCopyFallback)
-        };
-    }
-
-    let src_file = fs::File::open(src)?;
-    let dst_file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(dst)?;
-
-    // SAFETY: Both `src_file` and `dst_file` are valid open file descriptors; `FICLONE` clones extents.
-    let rc = unsafe { libc::ioctl(dst_file.as_raw_fd(), FICLONE_IOCTL, src_file.as_raw_fd()) };
-    if rc == 0 {
-        let _ = fs::set_permissions(dst, meta.permissions());
-        Ok(CowStrategy::LinuxFiclone)
-    } else {
-        let _ = fs::remove_file(dst);
-        Err(std::io::Error::last_os_error())
-    }
-}
-
-fn copy_entry_fallback_recursive(src: &Path, dst: &Path) -> Result<(), GitEngineError> {
-    let meta = fs::symlink_metadata(src).map_err(|e| GitEngineError::WorktreeMaterialization {
-        path: src.display().to_string(),
-        message: e.to_string(),
-    })?;
-
-    if meta.file_type().is_symlink() {
-        let target = fs::read_link(src).map_err(|e| GitEngineError::WorktreeMaterialization {
-            path: src.display().to_string(),
-            message: e.to_string(),
-        })?;
-        std::os::unix::fs::symlink(&target, dst).map_err(|e| {
-            GitEngineError::WorktreeMaterialization {
-                path: dst.display().to_string(),
-                message: e.to_string(),
-            }
-        })?;
-        return Ok(());
-    }
-
-    if meta.is_dir() {
-        fs::create_dir_all(dst).map_err(|e| GitEngineError::WorktreeMaterialization {
-            path: dst.display().to_string(),
-            message: e.to_string(),
-        })?;
-        let entries = fs::read_dir(src).map_err(|e| GitEngineError::WorktreeMaterialization {
-            path: src.display().to_string(),
-            message: e.to_string(),
-        })?;
-        for entry_res in entries {
-            let entry = entry_res.map_err(|e| GitEngineError::WorktreeMaterialization {
-                path: src.display().to_string(),
-                message: e.to_string(),
-            })?;
-            let fname = entry.file_name();
-            if fname.to_str().is_some_and(should_skip_worktree_entry) {
-                continue;
-            }
-            copy_entry_fallback_recursive(&entry.path(), &dst.join(fname))?;
-        }
-        return Ok(());
-    }
-
-    fs::copy(src, dst).map_err(|e| GitEngineError::WorktreeMaterialization {
-        path: dst.display().to_string(),
-        message: e.to_string(),
-    })?;
-    Ok(())
+    flush(&mut path, &mut head, &mut branch);
+    entries
 }
 
 #[cfg(test)]
@@ -779,7 +749,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn run_git(dir: &Path, args: &[&str]) {
+    fn git(dir: &Path, args: &[&str]) -> String {
         let out = Command::new("git")
             .arg("-C")
             .arg(dir)
@@ -800,97 +770,237 @@ mod tests {
             dir.display(),
             String::from_utf8_lossy(&out.stderr)
         );
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    }
+
+    fn init_repo(dir: &Path) {
+        fs::create_dir_all(dir.join("src")).expect("mkdir");
+        git(dir, &["init", "-q", "-b", "main"]);
+        fs::write(dir.join("src/lib.rs"), "pub fn answer() -> u32 { 42 }\n").expect("write");
+        git(dir, &["add", "."]);
+        git(dir, &["commit", "-q", "-m", "initial commit"]);
+    }
+
+    fn materialize(
+        engine: &GitEngine,
+        branch: &str,
+    ) -> Result<MaterializedWorktree, GitEngineError> {
+        engine.materialize_agent_worktree(
+            WorktreeId::new(),
+            RepoId::new(),
+            AgentKind::ClaudeCode,
+            branch,
+            "main",
+            "test",
+        )
     }
 
     #[test]
-    fn gate_cow_worktree_isolation_and_fallback_preserve_main_working_tree() {
-        let tmp = TempDir::new().expect("create tempdir");
-        let repo_dir = tmp.path().join("source-repo");
-        let wt_base = tmp.path().join("worktrees");
-        fs::create_dir_all(&repo_dir).expect("mkdir repo");
+    fn gate_agent_worktree_is_clean_checkout_create_only_and_shares_refs() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_dir = tmp.path().join("repo");
+        init_repo(&repo_dir);
+        let base_commit = git(&repo_dir, &["rev-parse", "main"]);
+        git(&repo_dir, &["branch", "release/1.0"]);
 
-        run_git(&repo_dir, &["init", "-b", "main"]);
-        fs::create_dir_all(repo_dir.join("src")).expect("mkdir src");
+        // Dirty main working tree: uncommitted change + untracked secret.
         fs::write(
             repo_dir.join("src/lib.rs"),
-            "pub fn answer() -> u32 { 42 }\n",
+            "pub fn answer() -> u32 { 0 }\n",
         )
-        .expect("write lib.rs");
-        run_git(&repo_dir, &["add", "."]);
-        run_git(&repo_dir, &["commit", "-m", "initial commit"]);
+        .expect("write");
+        fs::write(repo_dir.join(".env"), "SECRET=1\n").expect("write");
 
-        let engine = GitEngine::new(&repo_dir).with_worktree_base_dir(&wt_base);
+        let engine = GitEngine::new(&repo_dir);
 
-        // 1. Reject traversal/malformed branch names
+        // Namespace and traversal guards.
         assert!(matches!(
-            engine.materialize_cow_agent_worktree(
-                RepoId::new(),
-                AgentKind::ClaudeCode,
-                "agent/../../etc/passwd",
-                "main",
-                "traversal attempt"
-            ),
+            materialize(&engine, "release/1.0"),
+            Err(GitEngineError::BranchNotAgentScoped(_))
+        ));
+        assert!(matches!(
+            materialize(&engine, "agent/../../etc/passwd"),
             Err(GitEngineError::InvalidBranchName(_))
         ));
+        assert!(matches!(
+            materialize(&engine, "agent/"),
+            Err(GitEngineError::InvalidBranchName(_) | GitEngineError::BranchNotAgentScoped(_))
+        ));
+        assert_eq!(git(&repo_dir, &["rev-parse", "release/1.0"]), base_commit);
 
-        // 2. Materialize isolated CoW agent worktree (including dotted branch name v1.2)
-        let materialized = engine
-            .materialize_cow_agent_worktree(
-                RepoId::new(),
-                AgentKind::ClaudeCode,
-                "agent/claude/cow-isolation-v1.2",
-                "main",
-                "Modify src/lib.rs inside CoW worktree without touching main",
-            )
-            .expect("materialize CoW worktree");
+        let m = materialize(&engine, "agent/claude/task-1.2").expect("materialize");
+        assert_eq!(m.worktree.status, WorktreeStatus::Pending);
+        assert_eq!(m.worktree.base_commit.0, base_commit);
 
-        #[cfg(target_os = "macos")]
-        assert_eq!(materialized.strategy, CowStrategy::ApfsClonefile);
-
-        assert!(materialized.worktree_dir.join("src/lib.rs").is_file());
-
-        // 3. Mutate and commit inside the isolated agent worktree
-        fs::write(
-            materialized.worktree_dir.join("src/lib.rs"),
-            "pub fn answer() -> u32 { 999 }\n",
-        )
-        .expect("mutate worktree file");
-        fs::write(
-            materialized.worktree_dir.join("src/agent_only.rs"),
-            "// created only in agent worktree\n",
-        )
-        .expect("create new file in worktree");
-
-        // Verify the main repository's working tree is 100% untouched (true Copy-on-Write isolation)
-        let main_lib = fs::read_to_string(repo_dir.join("src/lib.rs")).expect("read main lib.rs");
-        assert_eq!(main_lib, "pub fn answer() -> u32 { 42 }\n");
-        assert!(!repo_dir.join("src/agent_only.rs").exists());
-
-        // Verify `git diff main` works inside the isolated worktree
-        run_git(&materialized.worktree_dir, &["diff", "main"]);
-
-        // 4. Verify fallback copy path also works identically and skips nested node_modules/target
-        fs::create_dir_all(repo_dir.join("src/node_modules/pkg")).expect("mkdir nested nm");
-        fs::write(
-            repo_dir.join("src/node_modules/pkg/index.js"),
-            "module.exports = 1;",
-        )
-        .expect("write nm");
-        let fallback_dir = tmp.path().join("fallback-wt");
-        copy_entry_fallback_recursive(&repo_dir.join("src"), &fallback_dir.join("src"))
-            .expect("fallback copy");
+        // Clean checkout of the base commit: no uncommitted changes, no untracked files.
         assert_eq!(
-            fs::read_to_string(fallback_dir.join("src/lib.rs")).expect("read fallback"),
+            fs::read_to_string(m.worktree_dir.join("src/lib.rs")).expect("read"),
             "pub fn answer() -> u32 { 42 }\n"
         );
-        assert!(
-            !fallback_dir.join("src/node_modules").exists(),
-            "nested node_modules must be skipped during fallback copy"
+        assert!(!m.worktree_dir.join(".env").exists());
+
+        // Create-only: the same branch cannot be created twice.
+        assert!(matches!(
+            materialize(&engine, "agent/claude/task-1.2"),
+            Err(GitEngineError::BranchAlreadyExists(_))
+        ));
+
+        // Reflog written for the agent branch.
+        assert!(repo_dir
+            .join(".git/logs/refs/heads/agent/claude/task-1.2")
+            .is_file());
+
+        // Edits in the worktree do not touch the main working tree; commits share refs/objects.
+        fs::write(m.worktree_dir.join("src/agent.rs"), "// agent\n").expect("write");
+        git(&m.worktree_dir, &["add", "."]);
+        git(&m.worktree_dir, &["commit", "-q", "-m", "agent change"]);
+        assert!(!repo_dir.join("src/agent.rs").exists());
+        let wt_head = git(&m.worktree_dir, &["rev-parse", "HEAD"]);
+        assert_eq!(
+            git(&repo_dir, &["rev-parse", "agent/claude/task-1.2"]),
+            wt_head
         );
 
-        // 5. Verify both source repo and CoW worktree pass `git fsck --full --strict`
-        GitEngine::verify_git_fsck(&repo_dir).expect("source repo git fsck");
-        GitEngine::verify_git_fsck(&materialized.worktree_dir).expect("worktree git fsck");
+        // GC in the main repo is worktree-aware: nothing the worktree needs is pruned.
+        git(&repo_dir, &["gc", "-q", "--prune=now"]);
+        GitEngine::verify_git_fsck(&m.worktree_dir).expect("worktree fsck after gc");
+        GitEngine::verify_git_fsck(&repo_dir).expect("main fsck after gc");
+
+        // Listing and removal.
+        let listed = engine.list_agent_worktrees().expect("list");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].worktree_dir, m.worktree_dir);
+        assert_eq!(listed[0].branch, "agent/claude/task-1.2");
+
+        assert!(matches!(
+            engine.remove_agent_worktree(
+                &repo_dir,
+                "agent/claude/task-1.2",
+                &m.worktree.base_commit
+            ),
+            Err(GitEngineError::WorktreeNotManaged(_))
+        ));
+        // The branch has an agent commit: the checkout goes, the branch (the work) stays.
+        let deleted = engine
+            .remove_agent_worktree(
+                &m.worktree_dir,
+                "agent/claude/task-1.2",
+                &m.worktree.base_commit,
+            )
+            .expect("remove");
+        assert!(!deleted);
+        assert!(!m.worktree_dir.exists());
+        assert!(engine.list_agent_worktrees().expect("list").is_empty());
+        assert_eq!(
+            git(&repo_dir, &["rev-parse", "agent/claude/task-1.2"]),
+            wt_head
+        );
+
+        // An untouched worktree: both checkout and branch are removed.
+        let untouched = materialize(&engine, "agent/claude/untouched").expect("materialize");
+        let deleted = engine
+            .remove_agent_worktree(
+                &untouched.worktree_dir,
+                "agent/claude/untouched",
+                &untouched.worktree.base_commit,
+            )
+            .expect("remove");
+        assert!(deleted);
+        let branches = git(&repo_dir, &["branch", "--list", "agent/claude/untouched"]);
+        assert!(
+            branches.is_empty(),
+            "untouched branch must be deleted: {branches}"
+        );
+        // Removing again is a no-op, not an error.
+        assert!(!engine
+            .remove_agent_worktree(
+                &untouched.worktree_dir,
+                "agent/claude/untouched",
+                &untouched.worktree.base_commit,
+            )
+            .expect("idempotent remove"));
+        GitEngine::verify_git_fsck(&repo_dir).expect("main fsck after remove");
+    }
+
+    #[test]
+    fn gate_agent_worktree_from_bare_mirror() {
+        let tmp = TempDir::new().expect("tempdir");
+        let src = tmp.path().join("src-repo");
+        init_repo(&src);
+        let bare = tmp.path().join("mirror.git");
+        git(
+            tmp.path(),
+            &[
+                "clone",
+                "-q",
+                "--bare",
+                src.to_str().expect("utf8"),
+                bare.to_str().expect("utf8"),
+            ],
+        );
+
+        let engine = GitEngine::new(&bare);
+        let m = materialize(&engine, "agent/cursor/bare").expect("materialize from bare");
+        assert!(m.main_workdir.is_none());
+        assert_eq!(
+            fs::read_to_string(m.worktree_dir.join("src/lib.rs")).expect("read"),
+            "pub fn answer() -> u32 { 42 }\n"
+        );
+        GitEngine::verify_git_fsck(&m.worktree_dir).expect("fsck");
+    }
+
+    #[test]
+    fn gate_refuses_repos_with_credentials_in_config() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_dir = tmp.path().join("repo");
+        init_repo(&repo_dir);
+        git(
+            &repo_dir,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://x-access-token:ghp_secret@github.com/acme/app.git",
+            ],
+        );
+        let engine = GitEngine::new(&repo_dir);
+        assert!(matches!(
+            materialize(&engine, "agent/claude/creds"),
+            Err(GitEngineError::CredentialsInRepoConfig)
+        ));
+        // Nothing was created.
+        assert!(git(&repo_dir, &["branch", "--list", "agent/*"]).is_empty());
+    }
+
+    #[test]
+    fn credential_detection_cases() {
+        assert!(config_contains_credentials(
+            "[remote \"o\"]\n\turl = https://user:pw@host/r.git\n"
+        ));
+        assert!(config_contains_credentials(
+            "[remote \"o\"]\n\turl = https://ghp_token@github.com/r.git\n"
+        ));
+        assert!(config_contains_credentials(
+            "[http]\n\textraHeader = Authorization: Bearer x\n"
+        ));
+        assert!(config_contains_credentials(
+            "[url \"https://tok@github.com/\"]\n\tinsteadOf = https://github.com/\n"
+        ));
+        assert!(config_contains_credentials(
+            "[credential]\n\thelper = store --file .git/creds\n"
+        ));
+        assert!(!config_contains_credentials(
+            "[credential]\n\thelper = osxkeychain\n"
+        ));
+        assert!(!config_contains_credentials(
+            "[remote \"o\"]\n\turl = https://github.com/acme/r.git\n"
+        ));
+        assert!(!config_contains_credentials(
+            "[remote \"o\"]\n\turl = git@github.com:acme/r.git\n"
+        ));
+        assert!(!config_contains_credentials(
+            "[remote \"o\"]\n\turl = ssh://git@github.com/acme/r.git\n"
+        ));
     }
 
     #[test]
@@ -904,72 +1014,57 @@ mod tests {
         fs::create_dir_all(&server_repo).expect("mkdir server");
         fs::create_dir_all(&seed_client).expect("mkdir seed");
 
-        // 1. Initialize bare server repository on `main`
-        run_git(&server_repo, &["init", "--bare", "-b", "main"]);
+        git(&server_repo, &["init", "-q", "--bare", "-b", "main"]);
 
-        // 2. Seed initial commit and push to server
-        run_git(&seed_client, &["init", "-b", "main"]);
+        git(&seed_client, &["init", "-q", "-b", "main"]);
         fs::write(seed_client.join("README.md"), "# Gitust Integrity Gate\n").expect("write");
-        run_git(&seed_client, &["add", "README.md"]);
-        run_git(&seed_client, &["commit", "-m", "seed commit"]);
-        run_git(
+        git(&seed_client, &["add", "README.md"]);
+        git(&seed_client, &["commit", "-q", "-m", "seed commit"]);
+        git(
             &seed_client,
             &["remote", "add", "origin", server_repo.to_str().expect("p")],
         );
-        run_git(&seed_client, &["push", "-u", "origin", "main"]);
+        git(&seed_client, &["push", "-q", "-u", "origin", "main"]);
 
-        // 3. Client A clones from server, creates a commit, and pushes to server
-        run_git(
+        git(
             tmp.path(),
             &[
                 "clone",
+                "-q",
                 server_repo.to_str().expect("p"),
                 clone_a.to_str().expect("p"),
             ],
         );
         fs::create_dir_all(clone_a.join("crates")).expect("mkdir crates");
-        fs::write(
-            clone_a.join("crates/engine.rs"),
-            "pub const SPEED_MS: u64 = 1;\n",
-        )
-        .expect("write engine.rs");
-        run_git(&clone_a, &["add", "."]);
-        run_git(
-            &clone_a,
-            &["commit", "-m", "feat: add zero-copy engine module"],
-        );
-        run_git(&clone_a, &["push", "origin", "main"]);
+        fs::write(clone_a.join("crates/engine.rs"), "pub const A: u64 = 1;\n").expect("write");
+        git(&clone_a, &["add", "."]);
+        git(&clone_a, &["commit", "-q", "-m", "feat: add engine module"]);
+        git(&clone_a, &["push", "-q", "origin", "main"]);
 
-        // 4. Client B clones, and Client A pushes another commit -> Client B fetches and fast-forwards
-        run_git(
+        git(
             tmp.path(),
             &[
                 "clone",
+                "-q",
                 server_repo.to_str().expect("p"),
                 clone_b.to_str().expect("p"),
             ],
         );
         fs::write(
             clone_a.join("crates/engine.rs"),
-            "pub const SPEED_MS: u64 = 1;\npub const ZERO_CLOUD_LEAKAGE: bool = true;\n",
+            "pub const A: u64 = 1;\npub const B: bool = true;\n",
         )
-        .expect("update engine.rs");
-        run_git(
-            &clone_a,
-            &["commit", "-am", "feat: enforce on-prem privacy"],
-        );
-        run_git(&clone_a, &["push", "origin", "main"]);
+        .expect("update");
+        git(&clone_a, &["commit", "-q", "-am", "feat: second change"]);
+        git(&clone_a, &["push", "-q", "origin", "main"]);
 
-        run_git(&clone_b, &["fetch", "origin", "main"]);
-        run_git(&clone_b, &["merge", "--ff-only", "origin/main"]);
+        git(&clone_b, &["fetch", "-q", "origin", "main"]);
+        git(&clone_b, &["merge", "-q", "--ff-only", "origin/main"]);
 
-        // 5. Inspect server repository via `GitEngine` (`gix` zero-copy ODB) and compare HEAD SHAs
-        let server_engine = GitEngine::new(&server_repo);
-        let server_head = server_engine
+        let server_head = GitEngine::new(&server_repo)
             .inspect_head_zero_copy()
             .expect("inspect server head");
-        let client_b_engine = GitEngine::new(&clone_b);
-        let client_b_head = client_b_engine
+        let client_b_head = GitEngine::new(&clone_b)
             .inspect_head_zero_copy()
             .expect("inspect client_b head");
 
@@ -979,9 +1074,43 @@ mod tests {
             .iter()
             .any(|e| e.filename == "crates" && e.is_dir));
 
-        // 6. Verification Gate 7.4: Both server and client repositories must pass `git fsck --full --strict`
         GitEngine::verify_git_fsck(&server_repo).expect("server git fsck");
         GitEngine::verify_git_fsck(&clone_a).expect("client A git fsck");
         GitEngine::verify_git_fsck(&clone_b).expect("client B git fsck");
+    }
+
+    /// Benchmark: `cargo test -p gitust-git --release -- --ignored --nocapture bench_`
+    #[test]
+    #[ignore = "benchmark; run explicitly"]
+    fn bench_materialize_agent_worktree() {
+        for file_count in [10_usize, 1_000, 10_000] {
+            let tmp = TempDir::new().expect("tempdir");
+            let repo_dir = tmp.path().join("repo");
+            fs::create_dir_all(&repo_dir).expect("mkdir");
+            git(&repo_dir, &["init", "-q", "-b", "main"]);
+            for i in 0..file_count {
+                let dir = repo_dir.join(format!("d{}", i % 100));
+                fs::create_dir_all(&dir).expect("mkdir");
+                fs::write(
+                    dir.join(format!("f{i}.rs")),
+                    format!("pub const X: usize = {i};\n"),
+                )
+                .expect("write");
+            }
+            git(&repo_dir, &["add", "."]);
+            git(&repo_dir, &["commit", "-q", "-m", "bench"]);
+
+            let engine = GitEngine::new(&repo_dir);
+            let mut samples = Vec::new();
+            for run in 0..5 {
+                let m = materialize(&engine, &format!("agent/bench/r{run}")).expect("materialize");
+                samples.push(m.worktree.materialize_micros);
+            }
+            samples.sort_unstable();
+            println!(
+                "files={file_count:>6} materialize_micros min={} median={} max={}",
+                samples[0], samples[2], samples[4]
+            );
+        }
     }
 }

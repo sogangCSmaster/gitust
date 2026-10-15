@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use gitust_core::{AgentKind, RepoId, WorktreeId};
 use gitust_db::AuthStore;
 use gitust_git::GitEngine;
-use gitust_sandbox::{builtin_mcp_tools, MicrosandboxExecutor};
+use gitust_sandbox::{builtin_mcp_tools, MicrosandboxExecutor, SandboxSpec};
 use gitust_sync::BiDirectionalSyncConfig;
 
 #[derive(Debug, Parser)]
@@ -69,6 +69,12 @@ enum Commands {
         /// Path to the persistent on-premise Auth Database file
         #[arg(long, default_value = ".gitust/auth-db.json")]
         auth_db: PathBuf,
+
+        /// Allow SiteAdmins to run commands in agent worktrees over HTTP using the host OS
+        /// sandbox. The host OS sandbox is not a multi-tenant boundary: only enable this on a
+        /// trusted single-user deployment.
+        #[arg(long)]
+        trusted_single_user_sandbox: bool,
     },
 
     /// Start or inspect the built-in MCP (Model Context Protocol) server for Claude Code / Cursor
@@ -78,15 +84,25 @@ enum Commands {
         list_tools: bool,
     },
 
-    /// Spawn a <1ms CoW worktree and execute a command inside an isolated on-premise Microsandbox
+    /// Run a command in a fresh agent worktree of the current branch's last commit, inside the
+    /// OS sandbox (no network, writes confined to the worktree). Uncommitted changes are not
+    /// included. The worktree and its branch are removed afterwards unless --keep is given.
     Sandbox {
-        /// Command string to run inside the isolated sandbox
-        #[arg(default_value = "echo 'Gitust On-Premise Microsandbox Ready (0 Cloud Leakage)'")]
+        /// Command string to run inside the sandbox
         cmd: String,
 
         /// Repository path
         #[arg(long, default_value = ".")]
         repo: PathBuf,
+
+        /// Keep the agent worktree and branch after the run
+        #[arg(long)]
+        keep: bool,
+
+        /// Wall-clock timeout in seconds (each run starts from a fresh checkout and a cold
+        /// `target/`, so builds can take a while)
+        #[arg(long, default_value_t = 600)]
+        timeout: u64,
     },
 
     /// Inspect HEAD and root tree via zero-copy `gitoxide` (`gix`) engine and verify GitHub Two-Way Sync
@@ -100,12 +116,8 @@ enum Commands {
         repo: PathBuf,
     },
 
-    /// Fast CLI triage view of parallel AI agent worktrees
+    /// List agent worktrees of a repository (approval/merge arrives in Phase 3)
     Triage {
-        /// Approve and merge all verified agent sandboxes
-        #[arg(long)]
-        approve_verified: bool,
-
         /// Local repository path
         #[arg(long, default_value = ".")]
         repo: PathBuf,
@@ -147,9 +159,17 @@ async fn main() -> Result<()> {
             repo,
             sync_github,
             auth_db,
+            trusted_single_user_sandbox,
         } => {
             let auth_store = AuthStore::open_persistent(&auth_db)?;
-            gitust_server::serve(bind, repo, sync_github, auth_store).await?;
+            gitust_server::serve(
+                bind,
+                repo,
+                sync_github,
+                auth_store,
+                trusted_single_user_sandbox,
+            )
+            .await?;
         }
         Commands::Mcp { list_tools } => {
             let tools = builtin_mcp_tools();
@@ -165,36 +185,15 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Sandbox { cmd, repo } => {
-            let engine = GitEngine::new(&repo);
-            let run_id_str = WorktreeId::new().0.to_string();
-            let run_suffix = &run_id_str[..8];
-            let branch_name = format!("agent/claude/cli-sandbox-{run_suffix}");
-            let materialized = engine.materialize_cow_agent_worktree(
-                RepoId::new(),
-                AgentKind::ClaudeCode,
-                branch_name,
-                "main",
-                &cmd,
-            )?;
-            let executor = MicrosandboxExecutor::new(8);
-            let res = executor
-                .execute_in_worktree(materialized.worktree.id, &materialized.worktree_dir, &cmd)
-                .await?;
-
-            println!(
-                "⚡ [gitust sandbox] CoW Fork ({}) : {}µs | Microsandbox Exec: {}ms | Exit: {} | Worktree: {} | Privacy: ON-PREM",
-                materialized.strategy.as_str(),
-                materialized.worktree.fork_latency_micros,
-                res.duration_ms,
-                res.exit_code,
-                materialized.worktree_dir.display()
-            );
-            if !res.stdout.trim().is_empty() {
-                print!("{}", res.stdout);
-            }
-            if !res.stderr.trim().is_empty() {
-                eprint!("{}", res.stderr);
+        Commands::Sandbox {
+            cmd,
+            repo,
+            keep,
+            timeout,
+        } => {
+            let exit_code = run_cli_sandbox(&repo, &cmd, keep, timeout).await?;
+            if exit_code != 0 {
+                std::process::exit(exit_code);
             }
         }
         Commands::Sync { github_url, repo } => {
@@ -203,7 +202,7 @@ async fn main() -> Result<()> {
             let sync_cfg = BiDirectionalSyncConfig::new(RepoId::new(), &github_url);
 
             println!(
-                "⚡ [gitust sync] Zero-Copy gix HEAD Lookup: {}µs",
+                "[gitust sync] gix HEAD lookup: {}µs",
                 snapshot.lookup_micros
             );
             println!(
@@ -213,41 +212,93 @@ async fn main() -> Result<()> {
                 snapshot.root_entries.len()
             );
             println!(
-                "   Bi-Directional Mirror: {} (Agent branch prefix '{}' strictly isolated on-prem)",
+                "   Mirror: {} (agent branch prefix '{}' stays on-prem)",
                 sync_cfg.github_remote_url, sync_cfg.private_agent_branch_prefix
             );
         }
-        Commands::Triage {
-            approve_verified,
-            repo,
-        } => {
+        Commands::Triage { repo } => {
             let engine = GitEngine::new(&repo);
-            let mut wt = engine.spawn_cow_agent_worktree(
-                RepoId::new(),
-                AgentKind::ClaudeCode,
-                "agent/claude/zero-copy-pack-delta",
-                "main",
-                "Implement O(1) memory-mapped packfile delta resolution",
-            );
-            if approve_verified {
-                wt.github_synced = true;
-                println!(
-                    "✓ Approved & Fast-Forward Merged {} ({}) -> main & synced to GitHub!",
-                    wt.branch,
-                    wt.agent.as_str()
-                );
-            } else {
-                println!(
-                    "Pending Triage: [{}] {} ({}µs CoW fork, {}/{} tests passed)",
-                    wt.agent.as_str(),
-                    wt.branch,
-                    wt.fork_latency_micros,
-                    wt.tests_passed,
-                    wt.tests_total
-                );
+            let entries = engine.list_agent_worktrees()?;
+            if entries.is_empty() {
+                println!("No agent worktrees.");
+            }
+            for e in entries {
+                println!("{}  {}  {}", e.branch, e.head.0, e.worktree_dir.display());
             }
         }
     }
 
     Ok(())
+}
+
+/// Creates an ephemeral agent worktree from the current branch, runs `cmd` in the sandbox, and
+/// removes the worktree (and its branch) afterwards unless `keep` is set.
+async fn run_cli_sandbox(
+    repo: &std::path::Path,
+    cmd: &str,
+    keep: bool,
+    timeout_secs: u64,
+) -> Result<i32> {
+    let engine = GitEngine::new(repo);
+    let head = engine.inspect_head_zero_copy()?;
+    if head.branch_name == "detached" {
+        anyhow::bail!("HEAD is detached; check out a branch first");
+    }
+
+    let worktree_id = WorktreeId::new();
+    let id_str = worktree_id.0.to_string();
+    let branch = format!("agent/cli/sandbox-{}", &id_str[..8]);
+    let m = engine.materialize_agent_worktree(
+        worktree_id,
+        RepoId::new(),
+        AgentKind::InternalBot,
+        &branch,
+        &head.branch_name,
+        cmd,
+    )?;
+    let spec = SandboxSpec::for_linked_worktree(
+        &m.worktree_dir,
+        &m.worktree_admin_dir,
+        &m.common_git_dir,
+        m.main_workdir.as_deref(),
+        &m.worktrees_base,
+        &m.sandbox_scratch_base,
+    );
+
+    let executor = MicrosandboxExecutor::new(1).with_timeout_secs(timeout_secs);
+    // On Ctrl-C the execution future is dropped (killing the sandboxed process group) and the
+    // worktree is still cleaned up below.
+    let outcome = tokio::select! {
+        res = executor.execute(m.worktree.id, &spec, cmd) => Some(res),
+        _ = tokio::signal::ctrl_c() => None,
+    };
+
+    if keep {
+        eprintln!(
+            "[gitust sandbox] kept worktree {} on branch {}",
+            m.worktree_dir.display(),
+            m.worktree.branch
+        );
+    } else if let Err(e) =
+        engine.remove_agent_worktree(&m.worktree_dir, &m.worktree.branch, &m.worktree.base_commit)
+    {
+        eprintln!("[gitust sandbox] warning: cleanup failed: {e}");
+    }
+
+    let Some(outcome) = outcome else {
+        eprintln!("[gitust sandbox] interrupted");
+        return Ok(130);
+    };
+    let res = outcome?;
+    if !res.stdout.is_empty() {
+        print!("{}", res.stdout);
+    }
+    if !res.stderr.is_empty() {
+        eprint!("{}", res.stderr);
+    }
+    eprintln!(
+        "[gitust sandbox] backend={:?} worktree_setup={}µs run={}ms exit={}",
+        res.backend, m.worktree.materialize_micros, res.duration_ms, res.exit_code
+    );
+    Ok(res.exit_code)
 }

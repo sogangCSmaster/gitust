@@ -22,11 +22,11 @@ use gitust_core::{
 use gitust_db::{AuthStore, IssuedInviteLink, IssuedPersonalAccessToken, LoginSessionResponse};
 use gitust_git::{GitEngine, GitEngineError, RepoHeadSnapshot};
 use gitust_sandbox::{
-    builtin_mcp_tools, McpToolDescriptor, MicrosandboxExecutor, SandboxError,
+    builtin_mcp_tools, LocalSandboxExecutor, McpToolDescriptor, SandboxError,
     SandboxExecutionResult, SandboxSpec,
 };
 use gitust_sync::{BiDirectionalSyncConfig, SyncStatusReport};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
@@ -34,11 +34,32 @@ use uuid::Uuid;
 /// Server-only runtime state of a materialized worktree (never serialized to clients).
 #[derive(Clone)]
 pub struct WorktreeRuntime {
-    pub created_by: UserId,
+    /// Owner who spawned this worktree over HTTP (`None` for worktrees recovered on startup).
+    pub created_by: Option<UserId>,
     pub worktree_dir: PathBuf,
     pub sandbox_spec: SandboxSpec,
     /// Serializes sandbox runs and removal for one worktree.
     pub exec_lock: Arc<tokio::sync::Mutex<()>>,
+}
+
+/// Tracks in-flight worktree materializations so global and per-user limits are enforced
+/// atomically without holding a lock across blocking `git worktree add` checkouts.
+#[derive(Default)]
+pub struct SpawnQuotaTracker {
+    in_flight_total: usize,
+    in_flight_by_user: HashMap<UserId, usize>,
+}
+
+impl SpawnQuotaTracker {
+    fn release(&mut self, user_id: UserId) {
+        self.in_flight_total = self.in_flight_total.saturating_sub(1);
+        if let Some(count) = self.in_flight_by_user.get_mut(&user_id) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.in_flight_by_user.remove(&user_id);
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -46,13 +67,13 @@ pub struct AppState {
     pub repo_id: RepoId,
     pub auth_store: AuthStore,
     pub git_engine: GitEngine,
-    pub sandbox_executor: MicrosandboxExecutor,
+    pub sandbox_executor: LocalSandboxExecutor,
     pub sync_config: BiDirectionalSyncConfig,
     pub security_policy: Arc<RwLock<EnterpriseSecurityPolicy>>,
     pub worktrees: Arc<RwLock<VecDeque<AgentWorktree>>>,
     pub worktree_runtime: Arc<RwLock<HashMap<WorktreeId, WorktreeRuntime>>>,
-    /// Serializes worktree creation so global and per-user limits are enforced atomically.
-    pub spawn_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Reserves global and per-user worktree slots before blocking checkouts.
+    pub spawn_quota: Arc<Mutex<SpawnQuotaTracker>>,
     /// Host OS sandbox execution over HTTP is only safe for a trusted single-user deployment.
     /// Multi-tenant execution requires the microVM tier, which is not implemented yet.
     pub trusted_sandbox_exec: bool,
@@ -71,16 +92,38 @@ impl AppState {
         auth_store: AuthStore,
     ) -> Self {
         let repo_id = RepoId::new();
+        let git_engine = GitEngine::new(&repo_path);
+        let mut worktrees = VecDeque::new();
+        let mut worktree_runtime = HashMap::new();
+        if let Ok(recovered) = git_engine.recover_agent_worktrees(repo_id) {
+            for m in recovered.into_iter().take(MAX_TRACKED_WORKTREES) {
+                let runtime = WorktreeRuntime {
+                    created_by: None,
+                    sandbox_spec: SandboxSpec::for_linked_worktree(
+                        &m.worktree_dir,
+                        &m.worktree_admin_dir,
+                        &m.common_git_dir,
+                        m.main_workdir.as_deref(),
+                        &m.worktrees_base,
+                        &m.sandbox_scratch_base,
+                    ),
+                    worktree_dir: m.worktree_dir,
+                    exec_lock: Arc::new(tokio::sync::Mutex::new(())),
+                };
+                worktree_runtime.insert(m.worktree.id, runtime);
+                worktrees.push_back(m.worktree);
+            }
+        }
         Self {
             repo_id,
             auth_store,
-            git_engine: GitEngine::new(&repo_path),
-            sandbox_executor: MicrosandboxExecutor::new(16),
+            git_engine,
+            sandbox_executor: LocalSandboxExecutor::new(16),
             sync_config: BiDirectionalSyncConfig::new(repo_id, github_mirror_url),
             security_policy: Arc::new(RwLock::new(EnterpriseSecurityPolicy::default())),
-            worktrees: Arc::new(RwLock::new(VecDeque::new())),
-            worktree_runtime: Arc::new(RwLock::new(HashMap::new())),
-            spawn_lock: Arc::new(tokio::sync::Mutex::new(())),
+            worktrees: Arc::new(RwLock::new(worktrees)),
+            worktree_runtime: Arc::new(RwLock::new(worktree_runtime)),
+            spawn_quota: Arc::new(Mutex::new(SpawnQuotaTracker::default())),
             trusted_sandbox_exec: false,
         }
     }
@@ -597,13 +640,79 @@ async fn list_worktrees_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
 ) -> Json<Vec<AgentWorktree>> {
+    let mut access_cache: HashMap<RepoId, bool> = HashMap::new();
     let guard = state.worktrees.read();
     let list = guard
         .iter()
-        .filter(|wt| check_repo_bola(&state.auth_store, state.repo_id, &caller, wt.repo_id).is_ok())
+        .filter(|wt| {
+            *access_cache.entry(wt.repo_id).or_insert_with(|| {
+                check_repo_bola(&state.auth_store, state.repo_id, &caller, wt.repo_id).is_ok()
+            })
+        })
         .cloned()
         .collect();
     Json(list)
+}
+
+/// RAII reservation of one global and one per-user worktree slot. Automatically releases the
+/// in-flight slot on drop if the checkout fails or the request future is cancelled.
+struct SpawnReservation {
+    state: AppState,
+    user_id: UserId,
+    committed: bool,
+}
+
+impl SpawnReservation {
+    fn reserve(state: &AppState, user_id: UserId) -> Result<Self, (StatusCode, String)> {
+        let mut quota = state.spawn_quota.lock();
+        let tracked = state.worktrees.read().len();
+        if tracked.saturating_add(quota.in_flight_total) >= MAX_TRACKED_WORKTREES {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                format!(
+                    "worktree limit ({MAX_TRACKED_WORKTREES}) reached; discard worktrees first"
+                ),
+            ));
+        }
+        let owned = state
+            .worktree_runtime
+            .read()
+            .values()
+            .filter(|r| r.created_by == Some(user_id))
+            .count();
+        let user_in_flight = quota.in_flight_by_user.get(&user_id).copied().unwrap_or(0);
+        if owned.saturating_add(user_in_flight) >= MAX_WORKTREES_PER_USER {
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                format!(
+                    "per-user worktree limit ({MAX_WORKTREES_PER_USER}) reached; discard worktrees first"
+                ),
+            ));
+        }
+        quota.in_flight_total += 1;
+        *quota.in_flight_by_user.entry(user_id).or_insert(0) += 1;
+        Ok(Self {
+            state: state.clone(),
+            user_id,
+            committed: false,
+        })
+    }
+
+    fn commit(mut self, wt: AgentWorktree, runtime: WorktreeRuntime) {
+        let mut quota = self.state.spawn_quota.lock();
+        self.state.worktree_runtime.write().insert(wt.id, runtime);
+        self.state.worktrees.write().push_front(wt);
+        quota.release(self.user_id);
+        self.committed = true;
+    }
+}
+
+impl Drop for SpawnReservation {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.state.spawn_quota.lock().release(self.user_id);
+        }
+    }
 }
 
 async fn spawn_worktree_handler(
@@ -620,25 +729,7 @@ async fn spawn_worktree_handler(
             "repository is not served by this instance".to_owned(),
         ));
     }
-    let _spawn_guard = state.spawn_lock.lock().await;
-    if state.worktrees.read().len() >= MAX_TRACKED_WORKTREES {
-        return Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            format!("worktree limit ({MAX_TRACKED_WORKTREES}) reached; discard worktrees first"),
-        ));
-    }
-    let owned = state
-        .worktree_runtime
-        .read()
-        .values()
-        .filter(|r| r.created_by == caller.user_id)
-        .count();
-    if owned >= MAX_WORKTREES_PER_USER {
-        return Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            format!("per-user worktree limit ({MAX_WORKTREES_PER_USER}) reached; discard worktrees first"),
-        ));
-    }
+    let reservation = SpawnReservation::reserve(&state, caller.user_id)?;
 
     let engine = state.git_engine.clone();
     let agent = req.agent.unwrap_or(AgentKind::ClaudeCode);
@@ -659,7 +750,7 @@ async fn spawn_worktree_handler(
     .map_err(map_git_err)?;
 
     let runtime = WorktreeRuntime {
-        created_by: caller.user_id,
+        created_by: Some(caller.user_id),
         sandbox_spec: SandboxSpec::for_linked_worktree(
             &materialized.worktree_dir,
             &materialized.worktree_admin_dir,
@@ -672,8 +763,7 @@ async fn spawn_worktree_handler(
         exec_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     let wt = materialized.worktree;
-    state.worktree_runtime.write().insert(wt.id, runtime);
-    state.worktrees.write().push_front(wt.clone());
+    reservation.commit(wt.clone(), runtime);
     Ok(Json(wt))
 }
 
@@ -818,7 +908,7 @@ async fn discard_worktree_handler(
     );
     let is_owner = runtime
         .as_ref()
-        .is_some_and(|r| r.created_by == caller.user_id);
+        .is_some_and(|r| r.created_by == Some(caller.user_id));
     if !is_privileged && !is_owner {
         return Err(map_auth_err(AuthError::ForbiddenResourceOwnership));
     }
@@ -843,6 +933,7 @@ async fn discard_worktree_handler(
         .map_err(map_git_err)?;
     }
 
+    let _quota = state.spawn_quota.lock();
     state.worktree_runtime.write().remove(&wt.id);
     state.worktrees.write().retain(|w| w.id != wt.id);
     Ok(StatusCode::NO_CONTENT)
@@ -1248,7 +1339,19 @@ mod tests {
         let spawn =
             |branch: &str| serde_json::json!({"branch": branch, "prompt_summary": "lifecycle"});
 
-        // Namespace, duplicate and base-branch errors.
+        // Startup reconciliation: the new AppState instance recovered `wt` from disk.
+        let (_, recovered_body) =
+            call(&app, "GET", "/api/v1/swarm/worktrees".into(), &token, None).await;
+        let recovered_list: Vec<AgentWorktree> =
+            serde_json::from_str(&recovered_body).expect("parse recovered");
+        assert!(
+            recovered_list
+                .iter()
+                .any(|w| w.id == wt.id && w.branch == "agent/claude/untrusted"),
+            "startup must recover existing on-disk worktrees: {recovered_body}"
+        );
+
+        // Namespace, duplicate and base-branch errors (failed spawns must release quota slots).
         let (s, _) = call(
             &app,
             "POST",

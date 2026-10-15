@@ -511,6 +511,72 @@ impl GitEngine {
             .collect())
     }
 
+    /// Reconstructs [`MaterializedWorktree`] descriptors for existing managed `agent/` worktrees
+    /// on disk (e.g. across server restarts), pruning stale Git worktree admin entries first.
+    pub fn recover_agent_worktrees(
+        &self,
+        repo_id: RepoId,
+    ) -> Result<Vec<MaterializedWorktree>, GitEngineError> {
+        let repo = self.acquire_repo()?;
+        let common_git_dir = Self::common_git_dir(&repo);
+        let _ = run_git(
+            &self.repo_path,
+            [OsStr::new("worktree"), OsStr::new("prune")],
+        );
+        let worktrees_base = self.worktrees_base(&repo, &common_git_dir);
+        let worktrees_base = fs::canonicalize(&worktrees_base).unwrap_or(worktrees_base);
+        let main_workdir = repo
+            .work_dir()
+            .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()));
+        let sandbox_scratch_base = common_git_dir.join(SANDBOX_SCRATCH_DIR_NAME);
+
+        let entries = self.list_agent_worktrees()?;
+        let mut recovered = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let Ok(worktree_admin_dir) = read_worktree_admin_dir(&entry.worktree_dir) else {
+                continue;
+            };
+            let worktree_id = entry
+                .worktree_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(WorktreeId::parse_str)
+                .unwrap_or_else(WorktreeId::new);
+            let (base_branch, base_commit) =
+                read_branch_creation_reflog(&common_git_dir, &entry.branch);
+            let agent = infer_agent_kind(&entry.branch);
+
+            recovered.push(MaterializedWorktree {
+                worktree: AgentWorktree {
+                    id: worktree_id,
+                    repo_id,
+                    agent,
+                    branch: entry.branch,
+                    base_branch,
+                    base_commit,
+                    prompt_summary: "recovered from disk".to_owned(),
+                    materialize_micros: 0,
+                    status: WorktreeStatus::Pending,
+                    last_sandbox_duration_ms: 0,
+                    tests_passed: 0,
+                    tests_total: 0,
+                    files_changed: 0,
+                    additions: 0,
+                    deletions: 0,
+                    github_synced: false,
+                    created_at: Utc::now(),
+                },
+                worktree_dir: entry.worktree_dir,
+                worktree_admin_dir,
+                common_git_dir: common_git_dir.clone(),
+                main_workdir: main_workdir.clone(),
+                worktrees_base: worktrees_base.clone(),
+                sandbox_scratch_base: sandbox_scratch_base.clone(),
+            });
+        }
+        Ok(recovered)
+    }
+
     /// Runs `git fsck --full --strict` against a repository or worktree path (Verification Gate 7.4).
     pub fn verify_git_fsck(repo_or_worktree_path: impl AsRef<Path>) -> Result<(), GitEngineError> {
         let path = repo_or_worktree_path.as_ref();
@@ -701,6 +767,59 @@ fn config_contains_credentials(text: &str) -> bool {
         }
     }
     false
+}
+
+/// Reads the initial reflog line of `refs/heads/<branch>` to recover `base_branch` and
+/// `base_commit` across restarts. If the reflog is absent, returns an empty `base_commit` so
+/// [`GitEngine::remove_agent_worktree`] preserves the branch on discard.
+fn read_branch_creation_reflog(common_git_dir: &Path, branch: &str) -> (String, CommitSha) {
+    use std::io::{BufRead, BufReader};
+    let default = || ("main".to_owned(), CommitSha(String::new()));
+    let Ok(clean) = GitEngine::validate_agent_branch_name(branch) else {
+        return default();
+    };
+    let log_path = common_git_dir.join("logs/refs/heads").join(&clean);
+    let Ok(file) = fs::File::open(log_path) else {
+        return default();
+    };
+    let mut first_line = String::new();
+    if BufReader::new(file).read_line(&mut first_line).is_err() || first_line.is_empty() {
+        return default();
+    }
+    let first_line = first_line.trim_end_matches(['\r', '\n']);
+    let (meta, msg) = first_line.split_once('\t').unwrap_or((first_line, ""));
+    let mut parts = meta.split_whitespace();
+    let (Some(old_oid), Some(new_oid)) = (parts.next(), parts.next()) else {
+        return default();
+    };
+    if old_oid.is_empty()
+        || !old_oid.chars().all(|c| c == '0')
+        || new_oid.is_empty()
+        || !new_oid.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return default();
+    }
+    let base_branch = msg
+        .trim()
+        .strip_prefix("gitust: create agent branch from ")
+        .filter(|b| !b.is_empty())
+        .unwrap_or("main")
+        .to_owned();
+    (base_branch, CommitSha(new_oid.to_owned()))
+}
+
+fn infer_agent_kind(branch: &str) -> AgentKind {
+    let rest = branch.strip_prefix(AGENT_BRANCH_PREFIX).unwrap_or(branch);
+    let seg = rest.split('/').next().unwrap_or("");
+    if seg.eq_ignore_ascii_case("cursor") {
+        AgentKind::CursorAgent
+    } else if seg.eq_ignore_ascii_case("codex") {
+        AgentKind::CodexSwarm
+    } else if seg.eq_ignore_ascii_case("cli") || seg.eq_ignore_ascii_case("bot") {
+        AgentKind::InternalBot
+    } else {
+        AgentKind::ClaudeCode
+    }
 }
 
 /// Parses `git worktree list --porcelain -z`, keeping only entries on `agent/` branches.
@@ -947,6 +1066,51 @@ mod tests {
             "pub fn answer() -> u32 { 42 }\n"
         );
         GitEngine::verify_git_fsck(&m.worktree_dir).expect("fsck");
+    }
+
+    #[test]
+    fn recover_agent_worktrees_reconstructs_id_base_commit_and_prunes_stale() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_dir = tmp.path().join("repo");
+        init_repo(&repo_dir);
+        let engine = GitEngine::new(&repo_dir);
+
+        let untouched = materialize(&engine, "agent/claude/untouched").expect("materialize");
+        let committed = materialize(&engine, "agent/cursor/committed").expect("materialize");
+        let stale = materialize(&engine, "agent/codex/stale").expect("materialize");
+        fs::write(committed.worktree_dir.join("src/new.rs"), "// work\n").expect("write");
+        git(&committed.worktree_dir, &["add", "."]);
+        git(&committed.worktree_dir, &["commit", "-q", "-m", "work"]);
+        // Simulate an ungraceful crash where a worktree dir was deleted externally.
+        fs::remove_dir_all(&stale.worktree_dir).expect("rm stale");
+
+        let recovered = GitEngine::new(&repo_dir)
+            .recover_agent_worktrees(RepoId::new())
+            .expect("recover");
+        assert_eq!(recovered.len(), 2);
+
+        let rec_untouched = recovered
+            .iter()
+            .find(|w| w.worktree.branch == "agent/claude/untouched")
+            .expect("untouched");
+        assert_eq!(rec_untouched.worktree.id, untouched.worktree.id);
+        assert_eq!(
+            rec_untouched.worktree.base_commit,
+            untouched.worktree.base_commit
+        );
+        assert_eq!(rec_untouched.worktree.base_branch, "main");
+        assert_eq!(rec_untouched.worktree.agent, AgentKind::ClaudeCode);
+
+        let rec_committed = recovered
+            .iter()
+            .find(|w| w.worktree.branch == "agent/cursor/committed")
+            .expect("committed");
+        assert_eq!(rec_committed.worktree.id, committed.worktree.id);
+        assert_eq!(
+            rec_committed.worktree.base_commit,
+            committed.worktree.base_commit
+        );
+        assert_eq!(rec_committed.worktree.agent, AgentKind::CursorAgent);
     }
 
     #[test]

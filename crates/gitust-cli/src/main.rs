@@ -7,8 +7,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use gitust_core::{AgentKind, RepoId, WorktreeId};
 use gitust_db::AuthStore;
-use gitust_git::GitEngine;
-use gitust_sandbox::{builtin_mcp_tools, MicrosandboxExecutor, SandboxSpec};
+use gitust_git::{GitEngine, MaterializedWorktree};
+use gitust_sandbox::{builtin_mcp_tools, LocalSandboxExecutor, SandboxSpec};
 use gitust_sync::BiDirectionalSyncConfig;
 
 #[derive(Debug, Parser)]
@@ -231,6 +231,31 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+struct CliWorktreeGuard {
+    engine: GitEngine,
+    materialized: MaterializedWorktree,
+    keep: bool,
+}
+
+impl Drop for CliWorktreeGuard {
+    fn drop(&mut self) {
+        let m = &self.materialized;
+        if self.keep {
+            eprintln!(
+                "[gitust sandbox] kept worktree {} on branch {}",
+                m.worktree_dir.display(),
+                m.worktree.branch
+            );
+        } else if let Err(e) = self.engine.remove_agent_worktree(
+            &m.worktree_dir,
+            &m.worktree.branch,
+            &m.worktree.base_commit,
+        ) {
+            eprintln!("[gitust sandbox] warning: cleanup failed: {e}");
+        }
+    }
+}
+
 /// Creates an ephemeral agent worktree from the current branch, runs `cmd` in the sandbox, and
 /// removes the worktree (and its branch) afterwards unless `keep` is set.
 async fn run_cli_sandbox(
@@ -245,17 +270,35 @@ async fn run_cli_sandbox(
         anyhow::bail!("HEAD is detached; check out a branch first");
     }
 
+    // Register the OS interrupt handler before materializing the worktree so Ctrl-C during
+    // checkout does not terminate the process mid-checkout without cleaning up.
+    #[cfg(unix)]
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+
     let worktree_id = WorktreeId::new();
     let id_str = worktree_id.0.to_string();
     let branch = format!("agent/cli/sandbox-{}", &id_str[..8]);
-    let m = engine.materialize_agent_worktree(
-        worktree_id,
-        RepoId::new(),
-        AgentKind::InternalBot,
-        &branch,
-        &head.branch_name,
-        cmd,
-    )?;
+    let engine_for_spawn = engine.clone();
+    let base_branch = head.branch_name.clone();
+    let cmd_summary = cmd.to_owned();
+    let m = tokio::task::spawn_blocking(move || {
+        engine_for_spawn.materialize_agent_worktree(
+            worktree_id,
+            RepoId::new(),
+            AgentKind::InternalBot,
+            &branch,
+            &base_branch,
+            cmd_summary,
+        )
+    })
+    .await??;
+
+    let guard = CliWorktreeGuard {
+        engine,
+        materialized: m,
+        keep,
+    };
+    let m = &guard.materialized;
     let spec = SandboxSpec::for_linked_worktree(
         &m.worktree_dir,
         &m.worktree_admin_dir,
@@ -265,30 +308,30 @@ async fn run_cli_sandbox(
         &m.sandbox_scratch_base,
     );
 
-    let executor = MicrosandboxExecutor::new(1).with_timeout_secs(timeout_secs);
-    // On Ctrl-C the execution future is dropped (killing the sandboxed process group) and the
-    // worktree is still cleaned up below.
+    let executor = LocalSandboxExecutor::new(1).with_timeout_secs(timeout_secs);
+    // Biased select checks for a pending Ctrl-C (including one received during checkout) before
+    // polling execution; dropping the execution future kills the sandboxed process group, and
+    // `CliWorktreeGuard::drop` always cleans up the worktree.
+    #[cfg(unix)]
+    let outcome = tokio::select! {
+        biased;
+        _ = sigint.recv() => None,
+        res = executor.execute(m.worktree.id, &spec, cmd) => Some(res),
+    };
+    #[cfg(not(unix))]
     let outcome = tokio::select! {
         res = executor.execute(m.worktree.id, &spec, cmd) => Some(res),
         _ = tokio::signal::ctrl_c() => None,
     };
 
-    if keep {
-        eprintln!(
-            "[gitust sandbox] kept worktree {} on branch {}",
-            m.worktree_dir.display(),
-            m.worktree.branch
-        );
-    } else if let Err(e) =
-        engine.remove_agent_worktree(&m.worktree_dir, &m.worktree.branch, &m.worktree.base_commit)
-    {
-        eprintln!("[gitust sandbox] warning: cleanup failed: {e}");
-    }
-
     let Some(outcome) = outcome else {
+        drop(guard);
         eprintln!("[gitust sandbox] interrupted");
         return Ok(130);
     };
+    let materialize_micros = m.worktree.materialize_micros;
+    drop(guard);
+
     let res = outcome?;
     if !res.stdout.is_empty() {
         print!("{}", res.stdout);
@@ -298,7 +341,7 @@ async fn run_cli_sandbox(
     }
     eprintln!(
         "[gitust sandbox] backend={:?} worktree_setup={}µs run={}ms exit={}",
-        res.backend, m.worktree.materialize_micros, res.duration_ms, res.exit_code
+        res.backend, materialize_micros, res.duration_ms, res.exit_code
     );
     Ok(res.exit_code)
 }

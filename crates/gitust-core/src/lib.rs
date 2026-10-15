@@ -34,6 +34,11 @@ impl WorktreeId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
+
+    #[must_use]
+    pub fn parse_str(s: &str) -> Option<Self> {
+        Uuid::parse_str(s).ok().map(Self)
+    }
 }
 
 impl Default for WorktreeId {

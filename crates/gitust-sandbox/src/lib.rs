@@ -259,21 +259,29 @@ struct PreparedRun {
     toolchain_env: Vec<(&'static str, OsString)>,
 }
 
+/// Host OS-level sandbox executor (macOS Seatbelt / Linux Bubblewrap) for local single-user
+/// execution.
 #[derive(Debug, Clone)]
-pub struct MicrosandboxExecutor {
+pub struct LocalSandboxExecutor {
     pub max_concurrent_sandboxes: usize,
     pub timeout_secs: u64,
     pub allow_network: bool,
     semaphore: Arc<Semaphore>,
 }
 
-impl Default for MicrosandboxExecutor {
+/// Compatibility alias for [`LocalSandboxExecutor`].
+///
+/// Note: this executor uses the host OS sandbox (macOS Seatbelt / Linux Bubblewrap), not a
+/// microVM.
+pub type MicrosandboxExecutor = LocalSandboxExecutor;
+
+impl Default for LocalSandboxExecutor {
     fn default() -> Self {
         Self::new(4)
     }
 }
 
-impl MicrosandboxExecutor {
+impl LocalSandboxExecutor {
     #[must_use]
     pub fn new(max_concurrent_sandboxes: usize) -> Self {
         let permits = max_concurrent_sandboxes.max(1);
@@ -820,7 +828,7 @@ mod tests {
         let sibling = mk("agent/cursor/sibling");
         fs::write(sibling.worktree_dir.join("SIBLING.txt"), "SIBLING_CONTENT").expect("write");
         let spec = spec_for(&m);
-        let exec = MicrosandboxExecutor::new(4).with_timeout_secs(10);
+        let exec = LocalSandboxExecutor::new(4).with_timeout_secs(10);
         let run = |cmd: String| {
             let exec = exec.clone();
             let spec = spec.clone();
@@ -887,6 +895,17 @@ mod tests {
             assert!(!res.stdout.contains("SECRET"), "{probe} leaked a secret");
         }
 
+        // Documented behavior: after `git pack-refs --all`, `packed-refs` remains readable so
+        // `git status` and `git log` keep working on packed branches, while `logs/` stays hidden.
+        git(&repo_dir, &["pack-refs", "--all"]);
+        let packed = run(format!(
+            "git status --short && test -r '{common}/packed-refs'"
+        ))
+        .await;
+        assert_eq!(packed.exit_code, 0, "stderr: {}", packed.stderr);
+        let logs_still_hidden = run(format!("cat '{common}/logs/HEAD'")).await;
+        assert_ne!(logs_still_hidden.exit_code, 0);
+
         // Denied: writing outside the worktree.
         let write = run(format!("echo pwned > '{}'", outside_target.display())).await;
         assert_ne!(write.exit_code, 0);
@@ -930,7 +949,7 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(5));
 
         // Timeouts.
-        let fast = MicrosandboxExecutor::new(1).with_timeout_secs(1);
+        let fast = LocalSandboxExecutor::new(1).with_timeout_secs(1);
         let timed_out = fast.execute(m.worktree.id, &spec, "sleep 30").await;
         assert!(matches!(timed_out, Err(SandboxError::TimedOut { .. })));
     }
@@ -968,7 +987,7 @@ mod tests {
                 "cargo",
             )
             .expect("materialize");
-        let res = MicrosandboxExecutor::new(1)
+        let res = LocalSandboxExecutor::new(1)
             .with_timeout_secs(120)
             .execute(
                 m.worktree.id,
@@ -1008,5 +1027,48 @@ mod tests {
             seatbelt_quote(Path::new("/tmp/a\"b")).expect("quote"),
             "\"/tmp/a\\\"b\""
         );
+    }
+
+    #[test]
+    fn bwrap_args_orders_mounts_and_network_flags() {
+        let tmp = TempDir::new().expect("tempdir");
+        let hidden_dir = tmp.path().join("hidden-dir");
+        let hidden_file = tmp.path().join("hidden-file");
+        let ro_dir = tmp.path().join("ro");
+        let rw_dir = tmp.path().join("rw");
+        fs::create_dir_all(&hidden_dir).expect("mkdir");
+        fs::write(&hidden_file, "secret").expect("write");
+        fs::create_dir_all(&ro_dir).expect("mkdir");
+        fs::create_dir_all(&rw_dir).expect("mkdir");
+
+        let rules = vec![
+            PathRule::new(&hidden_dir, PathAccess::Hidden),
+            PathRule::new(&hidden_file, PathAccess::Hidden),
+            PathRule::new(&ro_dir, PathAccess::ReadOnly),
+            PathRule::new(&rw_dir, PathAccess::ReadWrite),
+        ];
+        let offline: Vec<String> = bwrap_args(&rules, &rw_dir, "echo hi", false)
+            .into_iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
+        assert!(!offline.iter().any(|a| a == "--share-net"));
+        assert!(offline
+            .windows(2)
+            .any(|w| w[0] == "--tmpfs" && w[1] == hidden_dir.to_string_lossy()));
+        assert!(offline.windows(3).any(|w| w[0] == "--ro-bind"
+            && w[1] == "/dev/null"
+            && w[2] == hidden_file.to_string_lossy()));
+        assert!(offline.windows(3).any(|w| w[0] == "--ro-bind"
+            && w[1] == ro_dir.to_string_lossy()
+            && w[2] == ro_dir.to_string_lossy()));
+        assert!(offline.windows(3).any(|w| w[0] == "--bind"
+            && w[1] == rw_dir.to_string_lossy()
+            && w[2] == rw_dir.to_string_lossy()));
+
+        let online: Vec<String> = bwrap_args(&rules, &rw_dir, "echo hi", true)
+            .into_iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
+        assert!(online.iter().any(|a| a == "--share-net"));
     }
 }

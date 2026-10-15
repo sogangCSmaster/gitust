@@ -77,11 +77,15 @@ enum Commands {
         trusted_single_user_sandbox: bool,
     },
 
-    /// Start or inspect the built-in MCP (Model Context Protocol) server for Claude Code / Cursor
+    /// Start or inspect the built-in MCP (Model Context Protocol) stdio server for Claude Code / Cursor
     Mcp {
-        /// Print registered MCP tools as JSON
+        /// Print registered MCP tools as JSON and exit
         #[arg(long)]
         list_tools: bool,
+
+        /// Path to the local Git repository to serve
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
     },
 
     /// Run a command in a fresh agent worktree of the current branch's last commit, inside the
@@ -127,6 +131,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
@@ -171,18 +176,12 @@ async fn main() -> Result<()> {
             )
             .await?;
         }
-        Commands::Mcp { list_tools } => {
-            let tools = builtin_mcp_tools();
+        Commands::Mcp { list_tools, repo } => {
             if list_tools {
+                let tools = builtin_mcp_tools();
                 println!("{}", serde_json::to_string_pretty(&tools)?);
             } else {
-                println!(
-                    "Gitust MCP Server ready ({} tools registered for Claude Code / Cursor):",
-                    tools.len()
-                );
-                for t in tools {
-                    println!("  - {}: {}", t.name, t.description);
-                }
+                gitust_server::serve_mcp_stdio(repo).await?;
             }
         }
         Commands::Sandbox {

@@ -78,6 +78,13 @@ pub enum GitEngineError {
     #[error("filesystem error at '{path}': {message}")]
     Io { path: String, message: String },
 
+    #[error(
+        "another gitust worktree service (`gitust serve` or `gitust mcp`) already holds the \
+         repository lock at '{}'; connect via HTTP MCP (`/mcp`) instead",
+        .0.display()
+    )]
+    WorktreeServiceBusy(PathBuf),
+
     #[error("git integrity check (`git fsck --full --strict`) failed at '{path}': {details}")]
     FsckFailed { path: String, details: String },
 }
@@ -522,6 +529,30 @@ impl GitEngine {
             .collect())
     }
 
+    /// Acquires an exclusive non-blocking OS file lock (`gitust-worktree-service.lock`) inside
+    /// the canonical common `.git` directory.
+    ///
+    /// Every independent worktree owner process (`gitust serve` or `gitust mcp`) must acquire and
+    /// retain this `File` handle before running `recover_agent_worktrees` so two processes cannot
+    /// concurrently mutate or discard the same on-disk worktrees with separate in-memory `exec_lock`s.
+    /// Never unlink the lock file on release to avoid inode replacement races.
+    pub fn lock_worktree_service(&self) -> Result<fs::File, GitEngineError> {
+        let repo = self.acquire_repo()?;
+        let path = Self::common_git_dir(&repo).join("gitust-worktree-service.lock");
+        let lock = fs::File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .map_err(|e| io_err(&path, &e))?;
+        match lock.try_lock() {
+            Ok(()) => Ok(lock),
+            Err(fs::TryLockError::WouldBlock) => Err(GitEngineError::WorktreeServiceBusy(path)),
+            Err(fs::TryLockError::Error(e)) => Err(io_err(&path, &e)),
+        }
+    }
+
     /// Reconstructs [`MaterializedWorktree`] descriptors for existing managed `agent/` worktrees
     /// on disk (e.g. across server restarts), pruning stale Git worktree admin entries first.
     pub fn recover_agent_worktrees(
@@ -530,6 +561,7 @@ impl GitEngine {
     ) -> Result<Vec<MaterializedWorktree>, GitEngineError> {
         let repo = self.acquire_repo()?;
         let common_git_dir = Self::common_git_dir(&repo);
+        reject_credentials_in_config(&common_git_dir)?;
         let _ = run_git(
             &self.repo_path,
             [OsStr::new("worktree"), OsStr::new("prune")],
@@ -1572,6 +1604,36 @@ mod tests {
         GitEngine::verify_git_fsck(&server_repo).expect("server git fsck");
         GitEngine::verify_git_fsck(&clone_a).expect("client A git fsck");
         GitEngine::verify_git_fsck(&clone_b).expect("client B git fsck");
+    }
+
+    #[test]
+    fn worktree_service_lock_rejects_second_concurrent_owner() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_dir = tmp.path().join("repo");
+        fs::create_dir_all(&repo_dir).expect("mkdir");
+        git(&repo_dir, &["init", "-q", "-b", "main"]);
+        fs::write(repo_dir.join("README.md"), "# Lock Test\n").expect("write");
+        git(&repo_dir, &["add", "README.md"]);
+        git(&repo_dir, &["commit", "-q", "-m", "initial"]);
+
+        let engine_a = GitEngine::new(&repo_dir);
+        let engine_b = GitEngine::new(&repo_dir);
+
+        let guard_a = engine_a
+            .lock_worktree_service()
+            .expect("first service lock must succeed");
+        let err = engine_b
+            .lock_worktree_service()
+            .expect_err("second concurrent service lock must be rejected");
+        assert!(
+            matches!(err, GitEngineError::WorktreeServiceBusy(_)),
+            "expected WorktreeServiceBusy, got: {err:?}"
+        );
+
+        drop(guard_a);
+        let _guard_b = engine_b
+            .lock_worktree_service()
+            .expect("service lock must succeed after first owner releases it");
     }
 
     /// Benchmark: `cargo test -p gitust-git --release -- --ignored --nocapture bench_`

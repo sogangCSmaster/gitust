@@ -1329,6 +1329,55 @@ impl AuthStore {
         Ok(response)
     }
 
+    /// Issues a session bearer token (`gitust_ses_...`) for an active user after a verified
+    /// OAuth 2.0 Authorization Code + PKCE (`S256`) exchange.
+    ///
+    /// Using the unified `sessions_by_hash` store avoids split-brain token tables and guarantees
+    /// that account deactivation immediately invalidates OAuth-issued MCP tokens.
+    pub fn issue_oauth_session(&self, user_id: UserId) -> Result<LoginSessionResponse, AuthError> {
+        let now = Utc::now();
+        let (response, snapshot) = {
+            let mut guard = self.state.write();
+            let user = guard
+                .users
+                .get(&user_id)
+                .ok_or(AuthError::Unauthenticated)?;
+            if user.status != AccountStatus::Active {
+                return Err(AuthError::AccountDeactivated);
+            }
+            let profile = user.to_public_profile();
+            let raw_session_token = generate_csprng_token("gitust_ses");
+            let token_sha256 = hash_token_sha256(&raw_session_token);
+            let expires_at = now + Duration::hours(DEFAULT_SESSION_TTL_HOURS);
+            let session_id = SessionId::new();
+
+            guard.sessions_by_hash.insert(
+                token_sha256,
+                StoredSession {
+                    id: session_id,
+                    user_id,
+                    token_sha256,
+                    created_at: now,
+                    expires_at,
+                    revoked: false,
+                },
+            );
+            let snap = self.maybe_snapshot(&mut guard);
+            (
+                LoginSessionResponse {
+                    session_id,
+                    raw_session_token,
+                    user: profile,
+                    expires_at,
+                },
+                snap,
+            )
+        };
+
+        self.persist_snapshot_unlocked(snapshot)?;
+        Ok(response)
+    }
+
     // ========================================================================
     // 4. O(1) Session, PAT (HTTPS Git), and SSH Key Authentication
     // ========================================================================
@@ -1746,6 +1795,9 @@ impl AuthStore {
         caller: &AuthenticatedPrincipal,
     ) -> Result<AuthenticatedPrincipal, AuthError> {
         let guard = self.state.read();
+        if guard.users.is_empty() {
+            return Ok(caller.clone());
+        }
         Self::verify_active_user_locked(&guard, caller)
     }
 

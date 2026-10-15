@@ -13,19 +13,22 @@ This skill enforces a ruthless, non-rubber-stamping verification standard before
 
 ---
 
-## 1. Anti-Rubber-Stamping Protocol & 3-Axis Threat Modeling
+## 1. Anti-Rubber-Stamping Protocol & 4-Axis Audit Model
 
-1. **Guilty Until Proven Innocent**: Never conclude "0 P0, 0 P1" just because `cargo test` and `cargo clippy` pass. Happy-path unit tests rarely catch cancellation leaks, parser differentials, or missing-file security bypasses.
-2. **Mandatory 3-Axis Threat Modeling (For Finding Unknown Bugs)**:
-   Do not merely check off known past bugs. For every touched function, handler, or state transition, explicitly interrogate three orthogonal axes:
-   - **Axis A — Lifecycle & Concurrency**:
+1. **Guilty Until Proven Innocent**: Never conclude "0 P0, 0 P1" just because `cargo test` and `cargo clippy` pass. Happy-path unit tests rarely catch cancellation leaks, parser differentials, missing-file security bypasses, or $O(N)$ lock-contention regressions.
+2. **Mandatory 4-Axis Audit Model (Security + Correctness + Blazing Speed)**:
+   Do not merely check off known past bugs. For every touched function, handler, or state transition, explicitly interrogate four orthogonal axes:
+   - **Axis A — Blazing Speed & Hot-Path Latency (`AGENTS.md` §3.1 & §6)**:
+     - *Did a security or stability fix accidentally introduce an $O(N)$ full-map scan on every write under a lock, unconditional `String` allocations on the fast path, N+1 lookups, or blocking I/O on Tokio worker threads?*
+     - *Can fast-path checks use `Cow::Borrowed`, O(1) index lookups, or amortized pruning instead of per-call full scans?*
+   - **Axis B — Lifecycle & Concurrency**:
      - *What if the caller's Future is cancelled (HTTP disconnect, timeout, `SIGINT`) while `spawn_blocking` or an `.await` is in flight?*
      - *What if Request B (`approve`, `discard`, `deactivate`) runs while Request A (`exec`, `spawn`, `sync`) is suspended at `.await`?*
      - *What if the process crashes (`SIGKILL`) right between a disk mutation and an in-memory/DB update, and restarts?*
-   - **Axis B — Input, Path & Parser Boundaries**:
+   - **Axis C — Input, Path & Parser Boundaries**:
      - *What if a path does not exist yet (`ENOENT`), is already deleted, or traverses a symlinked root (`/var` vs `/private/var`)?*
      - *What if a user/agent supplies a ref or path starting with `-` (Git CLI option injection), backslash line continuations (`\\\n`), tabs (`\t`), quotes, or non-ASCII/control characters?*
-   - **Axis C — Resource Exhaustion & Fail-Closed Cap Behavior**:
+   - **Axis D — Resource Exhaustion & Fail-Closed Cap Behavior**:
      - *When a bounded map/queue hits its cap (`MAX_RATE_LIMIT_TRACKED_KEYS`, `MAX_TRACKED_WORKTREES`), does it fail-closed (evict/reject) or accidentally fail-open (`return;` bypassing security)?*
      - *Can an unauthenticated caller or noisy neighbor lock out another user's account, exhaust quota slots via cancelled requests, or trigger unbounded memory/disk growth?*
 3. **Concrete Trace or Probe Required**: When auditing sandbox profiles, git commands, or parsers, run a real probe (in a temporary directory under `mktemp -d`) whenever feasible.

@@ -768,12 +768,17 @@ fn read_worktree_admin_dir(worktree_dir: &Path) -> Result<PathBuf, GitEngineErro
 }
 
 fn config_contains_credentials(text: &str) -> bool {
-    let folded = text.replace("\\\r\n", "").replace("\\\n", "");
+    let folded: std::borrow::Cow<'_, str> = if text.contains('\\') {
+        std::borrow::Cow::Owned(text.replace("\\\r\n", "").replace("\\\n", ""))
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    };
     for raw in folded.lines() {
-        let line = raw.trim().to_ascii_lowercase();
-        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
             continue;
         }
+        let line = trimmed.to_ascii_lowercase();
         if line.contains("extraheader") {
             return true;
         }

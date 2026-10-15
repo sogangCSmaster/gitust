@@ -262,9 +262,8 @@ impl AuthState {
         });
     }
 
-    fn next_snapshot(&mut self) -> PersistedSnapshot {
+    fn snapshot_current(&mut self) -> PersistedSnapshot {
         self.prune_expired(Utc::now());
-        self.revision = self.revision.saturating_add(1);
         PersistedSnapshot {
             revision: self.revision,
             policy: self.policy.clone(),
@@ -634,9 +633,13 @@ impl AuthStore {
     }
 
     fn maybe_snapshot(&self, state: &mut AuthState) -> Option<PersistedSnapshot> {
+        state.revision = state.revision.saturating_add(1);
         if self.persistence_path.is_some() {
-            Some(state.next_snapshot())
+            Some(state.snapshot_current())
         } else {
+            if state.revision.is_multiple_of(64) || state.sessions_by_hash.len() >= 1024 {
+                state.prune_expired(Utc::now());
+            }
             None
         }
     }

@@ -25,7 +25,7 @@ Gitust is in early development. Workspace and mirror foundations are implemented
 |---|---|
 | Workspaces | Managed `agent/*` branches, linked worktrees, ownership checks, and startup recovery |
 | Execution | Local commands using macOS Seatbelt or Linux Bubblewrap |
-| Verification | Clean SHA checks and required commands from the merge target's committed `.gitust-checks.json` |
+| Verification | Clean SHA checks, required commands from the merge target's committed `.gitust-checks.json`, and per-command results |
 | Approval and publication | Human-approved fast-forward merge, exact-SHA push, persisted records, and explicit retry |
 | Git hosting | Smart HTTP clone/fetch and restricted pushes to managed agent branches |
 | Mirroring | Explicit inbound synchronization that preserves local work and private agent refs |
@@ -79,6 +79,15 @@ To enable server-side command execution, add `--trusted-single-user-sandbox` on 
 
 The upstream URL configures synchronization and publication. Starting the server does not automatically mirror or publish commits. Private outbound GitHub authentication currently uses SSH keys/agent and a preconfigured `known_hosts`, rather than HTTPS credential helpers.
 
+For frontend development, keep the Rust server running on `127.0.0.1:3000` and start Vite in another terminal:
+
+```sh
+pnpm --filter @gitust/design-system dev
+```
+
+Open [localhost:4200](http://127.0.0.1:4200). Vite forwards API, MCP, OAuth, discovery, and Git requests to the Rust server. Sign in through **Access** with the CLI-created account to use real repository data. Worktrees, repository browsing, and account controls connect to the server; Issues and Actions remain labelled interface demos. The Components view is a design reference. Use a separate clone for experiments when your development checkout has uncommitted work.
+
+
 ## CLI and agent workflow
 
 These examples assume `gitust` is on your `PATH`; you can also use the built binary by its full path.
@@ -111,7 +120,7 @@ Local `triage approve` is an explicit operator action: it does not automatically
 
 ## Architecture and performance
 
-Gitust uses Rust, Tokio, Axum, and `gix`, with a SolidJS frontend. Git objects, worktrees, authentication state, and approval records stay on the deployment's storage. The auth store currently uses lock-protected JSON snapshots; SQL storage is not implemented.
+Gitust uses Rust, Tokio, Axum, and `gix`, with a SolidJS frontend built on locally owned [solid-ui](https://www.solid-ui.com/) components, Kobalte and Tailwind CSS. Git objects, worktrees, authentication state, and approval records stay on the deployment's storage. The auth store currently uses lock-protected JSON snapshots; SQL storage is not implemented.
 
 Self-hosting Gitust does not determine what an external AI model provider receives. That depends on the agent client and model configuration. Connecting a cloud-backed agent does not guarantee that all code stays local.
 

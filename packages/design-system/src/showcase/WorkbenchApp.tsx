@@ -2,6 +2,7 @@ import {
   Component,
   createMemo,
   createSignal,
+  For,
   onCleanup,
   onMount,
   Show,
@@ -9,6 +10,7 @@ import {
 import {
   ActionJobStep,
   ActiveChordHUD,
+  Button,
   AgentSandboxTask,
   CommandPalette,
   EnterpriseUser,
@@ -21,8 +23,6 @@ import {
   LiveInviteItem,
   LivePatItem,
   LiveSshKeyItem,
-  TabItem,
-  Tabs,
 } from "../index";
 import { createLiveAuthClient } from "./live-auth-client";
 import {
@@ -44,15 +44,15 @@ import { registerWorkbenchShortcuts } from "./register-workbench-shortcuts";
 import { createShowcaseDemoActions } from "./showcase-demo-actions";
 import { ShortcutsReferenceModal, WorkbenchHeader } from "./WorkbenchHeader";
 import { WorkbenchTabViews } from "./WorkbenchTabViews";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import { SidebarProvider, SidebarInset } from "../components/ui/sidebar";
+import {
+  WorkbenchNavigation,
+  type WorkbenchNavItem,
+} from "./WorkbenchNavigation";
 
 export type WorkbenchTab =
-  | "swarm"
-  | "issues"
-  | "diff"
-  | "actions"
-  | "admin"
-  | "tree"
-  | "primitives";
+  "swarm" | "issues" | "diff" | "actions" | "admin" | "tree" | "primitives";
 
 export const WorkbenchApp: Component = () => {
   const [liveMode, setLiveMode] = createSignal(Boolean(getLiveToken()));
@@ -62,12 +62,12 @@ export const WorkbenchApp: Component = () => {
 
   // Showcase Local-First Agent Swarm & Sandbox Fleet Store
   const [swarmTasks, setSwarmTasks] = createSignal<AgentSandboxTask[]>(
-    liveMode() ? [] : INITIAL_AGENT_SWARM_TASKS
+    liveMode() ? [] : INITIAL_AGENT_SWARM_TASKS,
   );
   const [swarmFilter, setSwarmFilter] = createSignal("");
   const [focusedSwarmIdx, setFocusedSwarmIdx] = createSignal(0);
   const visibleSwarmTasks = createMemo(() =>
-    filterAgentSwarmTasks(swarmTasks(), swarmFilter())
+    filterAgentSwarmTasks(swarmTasks(), swarmFilter()),
   );
 
   // Showcase Local-First / Optimistic Issue Store
@@ -75,11 +75,11 @@ export const WorkbenchApp: Component = () => {
   const [issueFilter, setIssueFilter] = createSignal("");
   const [focusedIssueIdx, setFocusedIssueIdx] = createSignal(0);
   const visibleIssues = createMemo(() =>
-    filterIssueItems(issues(), issueFilter())
+    filterIssueItems(issues(), issueFilter()),
   );
 
   const [optimisticToast, setOptimisticToast] = createSignal<string | null>(
-    null
+    null,
   );
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -91,12 +91,12 @@ export const WorkbenchApp: Component = () => {
 
   // Showcase & Live Enterprise Self-Hosted Admin & IAM State
   const [enterpriseUsers, setEnterpriseUsers] = createSignal<EnterpriseUser[]>(
-    liveMode() ? [] : INITIAL_ENTERPRISE_USERS
+    liveMode() ? [] : INITIAL_ENTERPRISE_USERS,
   );
   const [liveSession, setLiveSession] =
     createSignal<LiveAuthSessionInfo | null>(null);
   const [redeemMode, setRedeemMode] = createSignal<"invite" | "reset">(
-    "invite"
+    "invite",
   );
   const [redeemToken, setRedeemToken] = createSignal("");
   const [liveInvites, setLiveInvites] = createSignal<LiveInviteItem[]>([]);
@@ -112,40 +112,47 @@ export const WorkbenchApp: Component = () => {
   let filterInputRef: HTMLInputElement | undefined;
 
   // Demo data is only available in the explicitly labelled showcase mode.
-  const fallbackDiffLines = createMemo(() => liveMode() ? [] : generateLargeDiff(10000));
-  const fallbackFileTreeNodes = createMemo(() =>
-    liveMode() ? [] : generateMonorepoFileTree(5000)
+  const fallbackDiffLines = createMemo(() =>
+    liveMode() ? [] : generateLargeDiff(10000),
   );
-  const [liveDiffLines, setLiveDiffLines] = createSignal<
-    ReturnType<typeof generateLargeDiff> | null
-  >(null);
-  const [liveFileTreeNodes, setLiveFileTreeNodes] = createSignal<
-    ReturnType<typeof generateMonorepoFileTree> | null
-  >(null);
-  const [liveCommits, setLiveCommits] = createSignal<LiveCommitSummary[]>(liveMode() ? [] : [
-    {
-      sha: "554fb6c",
-      short_sha: "554fb6c",
-      summary:
-        "feat(git,server): Step 2-4 gix commit/tree/blob/diff & GitHub mirror sync",
-      author_name: "yuseungjae",
-    },
-    {
-      sha: "5edd70a",
-      short_sha: "5edd70a",
-      summary: "feat(mcp,oauth): Step 2-3 OAuth 2.1 PKCE S256 & MCP gateway",
-      author_name: "yuseungjae",
-    },
-  ]);
+  const fallbackFileTreeNodes = createMemo(() =>
+    liveMode() ? [] : generateMonorepoFileTree(5000),
+  );
+  const [liveDiffLines, setLiveDiffLines] = createSignal<ReturnType<
+    typeof generateLargeDiff
+  > | null>(null);
+  const [liveFileTreeNodes, setLiveFileTreeNodes] = createSignal<ReturnType<
+    typeof generateMonorepoFileTree
+  > | null>(null);
+  const [liveCommits, setLiveCommits] = createSignal<LiveCommitSummary[]>(
+    liveMode()
+      ? []
+      : [
+          {
+            sha: "554fb6c",
+            short_sha: "554fb6c",
+            summary:
+              "feat(git,server): Step 2-4 gix commit/tree/blob/diff & GitHub mirror sync",
+            author_name: "yuseungjae",
+          },
+          {
+            sha: "5edd70a",
+            short_sha: "5edd70a",
+            summary:
+              "feat(mcp,oauth): Step 2-3 OAuth 2.1 PKCE S256 & MCP gateway",
+            author_name: "yuseungjae",
+          },
+        ],
+  );
   const [activeCommitRev, setActiveCommitRev] = createSignal("HEAD");
   const [lookupMicros, setLookupMicros] = createSignal<number | null>(null);
   const [selectedFilePath, setSelectedFilePath] = createSignal(
-    liveMode() ? "Repository preview" : "crates/gitust-git/src/browse.rs"
+    liveMode() ? "Repository preview" : "crates/gitust-git/src/browse.rs",
   );
 
   const diffLines = createMemo(() => liveDiffLines() ?? fallbackDiffLines());
   const fileTreeNodes = createMemo(
-    () => liveFileTreeNodes() ?? fallbackFileTreeNodes()
+    () => liveFileTreeNodes() ?? fallbackFileTreeNodes(),
   );
 
   const showQuickFeedback = (msg: string) => {
@@ -307,205 +314,172 @@ export const WorkbenchApp: Component = () => {
     });
   });
 
-  const tabs = createMemo<TabItem<WorkbenchTab>[]>(() => [
+  const tabs = createMemo<WorkbenchNavItem[]>(() => [
     {
       id: "swarm",
-      label: "Agent Swarm & Sandboxes",
+      label: "Worktrees",
       count: swarmTasks().length,
-      shortcut: "g w",
       icon: <Icon name="bot" size={14} />,
     },
     {
       id: "issues",
-      label: "Issues & PRs (demo)",
-      count: issues().length,
-      shortcut: "g i",
+      label: "Issues · Demo",
       icon: <Icon name="git-pull-request" size={14} />,
     },
     {
       id: "diff",
-      label: liveMode() ? "Diff" : "Diff (demo)",
-      shortcut: "g d",
+      label: liveMode() ? "Diff" : "Diff · Demo",
       icon: <Icon name="diff" size={14} />,
     },
     {
       id: "actions",
-      label: "CI/CD Actions (demo)",
-      count: actionJobs().length,
-      shortcut: "g a",
+      label: "Actions · Demo",
       icon: <Icon name="play" size={14} />,
     },
     {
       id: "admin",
-      label: "Enterprise Admin & Auth",
-      shortcut: "g s",
+      label: "Access",
       icon: <Icon name="shield-check" size={14} />,
     },
     {
       id: "tree",
-      label: liveMode() ? "File Tree" : "File Tree (demo)",
-      shortcut: "g t",
+      label: liveMode() ? "Files" : "Files · Demo",
       icon: <Icon name="folder" size={14} />,
     },
     {
       id: "primitives",
-      label: "Tokens & Icons",
-      shortcut: "g p",
+      label: "Components",
       icon: <Icon name="sliders" size={14} />,
     },
   ]);
 
   return (
-    <div
-      style={{
-        "min-height": "100vh",
-        display: "flex",
-        "flex-direction": "column",
-      }}
-    >
-      {/* Mount Global Zero-Overhead SVG <symbol> Sprite Sheet Once */}
+    <SidebarProvider>
       <IconSpriteSheet />
-
-      <WorkbenchHeader
-        onOpenCommandPalette={() => setCmdOpen(true)}
-        onOpenShortcutsModal={() => setShortcutsModalOpen(true)}
+      <WorkbenchNavigation
+        items={tabs()}
+        active={activeTab()}
+        onSelect={setActiveTab}
       />
+      <SidebarInset class="min-w-0">
+        <WorkbenchHeader
+          onOpenCommandPalette={() => setCmdOpen(true)}
+          onOpenShortcutsModal={() => setShortcutsModalOpen(true)}
+        />
+        <div class="mx-auto w-full max-w-6xl space-y-5 p-4 sm:p-5 lg:p-6">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            <span class="inline-flex items-center gap-2 text-foreground">
+              <span class="size-1.5 rounded-full bg-foreground" />
+              {liveMode() ? "Live workspace" : "Demo workspace"}
+            </span>
+            <span>
+              {liveMode()
+                ? "Issues and Actions use sample data."
+                : "Explore with sample data, or connect your local server."}
+            </span>
+            <Show when={!liveMode()}>
+              <Button
+                size="sm"
+                variant="ghost"
+                class="-ml-2"
+                onClick={() => setActiveTab("admin")}
+              >
+                Sign in <Icon name="chevron-right" size={12} />
+              </Button>
+            </Show>
+          </div>
+          <Show when={optimisticToast()}>
+            {(message) => (
+              <Alert>
+                <AlertDescription>{message()}</AlertDescription>
+              </Alert>
+            )}
+          </Show>
 
-      {/* Sub-header Tabs */}
-      <div style={{ "background-color": "var(--ds-bg-primary)" }}>
-        <div style={{ "max-width": "1240px", margin: "0 auto" }}>
-          <Tabs
-            items={tabs()}
-            activeId={activeTab()}
-            onChange={(id) => setActiveTab(id)}
+          <WorkbenchTabViews
+            activeTab={activeTab()}
+            liveMode={liveMode()}
+            swarmTasks={swarmTasks()}
+            focusedSwarmIdx={focusedSwarmIdx()}
+            onFocusedSwarmIdxChange={setFocusedSwarmIdx}
+            onApproveMergeSwarmTask={approveAndMergeSwarmTask}
+            onDiscardSwarmTask={discardSwarmTask}
+            onPublishSwarmTask={publishSwarmTask}
+            onVerifySwarmTask={(id, command) =>
+              void liveSwarmClient.verifyLiveWorktree(id, command)
+            }
+            onRefreshSwarmTasks={() =>
+              void liveSwarmClient.hydrateSwarmWorktrees()
+            }
+            onSpawnBatchAgentSwarm={spawnBatchAgentSwarm}
+            onTriggerGithubSync={liveClient.triggerGithubSync}
+            swarmFilter={swarmFilter()}
+            onSwarmFilterChange={setSwarmFilter}
+            issues={issues()}
+            focusedIssueIdx={focusedIssueIdx()}
+            onFocusedIssueIdxChange={setFocusedIssueIdx}
+            onToggleIssueStatus={demoActions.toggleIssueStatus}
+            onCreateOptimisticIssue={demoActions.createOptimisticIssue}
+            filterRef={(el) => (filterInputRef = el)}
+            issueFilter={issueFilter()}
+            onIssueFilterChange={setIssueFilter}
+            liveCommits={liveCommits()}
+            activeCommitRev={activeCommitRev()}
+            onSelectCommitDiff={(sha) =>
+              void liveClient.loadLiveCommitDiff(sha)
+            }
+            lookupMicros={lookupMicros()}
+            selectedFilePath={selectedFilePath()}
+            diffLines={diffLines()}
+            actionJobs={actionJobs()}
+            activeJobId={activeJobId()}
+            onSelectJob={setActiveJobId}
+            onRerunAllActionJobs={demoActions.rerunAllActionJobs}
+            actionLogs={actionLogs()}
+            enterpriseUsers={enterpriseUsers()}
+            onToggleEnterpriseUserRole={demoActions.toggleEnterpriseUserRole}
+            onToggleEnterpriseUserStatus={
+              demoActions.toggleEnterpriseUserStatus
+            }
+            onPolicyFeedback={showQuickFeedback}
+            adminAuthProps={{
+              liveMode: liveMode(),
+              liveSession: liveSession(),
+              onSignIn: (id, pwd) => void liveAuthClient.signIn(id, pwd),
+              onSignOut: () => void liveAuthClient.signOut(),
+              redeemMode: redeemMode(),
+              onChangeRedeemMode: setRedeemMode,
+              redeemToken: redeemToken(),
+              onRedeemTokenInput: setRedeemToken,
+              onRedeemInvite: (tok, user, pwd) =>
+                void liveAuthClient.redeemInvite(tok, user, pwd),
+              onRedeemPasswordReset: (tok, pwd) =>
+                void liveAuthClient.redeemPasswordReset(tok, pwd),
+              liveInvites: liveInvites(),
+              lastIssuedInviteUrl: lastIssuedInviteUrl(),
+              onIssueInvite: (email, role) =>
+                void liveAuthClient.issueInvite(email, role),
+              onRevokeInvite: (id) => void liveAuthClient.revokeInvite(id),
+              onIssuePasswordReset: (uid) =>
+                void liveAuthClient.issuePasswordReset(uid),
+              onDeactivateLiveUser: (uid) =>
+                void liveAuthClient.deactivateUser(uid),
+              livePats: livePats(),
+              lastIssuedPatToken: lastIssuedPatToken(),
+              onCreatePat: (name) => void liveAuthClient.createPat(name),
+              onRevokePat: (id) => void liveAuthClient.revokePat(id),
+              liveSshKeys: liveSshKeys(),
+              onRegisterSshKey: (title, key) =>
+                void liveAuthClient.registerSshKey(title, key),
+              onRevokeSshKey: (id) => void liveAuthClient.revokeSshKey(id),
+            }}
+            fileTreeNodes={fileTreeNodes()}
+            onSelectFileFromTree={(node) =>
+              void liveClient.selectFileFromTree(node)
+            }
           />
         </div>
-      </div>
-
-      {/* Main Content Container */}
-      <main
-        style={{
-          flex: 1,
-          "max-width": "1240px",
-          width: "100%",
-          margin: "0 auto",
-          padding: "var(--ds-space-5) var(--ds-space-4)",
-          display: "flex",
-          "flex-direction": "column",
-          gap: "var(--ds-space-4)",
-        }}
-      >
-        <p class="ds-mono" style={{ color: "var(--ds-fg-secondary)", "font-size": "var(--ds-font-size-xs)" }}>
-          {liveMode() ? "Live server · Issues and CI/CD tabs are interface demos" : "Design showcase · Sample data and simulated actions · Sign in for live server data"}
-        </p>
-        {/* Optimistic Feedback Banner (Zero Spinner) */}
-        <Show when={optimisticToast()}>
-          {(msg) => (
-            <div
-              style={{
-                display: "flex",
-                "align-items": "center",
-                "justify-content": "space-between",
-                padding: "var(--ds-space-2) var(--ds-space-3)",
-                "background-color": "var(--ds-accent-subtle)",
-                border: "1px solid var(--ds-accent-border)",
-                "border-radius": "var(--ds-radius-sm)",
-                "font-size": "var(--ds-font-size-xs)",
-                color: "var(--ds-fg-primary)",
-              }}
-            >
-              <span
-                style={{
-                  display: "inline-flex",
-                  "align-items": "center",
-                  gap: "var(--ds-space-1-5)",
-                }}
-              >
-                <Icon name="zap" size={13} />
-                <span>{msg()}</span>
-              </span>
-              <span class="ds-mono" style={{ color: "var(--ds-fg-secondary)" }}>
-                Zero Spinner · Local-First Cache
-              </span>
-            </div>
-          )}
-        </Show>
-
-        <WorkbenchTabViews
-          activeTab={activeTab()}
-          liveMode={liveMode()}
-          swarmTasks={swarmTasks()}
-          focusedSwarmIdx={focusedSwarmIdx()}
-          onFocusedSwarmIdxChange={setFocusedSwarmIdx}
-          onApproveMergeSwarmTask={approveAndMergeSwarmTask}
-          onDiscardSwarmTask={discardSwarmTask}
-          onPublishSwarmTask={publishSwarmTask}
-          onVerifySwarmTask={(id, command) => void liveSwarmClient.verifyLiveWorktree(id, command)}
-          onRefreshSwarmTasks={() => void liveSwarmClient.hydrateSwarmWorktrees()}
-          onSpawnBatchAgentSwarm={spawnBatchAgentSwarm}
-          onTriggerGithubSync={liveClient.triggerGithubSync}
-          swarmFilter={swarmFilter()}
-          onSwarmFilterChange={setSwarmFilter}
-          issues={issues()}
-          focusedIssueIdx={focusedIssueIdx()}
-          onFocusedIssueIdxChange={setFocusedIssueIdx}
-          onToggleIssueStatus={demoActions.toggleIssueStatus}
-          onCreateOptimisticIssue={demoActions.createOptimisticIssue}
-          filterRef={(el) => (filterInputRef = el)}
-          issueFilter={issueFilter()}
-          onIssueFilterChange={setIssueFilter}
-          liveCommits={liveCommits()}
-          activeCommitRev={activeCommitRev()}
-          onSelectCommitDiff={(sha) => void liveClient.loadLiveCommitDiff(sha)}
-          lookupMicros={lookupMicros()}
-          selectedFilePath={selectedFilePath()}
-          diffLines={diffLines()}
-          actionJobs={actionJobs()}
-          activeJobId={activeJobId()}
-          onSelectJob={setActiveJobId}
-          onRerunAllActionJobs={demoActions.rerunAllActionJobs}
-          actionLogs={actionLogs()}
-          enterpriseUsers={enterpriseUsers()}
-          onToggleEnterpriseUserRole={demoActions.toggleEnterpriseUserRole}
-          onToggleEnterpriseUserStatus={demoActions.toggleEnterpriseUserStatus}
-          onPolicyFeedback={showQuickFeedback}
-          adminAuthProps={{
-            liveMode: liveMode(),
-            liveSession: liveSession(),
-            onSignIn: (id, pwd) => void liveAuthClient.signIn(id, pwd),
-            onSignOut: () => void liveAuthClient.signOut(),
-            redeemMode: redeemMode(),
-            onChangeRedeemMode: setRedeemMode,
-            redeemToken: redeemToken(),
-            onRedeemTokenInput: setRedeemToken,
-            onRedeemInvite: (tok, user, pwd) =>
-              void liveAuthClient.redeemInvite(tok, user, pwd),
-            onRedeemPasswordReset: (tok, pwd) =>
-              void liveAuthClient.redeemPasswordReset(tok, pwd),
-            liveInvites: liveInvites(),
-            lastIssuedInviteUrl: lastIssuedInviteUrl(),
-            onIssueInvite: (email, role) =>
-              void liveAuthClient.issueInvite(email, role),
-            onRevokeInvite: (id) => void liveAuthClient.revokeInvite(id),
-            onIssuePasswordReset: (uid) =>
-              void liveAuthClient.issuePasswordReset(uid),
-            onDeactivateLiveUser: (uid) =>
-              void liveAuthClient.deactivateUser(uid),
-            livePats: livePats(),
-            lastIssuedPatToken: lastIssuedPatToken(),
-            onCreatePat: (name) => void liveAuthClient.createPat(name),
-            onRevokePat: (id) => void liveAuthClient.revokePat(id),
-            liveSshKeys: liveSshKeys(),
-            onRegisterSshKey: (title, key) =>
-              void liveAuthClient.registerSshKey(title, key),
-            onRevokeSshKey: (id) => void liveAuthClient.revokeSshKey(id),
-          }}
-          fileTreeNodes={fileTreeNodes()}
-          onSelectFileFromTree={(node) =>
-            void liveClient.selectFileFromTree(node)
-          }
-        />
-      </main>
+      </SidebarInset>
 
       {/* Global Command Palette (Cmd+K) */}
       <CommandPalette open={cmdOpen()} onClose={() => setCmdOpen(false)} />
@@ -518,6 +492,6 @@ export const WorkbenchApp: Component = () => {
 
       {/* Floating Chord Indicator when 'g' is pressed */}
       <ActiveChordHUD />
-    </div>
+    </SidebarProvider>
   );
 };

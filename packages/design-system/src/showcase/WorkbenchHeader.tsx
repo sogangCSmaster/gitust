@@ -1,212 +1,102 @@
-import { Component, For, Show } from "solid-js";
+import { For, type Component } from "solid-js";
+import { Button } from "../components/ui/button";
 import {
-  Badge,
-  Button,
   Dialog,
-  getTheme,
-  Icon,
-  Kbd,
-  shortcutManager,
-  toggleTheme,
-} from "../index";
-
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "../components/ui/dialog";
+import { SidebarTrigger } from "../components/ui/sidebar";
+import { Separator } from "../components/ui/separator";
+import { Icon } from "../components/workspace/icon";
+import { KeyHint } from "../components/workspace/presentation";
+import { getTheme, toggleTheme } from "../tokens/theme";
+import { shortcutManager } from "../keyboard/shortcut-manager";
 export interface WorkbenchHeaderProps {
   onOpenCommandPalette: () => void;
   onOpenShortcutsModal: () => void;
 }
-
-export const WorkbenchHeader: Component<WorkbenchHeaderProps> = (props) => {
-  return (
-    <header
-      style={{
-        display: "flex",
-        "align-items": "center",
-        "justify-content": "space-between",
-        height: "var(--ds-workbench-header-height)",
-        padding: "0 var(--ds-space-4)",
-        "background-color": "var(--ds-bg-primary)",
-        "border-bottom": "1px solid var(--ds-border-default)",
-        position: "sticky",
-        top: 0,
-        "z-index": 20,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          "align-items": "center",
-          gap: "var(--ds-space-3)",
-        }}
+export const WorkbenchHeader: Component<WorkbenchHeaderProps> = (props) => (
+  <header class="flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 sm:px-6">
+    <div class="flex items-center gap-3">
+      <SidebarTrigger class="size-9" />
+      <Separator orientation="vertical" class="h-5" />
+      <span class="hidden text-xs text-muted-foreground sm:inline">
+        Workspace
+      </span>
+      <span class="text-sm font-medium">Gitust</span>
+    </div>
+    <div class="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        class="hidden gap-4 text-muted-foreground sm:inline-flex"
+        onClick={props.onOpenCommandPalette}
       >
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            gap: "var(--ds-space-2)",
-            "font-weight": 700,
-            "font-size": "var(--ds-font-size-md)",
-          }}
-        >
-          <span
-            style={{
-              display: "inline-flex",
-              "align-items": "center",
-              "justify-content": "center",
-              width: "var(--ds-workbench-logo-size)",
-              height: "var(--ds-workbench-logo-size)",
-              "border-radius": "var(--ds-radius-xs)",
-              "background-color": "var(--ds-accent-primary)",
-              color: "var(--ds-fg-on-accent)",
-            }}
-          >
-            <Icon name="repo" size={13} />
-          </span>
-          <span>gitust</span>
-          <span style={{ color: "var(--ds-fg-muted)", "font-weight": 400 }}>
-            /
-          </span>
-          <span
-            class="ds-mono"
-            style={{ "font-size": "var(--ds-font-size-sm)" }}
-          >
-            agent-native-git
-          </span>
-        </div>
-
-        <Badge variant="accent" dot>
-          Agent + Sandbox Engine
-        </Badge>
-        <Badge variant="success" mono>
-          <Icon name="zap" size={11} />
-          <span>Keyboard first</span>
-        </Badge>
-      </div>
-
-      {/* Live Keystroke Latency HUD & Global Actions */}
-      <div
-        style={{
-          display: "flex",
-          "align-items": "center",
-          gap: "var(--ds-space-2)",
-        }}
+        <Icon name="search" />
+        Commands
+        <KeyHint keys="mod+k" />
+      </Button>
+      <Button
+        size="icon"
+        variant="ghost"
+        class="sm:hidden"
+        aria-label="Search commands"
+        onClick={props.onOpenCommandPalette}
       >
-        <Show when={shortcutManager.lastTelemetry()}>
-          {(t) => (
-            <div
-              class="ds-mono"
-              style={{
-                display: "inline-flex",
-                "align-items": "center",
-                gap: "var(--ds-space-1-5)",
-                padding: "var(--ds-space-0-5) var(--ds-space-2)",
-                "border-radius": "var(--ds-radius-sm)",
-                "background-color": "var(--ds-bg-secondary)",
-                border: "1px solid var(--ds-border-subtle)",
-                "font-size": "var(--ds-font-size-2xs)",
-                color: "var(--ds-fg-secondary)",
-              }}
-            >
-              <span
-                style={{
-                  color: "var(--ds-success-fg)",
-                  display: "inline-flex",
-                }}
-              >
-                <Icon name="zap" size={12} />
-              </span>
-              <span>{t().title}</span>
-              <span
-                style={{
-                  color: "var(--ds-success-fg)",
-                  "font-weight": 600,
-                }}
-              >
-                {t().dispatchLatencyMs}ms
-              </span>
-            </div>
-          )}
-        </Show>
-
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={<Icon name="terminal" size={13} />}
-          shortcut="mod+k"
-          onClick={props.onOpenCommandPalette}
-        >
-          Command Palette
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<Icon name="keyboard" size={14} />}
-          shortcut="?"
-          onClick={props.onOpenShortcutsModal}
-        >
-          Shortcuts
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={
-            <Icon name={getTheme() === "dark" ? "sun" : "moon"} size={14} />
-          }
-          onClick={() => toggleTheme()}
-          title="Toggle Dark/Light Theme"
-        >
-          {getTheme() === "dark" ? "Light" : "Dark"}
-        </Button>
-      </div>
-    </header>
-  );
-};
-
+        <Icon name="search" />
+      </Button>
+      <Button
+        size="icon"
+        variant="ghost"
+        aria-label="Keyboard shortcuts"
+        onClick={props.onOpenShortcutsModal}
+      >
+        <Icon name="keyboard" />
+      </Button>
+      <Button
+        size="icon"
+        variant="ghost"
+        aria-label="Toggle theme"
+        onClick={toggleTheme}
+      >
+        <Icon name={getTheme() === "dark" ? "sun" : "moon"} />
+      </Button>
+    </div>
+  </header>
+);
 export const ShortcutsReferenceModal: Component<{
   open: boolean;
   onClose: () => void;
-}> = (props) => {
-  return (
-    <Dialog
-      open={props.open}
-      onClose={props.onClose}
-      title="Keyboard Shortcuts Reference (Superhuman Mode)"
-    >
-      <div
-        style={{
-          display: "flex",
-          "flex-direction": "column",
-          gap: "var(--ds-space-2)",
-        }}
-      >
+}> = (props) => (
+  <Dialog
+    open={props.open}
+    onOpenChange={(open) => {
+      if (!open) props.onClose();
+    }}
+  >
+    <DialogContent class="max-h-[85svh] w-[calc(100%-2rem)] rounded-lg">
+      <DialogHeader>
+        <DialogTitle>Keyboard shortcuts</DialogTitle>
+        <DialogDescription>
+          Move through your workspace without leaving the keyboard.
+        </DialogDescription>
+      </DialogHeader>
+      <div class="divide-y">
         <For each={shortcutManager.shortcuts()}>
-          {(sc) => (
-            <div
-              style={{
-                display: "flex",
-                "align-items": "center",
-                "justify-content": "space-between",
-                padding: "var(--ds-space-1-5) 0",
-                "border-bottom": "1px solid var(--ds-border-subtle)",
-              }}
-            >
-              <div>
-                <div style={{ "font-weight": 500 }}>{sc.title}</div>
-                <div
-                  style={{
-                    "font-size": "var(--ds-font-size-xs)",
-                    color: "var(--ds-fg-muted)",
-                  }}
-                >
-                  {sc.description}
-                </div>
+          {(shortcut) => (
+            <div class="flex items-center justify-between gap-4 py-3">
+              <div class="min-w-0">
+                <p class="text-sm font-medium">{shortcut.title}</p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  {shortcut.description}
+                </p>
               </div>
-              <Kbd keys={sc.keys} />
+              <KeyHint keys={shortcut.keys} />
             </div>
           )}
         </For>
       </div>
-    </Dialog>
-  );
-};
+    </DialogContent>
+  </Dialog>
+);

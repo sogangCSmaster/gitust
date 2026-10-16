@@ -6,7 +6,8 @@ export interface ShortcutDefinition {
   /** Human-readable title shown in Command Palette */
   title: string;
   /** Category for grouping in Command Palette & Help Modal */
-  category: "Navigation" | "Repository" | "Issues & PRs" | "View & Theme" | "Actions";
+  category:
+    "Navigation" | "Repository" | "Issues & PRs" | "View & Theme" | "Actions";
   /**
    * Keybinding pattern:
    * - Single key: "c", "/", "?"
@@ -14,7 +15,7 @@ export interface ShortcutDefinition {
    * - Chord sequence (space-separated): "g i", "g p", "g c"
    */
   keys: string;
-  /** Handler invoked in < 1ms when matched */
+  /** Handler invoked when matched */
   handler: (event: KeyboardEvent) => void;
   /** Optional subtitle or description */
   description?: string;
@@ -22,7 +23,7 @@ export interface ShortcutDefinition {
   allowInInput?: boolean;
   /** Whether holding the key down (key repeat) should repeatedly invoke the handler (e.g. j/k navigation) */
   allowRepeat?: boolean;
-  /** Whether this shortcut is allowed to fire while a modal <dialog open> is active */
+  /** Whether this shortcut is allowed to fire while a native or ARIA modal dialog is active */
   allowWhenModalOpen?: boolean;
 }
 
@@ -36,7 +37,7 @@ export interface KeystrokeTelemetry {
 const CHORD_TIMEOUT_MS = 900;
 
 const [activeChordSignal, setActiveChordSignal] = createSignal<string | null>(
-  null
+  null,
 );
 const [lastTelemetrySignal, setLastTelemetrySignal] =
   createSignal<KeystrokeTelemetry | null>(null);
@@ -123,11 +124,7 @@ class ShortcutManager {
   }
 
   private normalizePattern(pattern: string): string {
-    return pattern
-      .trim()
-      .toLowerCase()
-      .split(/\s+/)
-      .join(" ");
+    return pattern.trim().toLowerCase().split(/\s+/).join(" ");
   }
 
   private eventToToken(event: KeyboardEvent): string | null {
@@ -167,12 +164,21 @@ class ShortcutManager {
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
       return true;
     }
-    return target.isContentEditable;
+    return (
+      target.isContentEditable ||
+      target.closest(
+        '[role="combobox"], [role="listbox"], [role="menu"], [role="tree"], [role="grid"], [aria-haspopup="listbox"], [aria-haspopup="menu"]',
+      ) !== null
+    );
   }
 
   private isModalDialogOpen(): boolean {
     if (typeof document === "undefined") return false;
-    return document.querySelector("dialog[open]") !== null;
+    return (
+      document.querySelector(
+        'dialog[open], [role="dialog"][aria-modal="true"]:not([data-closed]), [role="alertdialog"][aria-modal="true"]:not([data-closed])',
+      ) !== null
+    );
   }
 
   private clearChord(): void {

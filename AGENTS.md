@@ -26,7 +26,7 @@ Gitust는 Git 호스팅, 에이전트 워크트리, 로컬 명령 실행, 사람
    - 낙관적 화면 표시를 실제 검증·병합·발행 성공의 근거로 쓰지 않는다. 승인 가능 여부는 서버의 검증 증거로 판단한다.
    - 6장의 성능 예산을 목표로 하되 측정하지 않은 값을 달성한 사실처럼 표시하지 않는다.
 2. **디자인 시스템 우선**
-   - UI 컴포넌트는 `packages/design-system`에서 정의하고 `--ds-*` 토큰을 사용한다.
+   - UI 컴포넌트는 `packages/design-system/src/components/ui`의 solid-ui를 사용하고, Tailwind 의미 토큰과 `src/styles.css`의 테마 변수를 사용한다.
    - 프로덕션 UI의 유니코드 이모지는 금지한다. `<Icon name="..." />` SVG 스프라이트를 사용한다.
 3. **Rust 구현**
    - 코어와 CLI/서버는 Rust로 구현한다. Gitea/Forgejo 또는 Dagger 같은 외부 서버를 제품 엔진으로 묶어 대체하지 않는다.
@@ -91,7 +91,7 @@ Gitust는 Git 호스팅, 에이전트 워크트리, 로컬 명령 실행, 사람
 - 루프 내부에서 DB 쿼리를 호출하는 N+1 문제를 절대 만들지 마십시오.
 
 ### 7.2 Design System & Frontend Guidelines
-- 매직 넘버를 쓰지 말고 반드시 `--ds-*` 디자인 토큰 변수를 사용하십시오.
+- 화면은 solid-ui 컴포넌트와 Tailwind 의미 토큰으로 구성하십시오. 기존 `ds-*` 스타일이나 별도 원시 컴포넌트를 다시 만들지 마십시오. 가상 뷰어의 동적 위치·크기는 예외입니다.
 - 프로덕션 UI에는 절대 유니코드 이모지를 쓰지 말고 `<Icon name="..." />` 벡터 스프라이트 프리미티브를 사용하십시오.
 
 ### 7.3 Git Branch & Commit Workflow (Single-Developer Trunk-Based `main`)

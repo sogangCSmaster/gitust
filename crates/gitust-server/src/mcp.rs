@@ -384,6 +384,8 @@ pub async fn handle_mcp_json_line_with_options(
                                 "network_isolated": res.network_isolated,
                                 "stdout": res.stdout,
                                 "stderr": res.stderr,
+                                "output_truncated": res.output_truncated,
+                                "steps": res.steps,
                                 "status": status,
                             }),
                             res.exit_code != 0,

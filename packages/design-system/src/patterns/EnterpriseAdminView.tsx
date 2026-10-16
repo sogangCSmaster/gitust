@@ -1,15 +1,25 @@
-import { Component, createSignal, For, Show } from "solid-js";
-import { Badge } from "../primitives/Badge";
-import { Button } from "../primitives/Button";
-import { Icon } from "../primitives/Icon";
+import { createSignal, For, Show, type Component } from "solid-js";
+import { Button } from "../components/ui/button";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "../components/ui/table";
+import {
+  Field,
+  PersonAvatar,
+  Section,
+  StatusBadge,
+} from "../components/workspace/presentation";
 import { EnterprisePolicyPreview } from "./EnterprisePolicyPreview";
-import { Input } from "../primitives/Input";
-import { Avatar } from "../primitives/TabsAndAvatar";
 import {
   EnterpriseCredentialsPanel,
-  LiveInviteItem,
-  LivePatItem,
-  LiveSshKeyItem,
+  type LiveInviteItem,
+  type LivePatItem,
+  type LiveSshKeyItem,
 } from "./EnterpriseCredentialsPanel";
 
 export interface EnterpriseUser {
@@ -49,7 +59,7 @@ export interface EnterpriseAdminViewProps {
   lastIssuedInviteUrl?: string | null;
   onIssueInvite?: (
     targetEmail: string,
-    role: "SiteAdmin" | "Maintainer" | "Developer"
+    role: "SiteAdmin" | "Maintainer" | "Developer",
   ) => void;
   onRevokeInvite?: (inviteId: string) => void;
   onIssuePasswordReset?: (userId: string) => void;
@@ -63,396 +73,201 @@ export interface EnterpriseAdminViewProps {
   onRevokeSshKey?: (keyId: string) => void;
 }
 
-/**
- * Self-Hosted Enterprise Site Admin & IAM/Auth Control Console.
- * Supports both live `gitust serve` backend operations (Sign-In, Sign-Out, Single-Use Invite
- * Issuance/Redemption, Password Reset, PATs, SSH Keys, User Deactivation) and 0ms Showcase UI.
- */
 export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
-  props
+  props,
 ) => {
-  const [loginIdentifier, setLoginIdentifier] = createSignal("");
-  const [loginPassword, setLoginPassword] = createSignal("");
-  const [localRedeemMode, setLocalRedeemMode] = createSignal<
-    "invite" | "reset"
-  >("invite");
-  const [localRedeemToken, setLocalRedeemToken] = createSignal("");
-
-  const activeRedeemMode = () => props.redeemMode ?? localRedeemMode();
-  const activeRedeemToken = () => props.redeemToken ?? localRedeemToken();
-
-
+  const [identifier, setIdentifier] = createSignal("");
+  const [password, setPassword] = createSignal("");
+  const [redeemMode, setRedeemMode] = createSignal<"invite" | "reset">(
+    "invite",
+  );
+  const [token, setToken] = createSignal("");
+  const signIn = () => {
+    if (props.onSignIn) props.onSignIn(identifier().trim(), password());
+    else props.onPolicyFeedback("Sign in requires a connected Gitust server.");
+    setPassword("");
+  };
   return (
-    <div class="ds-admin-grid">
-      {/* Left Column: Enterprise Auth Portal, Credentials & Security Policies */}
-      <div
-        style={{
-          display: "flex",
-          "flex-direction": "column",
-          gap: "var(--ds-space-4)",
-        }}
+    <div class="space-y-6">
+      <Section
+        title={props.liveSession ? "Your account" : "Sign in to Gitust"}
+        description={
+          props.liveSession
+            ? "Connected to your local Gitust server."
+            : "Invite-only access. Your administrator creates the first account with the CLI."
+        }
       >
-        {/* Self-Hosted Auth & Session Sign-In Portal Card */}
-        <div class="ds-card">
-          <div class="ds-card-header">
-            <span
-              style={{
-                display: "inline-flex",
-                "align-items": "center",
-                gap: "var(--ds-space-1-5)",
+        <Show
+          when={props.liveSession}
+          fallback={
+            <form
+              class="grid items-end gap-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_auto]"
+              onSubmit={(event) => {
+                event.preventDefault();
+                signIn();
               }}
             >
-              <Icon name="lock" size={13} />
-              <span>Enterprise Self-Hosted Auth Portal</span>
-            </span>
-            <Show
-              when={props.liveSession}
-              fallback={<Badge variant="success">On-Premise</Badge>}
-            >
-              {(ses) => (
-                <Badge variant="accent" mono>
-                  @{ses().username} · {ses().role}
-                </Badge>
-              )}
-            </Show>
-          </div>
-          <div class="ds-card-body">
-            <div>
-              <div
-                style={{
-                  "font-size": "var(--ds-font-size-md)",
-                  "font-weight": 600,
-                }}
-              >
-                Sign in to Gitust Enterprise
-              </div>
-              <div
-                style={{
-                  "font-size": "var(--ds-font-size-xs)",
-                  color: "var(--ds-fg-muted)",
-                }}
-              >
-                Invite-only Gitust server
-              </div>
-            </div>
-
-            <Input
-              icon={<Icon name="users" size={14} />}
-              value={loginIdentifier()}
-              onInput={(e) => setLoginIdentifier(e.currentTarget.value)}
-              placeholder="username or email"
-            />
-            <Input
-              type="password"
-              icon={<Icon name="key" size={14} />}
-              value={loginPassword()}
-              onInput={(e) => setLoginPassword(e.currentTarget.value)}
-              placeholder="Password (Argon2id verified)"
-            />
-
-            <div style={{ display: "flex", gap: "var(--ds-space-2)" }}>
-              <Button
-                variant="primary"
-                icon={<Icon name="shield-check" size={14} />}
-                onClick={() => {
-                  if (props.onSignIn) {
-                    props.onSignIn(loginIdentifier().trim(), loginPassword());
-                    setLoginPassword("");
-                  } else {
-                    props.onPolicyFeedback(
-                      "Demo only: sign-in is not connected"
-                    );
-                  }
-                }}
-              >
-                Sign In to Private Instance
-              </Button>
-              <Show when={props.liveSession && props.onSignOut}>
-                <Button
-                  variant="danger"
-                  icon={<Icon name="x" size={14} />}
-                  onClick={() => props.onSignOut?.()}
-                >
-                  Sign Out
-                </Button>
-              </Show>
-            </div>
-          </div>
-        </div>
-
-        <EnterpriseCredentialsPanel
-          allowedDomain="your-company.example"
-          redeemMode={activeRedeemMode()}
-          onChangeRedeemMode={(m) =>
-            props.onChangeRedeemMode
-              ? props.onChangeRedeemMode(m)
-              : setLocalRedeemMode(m)
+              <Field
+                label="Username or email"
+                value={identifier()}
+                onValueChange={setIdentifier}
+                placeholder="username or email"
+                autocomplete="username"
+              />
+              <Field
+                label="Password"
+                type="password"
+                value={password()}
+                onValueChange={setPassword}
+                autocomplete="current-password"
+              />
+              <Button type="submit">Sign in</Button>
+            </form>
           }
-          redeemToken={activeRedeemToken()}
-          onRedeemTokenInput={(v) =>
-            props.onRedeemTokenInput
-              ? props.onRedeemTokenInput(v)
-              : setLocalRedeemToken(v)
-          }
-          onRedeemInvite={props.onRedeemInvite}
-          onRedeemPasswordReset={props.onRedeemPasswordReset}
-          liveInvites={props.liveInvites}
-          lastIssuedInviteUrl={props.lastIssuedInviteUrl}
-          onIssueInvite={props.onIssueInvite}
-          onRevokeInvite={props.onRevokeInvite}
-          livePats={props.livePats}
-          lastIssuedPatToken={props.lastIssuedPatToken}
-          onCreatePat={props.onCreatePat}
-          onRevokePat={props.onRevokePat}
-          liveSshKeys={props.liveSshKeys}
-          onRegisterSshKey={props.onRegisterSshKey}
-          onRevokeSshKey={props.onRevokeSshKey}
-          onPolicyFeedback={props.onPolicyFeedback}
-        />
-
-        <EnterprisePolicyPreview liveMode={props.liveMode} onPolicyFeedback={props.onPolicyFeedback} />
-      </div>
-
-      {/* Right Column: Site Admin User Directory & Self-Hosted Infrastructure */}
-      <div
-        style={{
-          display: "flex",
-          "flex-direction": "column",
-          gap: "var(--ds-space-4)",
-        }}
-      >
-        <div
-          style={{
-            display: "grid",
-            "grid-template-columns": "repeat(3, 1fr)",
-            gap: "var(--ds-space-3)",
-          }}
         >
-          <div class="ds-card">
-            <div class="ds-card-body">
-              <div
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  "justify-content": "space-between",
-                  color: "var(--ds-fg-secondary)",
-                  "font-size": "var(--ds-font-size-xs)",
-                }}
-              >
-                <span>Git Engine (gitoxide)</span>
-                <Icon name="server" size={14} />
+          {(session) => (
+            <div class="flex flex-wrap items-center justify-between gap-4">
+              <div class="flex min-w-0 items-center gap-3">
+                <PersonAvatar name={session().username} class="size-10" />
+                <div class="min-w-0">
+                  <p class="break-words font-medium">@{session().username}</p>
+                  <p class="break-all text-xs text-muted-foreground">
+                    {session().email ? `${session().email} · ` : ""}
+                    {session().role}
+                  </p>
+                </div>
               </div>
-              <div
-                class="ds-mono"
-                style={{
-                  "font-size": "var(--ds-font-size-lg)",
-                  "font-weight": 700,
-                  color: "var(--ds-success-fg)",
-                }}
-              >
-                In-Process Git
-              </div>
-              <div
-                style={{
-                  "font-size": "var(--ds-font-size-2xs)",
-                  color: "var(--ds-fg-muted)",
-                }}
-              >
-                Single Binary · HTTP :3000
-              </div>
+              <Button variant="outline" onClick={() => props.onSignOut?.()}>
+                Sign out
+              </Button>
             </div>
-          </div>
-
-          <div class="ds-card">
-            <div class="ds-card-body">
-              <div
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  "justify-content": "space-between",
-                  color: "var(--ds-fg-secondary)",
-                  "font-size": "var(--ds-font-size-xs)",
-                }}
-              >
-                <span>Sandbox Isolation</span>
-                <Icon name="play" size={14} />
-              </div>
-              <div
-                class="ds-mono"
-                style={{
-                  "font-size": "var(--ds-font-size-lg)",
-                  "font-weight": 700,
-                }}
-              >
-                Local OS Sandbox
-              </div>
-              <div
-                style={{
-                  "font-size": "var(--ds-font-size-2xs)",
-                  color: "var(--ds-fg-muted)",
-                }}
-              >
-                Trusted single-user execution
-              </div>
-            </div>
-          </div>
-
-          <div class="ds-card">
-            <div class="ds-card-body">
-              <div
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  "justify-content": "space-between",
-                  color: "var(--ds-fg-secondary)",
-                  "font-size": "var(--ds-font-size-xs)",
-                }}
-              >
-                <span>Auth &amp; Onboarding</span>
-                <Icon name="shield-check" size={14} />
-              </div>
-              <div
-                class="ds-mono"
-                style={{
-                  "font-size": "var(--ds-font-size-lg)",
-                  "font-weight": 700,
-                }}
-              >
-                Invite-Only
-              </div>
-              <div
-                style={{
-                  "font-size": "var(--ds-font-size-2xs)",
-                  color: "var(--ds-fg-muted)",
-                }}
-              >
-                Administrator-issued invites
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="ds-card">
-          <div class="ds-card-header">
-            <span
-              style={{
-                display: "inline-flex",
-                "align-items": "center",
-                gap: "var(--ds-space-1-5)",
-              }}
-            >
-              <Icon name="users" size={14} />
-              <span>
-                Organization Users &amp; Access Control ({props.users.length})
-              </span>
-            </span>
-            <span
-              style={{
-                "font-size": "var(--ds-font-size-2xs)",
-                color: "var(--ds-fg-muted)",
-              }}
-            >
-              Deactivation immediately revokes all sessions, PATs &amp; SSH keys
-            </span>
-          </div>
-
-          <div
-            class="ds-issue-list"
-            style={{ border: "none", "border-radius": 0 }}
-          >
+          )}
+        </Show>
+      </Section>
+      <EnterpriseCredentialsPanel
+        allowedDomain="your-company.example"
+        redeemMode={props.redeemMode ?? redeemMode()}
+        onChangeRedeemMode={(mode) =>
+          props.onChangeRedeemMode
+            ? props.onChangeRedeemMode(mode)
+            : setRedeemMode(mode)
+        }
+        redeemToken={props.redeemToken ?? token()}
+        onRedeemTokenInput={(value) =>
+          props.onRedeemTokenInput
+            ? props.onRedeemTokenInput(value)
+            : setToken(value)
+        }
+        onRedeemInvite={props.onRedeemInvite}
+        onRedeemPasswordReset={props.onRedeemPasswordReset}
+        liveInvites={props.liveInvites}
+        lastIssuedInviteUrl={props.lastIssuedInviteUrl}
+        onIssueInvite={props.onIssueInvite}
+        onRevokeInvite={props.onRevokeInvite}
+        livePats={props.livePats}
+        lastIssuedPatToken={props.lastIssuedPatToken}
+        onCreatePat={props.onCreatePat}
+        onRevokePat={props.onRevokePat}
+        liveSshKeys={props.liveSshKeys}
+        onRegisterSshKey={props.onRegisterSshKey}
+        onRevokeSshKey={props.onRevokeSshKey}
+        onPolicyFeedback={props.onPolicyFeedback}
+      />
+      <Section
+        title="Members"
+        description="Account deactivation revokes sessions, personal tokens and registered SSH credentials."
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Account</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead class="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             <For each={props.users}>
               {(user) => (
-                <div class="ds-issue-row">
-                  <div class="ds-issue-left">
-                    <Avatar name={user.username} size="sm" />
-                    <div style={{ flex: "1" }}>
-                      <div
-                        style={{
-                          "font-weight": 600,
-                          "font-size": "var(--ds-font-size-xs)",
-                        }}
-                      >
-                        {user.username}
-                      </div>
-                      <div
-                        class="ds-mono"
-                        style={{
-                          "font-size": "var(--ds-font-size-2xs)",
-                          color: "var(--ds-fg-muted)",
-                        }}
-                      >
-                        {user.email}
+                <TableRow>
+                  <TableCell>
+                    <div class="flex items-center gap-3">
+                      <PersonAvatar name={user.username} />
+                      <div>
+                        <p class="font-medium">{user.username}</p>
+                        <p class="text-xs text-muted-foreground">
+                          {user.email}
+                        </p>
+                        <p class="text-xs text-muted-foreground">
+                          {user.liveId
+                            ? "Live account · 2FA not available"
+                            : "Sample account"}
+                        </p>
                       </div>
                     </div>
-                    <Badge variant="neutral">{user.department}</Badge>
-                    <Badge
-                      variant={user.twoFactorEnabled ? "success" : "warning"}
-                      mono
-                    >
-                      <Icon name="shield-check" size={11} />
-                      <span>
-                        {user.liveId ? "2FA not available" : user.twoFactorEnabled ? "Demo 2FA" : "No 2FA"}
-                      </span>
-                    </Badge>
-                  </div>
-
-                  <div class="ds-issue-right">
-                    <Show when={user.liveId && props.onIssuePasswordReset}>
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        onClick={() =>
-                          user.liveId &&
-                          props.onIssuePasswordReset?.(user.liveId)
-                        }
-                      >
-                        Reset Link
-                      </Button>
-                    </Show>
+                  </TableCell>
+                  <TableCell>
                     <Button
-                      size="xs"
-                      variant={
-                        user.role === "Site Admin" ? "primary" : "secondary"
-                      }
+                      variant="ghost"
+                      size="sm"
                       onClick={() =>
                         user.liveId
                           ? props.onPolicyFeedback(
-                              `Role '${user.role}' for @${user.username} is bound at invite creation`
+                              `Role '${user.role}' for @${user.username} is bound at invite creation`,
                             )
                           : props.onToggleRole(user.id)
                       }
                     >
                       {user.role}
                     </Button>
-                    <Button
-                      size="xs"
-                      variant={user.status === "active" ? "ghost" : "danger"}
-                      onClick={() => {
-                        if (user.liveId) {
-                          if (
-                            user.status === "active" &&
-                            props.onDeactivateLiveUser
-                          ) {
-                            props.onDeactivateLiveUser(user.liveId);
-                          } else {
-                            props.onPolicyFeedback(
-                              `Account @${user.username} is deactivated; issue a new single-use invite to onboard`
-                            );
-                          }
-                        } else {
-                          props.onToggleStatus(user.id);
-                        }
-                      }}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge
+                      tone={user.status === "active" ? "success" : "danger"}
                     >
-                      {user.status === "active" ? "Active" : "Suspended"}
-                    </Button>
-                  </div>
-                </div>
+                      {user.status}
+                    </StatusBadge>
+                  </TableCell>
+                  <TableCell>
+                    <div class="flex justify-end gap-2">
+                      <Show when={user.liveId && props.onIssuePasswordReset}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            user.liveId &&
+                            props.onIssuePasswordReset?.(user.liveId)
+                          }
+                        >
+                          Reset link
+                        </Button>
+                      </Show>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={Boolean(
+                          user.liveId && user.status !== "active",
+                        )}
+                        onClick={() => {
+                          if (user.liveId) {
+                            props.onDeactivateLiveUser?.(user.liveId);
+                          } else props.onToggleStatus(user.id);
+                        }}
+                      >
+                        {user.status === "active" ? "Deactivate" : "Reactivate"}
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               )}
             </For>
-          </div>
-        </div>
-      </div>
+          </TableBody>
+        </Table>
+      </Section>
+      <EnterprisePolicyPreview
+        liveMode={props.liveMode}
+        onPolicyFeedback={props.onPolicyFeedback}
+      />
     </div>
   );
 };

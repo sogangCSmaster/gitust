@@ -1,13 +1,8 @@
-import {
-  Component,
-  createMemo,
-  createSelector,
-  createSignal,
-  For,
-} from "solid-js";
-import { Icon } from "../primitives/Icon";
-import { Input } from "../primitives/Input";
-
+import { createMemo, createSignal, For, type Component } from "solid-js";
+import { Card } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Icon } from "../components/workspace/icon";
+import { Field } from "../components/workspace/presentation";
 export interface FileTreeNode {
   path: string;
   kind: "file" | "dir";
@@ -23,124 +18,78 @@ export interface VirtualFileTreeProps {
 }
 
 export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
-  const rowHeight = 28;
-  const viewportHeight = () => props.height ?? 320;
-  const overscan = 10;
-
-  let viewportRef: HTMLDivElement | undefined;
-  const [filter, setFilter] = createSignal("");
+  const rowHeight = 44;
+  const height = () => props.height ?? 400;
+  const [query, setQuery] = createSignal("");
   const [scrollTop, setScrollTop] = createSignal(0);
-  const isPathSelected = createSelector(() => props.activePath);
-
-  const filteredFiles = createMemo(() => {
-    const q = filter().trim().toLowerCase();
-    if (!q) return props.files;
-    return props.files.filter((f) => f.path.toLowerCase().includes(q));
-  });
-
-  const visibleCount = createMemo(
-    () => Math.ceil(viewportHeight() / rowHeight) + overscan * 2
+  let viewport: HTMLDivElement | undefined;
+  const files = createMemo(() =>
+    props.files.filter((file) =>
+      file.path.toLowerCase().includes(query().trim().toLowerCase()),
+    ),
   );
-
-  const startIdx = createMemo(() => {
-    const total = filteredFiles().length;
-    const rawStart = Math.max(0, Math.floor(scrollTop() / rowHeight) - overscan);
-    const maxStart = Math.max(0, total - visibleCount());
-    return Math.min(rawStart, maxStart);
-  });
-
-  const visibleSlice = createMemo(() => {
-    const list = filteredFiles();
-    const start = startIdx();
-    const end = Math.min(list.length, start + visibleCount());
-    return list.slice(start, end);
-  });
-
+  const count = () => Math.ceil(height() / rowHeight) + 20;
+  const start = createMemo(() =>
+    Math.min(
+      Math.max(0, Math.floor(scrollTop() / rowHeight) - 10),
+      Math.max(0, files().length - count()),
+    ),
+  );
+  const visible = createMemo(() => files().slice(start(), start() + count()));
   return (
-    <div class="ds-tree-container">
-      <div
-        style={{
-          padding: "var(--ds-space-2)",
-          "border-bottom": "1px solid var(--ds-border-default)",
-          "background-color": "var(--ds-bg-secondary)",
-        }}
-      >
-        <Input
-          icon={<Icon name="search" size={14} />}
-          placeholder={`Jump to file across ${props.files.length.toLocaleString()} paths...`}
-          value={filter()}
-          onInput={(e) => {
-            setFilter(e.currentTarget.value);
+    <Card class="min-w-0 overflow-hidden">
+      <div class="border-b p-3">
+        <Field
+          label="Search repository paths"
+          hideLabel
+          type="search"
+          placeholder={`Find a file in ${props.files.length.toLocaleString()} paths...`}
+          value={query()}
+          onValueChange={(value) => {
+            setQuery(value);
             setScrollTop(0);
-            if (viewportRef) viewportRef.scrollTop = 0;
+            if (viewport) viewport.scrollTop = 0;
           }}
-          shortcut="t"
         />
       </div>
-
       <div
-        ref={viewportRef}
-        style={{
-          position: "relative",
-          height: `${viewportHeight()}px`,
-          "overflow-y": "auto",
-          "overscroll-behavior": "contain",
-          contain: "strict",
-        }}
-        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        ref={viewport}
+        class="relative overflow-auto overscroll-contain"
+        style={{ height: `${height()}px` }}
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        aria-label="Repository files"
       >
         <div
-          style={{
-            position: "relative",
-            height: `${filteredFiles().length * rowHeight}px`,
-          }}
+          class="relative"
+          style={{ height: `${files().length * rowHeight}px` }}
         >
-          <For each={visibleSlice()}>
-            {(item, idx) => (
-              <div
-                class="ds-tree-row ds-mono"
-                data-active={isPathSelected(item.path)}
+          <For each={visible()}>
+            {(file, index) => (
+              <Button
+                variant="ghost"
+                class="absolute left-0 flex h-11 w-full justify-between rounded-none px-4 font-mono text-xs data-[active=true]:bg-accent"
+                data-active={props.activePath === file.path}
+                aria-label={file.path}
+                title={file.path}
                 style={{
-                  transform: `translateY(${(startIdx() + idx()) * rowHeight}px)`,
+                  transform: `translateY(${(start() + index()) * rowHeight}px)`,
                 }}
-                onClick={() => props.onSelect(item)}
+                onClick={() => props.onSelect(file)}
               >
-                <span
-                  style={{
-                    display: "inline-flex",
-                    "align-items": "center",
-                    gap: "var(--ds-space-2)",
-                    overflow: "hidden",
-                    "text-overflow": "ellipsis",
-                    "white-space": "nowrap",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      color:
-                        item.kind === "dir"
-                          ? "var(--ds-info-fg)"
-                          : "var(--ds-fg-muted)",
-                    }}
-                  >
-                    <Icon
-                      name={item.kind === "dir" ? "folder" : "file-code"}
-                      size={14}
-                    />
-                  </span>
-                  <span>{item.path}</span>
+                <span class="flex min-w-0 items-center gap-2">
+                  <Icon name={file.kind === "dir" ? "folder" : "file-code"} />
+                  <span class="truncate">{file.path}</span>
                 </span>
-                <span style={{ color: "var(--ds-fg-muted)" }}>
-                  {item.sizeBytes
-                    ? `${(item.sizeBytes / 1024).toFixed(1)} KB`
+                <span class="shrink-0 text-muted-foreground">
+                  {file.sizeBytes
+                    ? `${(file.sizeBytes / 1024).toFixed(1)} KB`
                     : ""}
                 </span>
-              </div>
+              </Button>
             )}
           </For>
         </div>
       </div>
-    </div>
+    </Card>
   );
 };

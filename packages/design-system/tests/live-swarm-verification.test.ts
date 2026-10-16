@@ -45,6 +45,69 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("manual verification before approval", () => {
+  it("displays all successful commands only after confirming the verified commit", async () => {
+    fetchMock.mockResolvedValueOnce(response({ ...runResult(), steps: [
+      { command: "cargo test", required: false, exit_code: 0, duration_ms: 10 },
+      { command: "cargo fmt --check", required: true, exit_code: 0, duration_ms: 12 },
+    ] })).mockResolvedValueOnce(response([worktree("Verified")]));
+    await client.verifyLiveWorktree(1, "cargo test");
+    expect(tasks[0]).toMatchObject({ sandboxStatus: "verified", verificationResult: { steps: [
+      { command: "cargo test", required: false, exitCode: 0, durationMs: 10 },
+      { command: "cargo fmt --check", required: true, exitCode: 0, durationMs: 12 },
+    ] } });
+  });
+
+  it("keeps command results and skipped required checks after the first failure", async () => {
+    fetchMock.mockResolvedValueOnce(response({ ...runResult(7), steps: [
+      { command: "cargo test", required: false, exit_code: 0, duration_ms: 10 },
+      { command: "cargo fmt --check", required: true, exit_code: 7, duration_ms: 12 },
+      { command: "cargo clippy", required: true, exit_code: null, duration_ms: null },
+    ] })).mockResolvedValueOnce(response([worktree("Failed")]));
+    await client.verifyLiveWorktree(1, "cargo test");
+    expect(tasks[0]).toMatchObject({ sandboxStatus: "failed", verificationResult: {
+      requestedCommand: "cargo test", exitCode: 7, stdout: "fixture stdout", stderr: "fixture stderr",
+      steps: [
+        { command: "cargo test", required: false, exitCode: 0, durationMs: 10 },
+        { command: "cargo fmt --check", required: true, exitCode: 7, durationMs: 12 },
+        { command: "cargo clippy", required: true, exitCode: null, durationMs: null },
+      ],
+    } });
+    await client.approveLiveWorktree(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([undefined, []])("accepts aggregate-only results from older servers: %j", async (steps) => {
+    fetchMock.mockResolvedValueOnce(response({ ...runResult(), steps }))
+      .mockResolvedValueOnce(response([worktree("Verified")]));
+    await client.verifyLiveWorktree(1, "cargo test");
+    expect(tasks[0]).toMatchObject({ sandboxStatus: "verified", verificationResult: { exitCode: 0 } });
+    expect(tasks[0]?.verificationResult?.steps).toEqual(steps);
+  });
+
+  const validStep = { command: "cargo test", required: false, exit_code: 0, duration_ms: 10 };
+  it.each([
+    null,
+    "not an array",
+    [{ ...validStep, command: "different command" }],
+    [{ ...validStep, required: true }],
+    [{ ...validStep, exit_code: null }],
+    [{ ...validStep, duration_ms: -1 }],
+    [{ ...validStep, duration_ms: Number.MAX_SAFE_INTEGER + 1 }],
+    [{ ...validStep, exit_code: 1 }],
+    [{ ...validStep, exit_code: 1 }, { ...validStep, required: true }],
+    [validStep, { ...validStep, required: true, exit_code: null, duration_ms: null }],
+    [validStep, { ...validStep, required: true, command: "x".repeat(4097) }],
+    [validStep, { ...validStep, required: true, command: "echo\0bad" }],
+    Array.from({ length: 10 }, (_, index) => ({ ...validStep, required: index !== 0 })),
+  ])("requires a refresh after malformed or inconsistent command results: %j", async (steps) => {
+    fetchMock.mockResolvedValueOnce(response({ ...runResult(), steps }));
+    await client.verifyLiveWorktree(1, "cargo test");
+    expect(tasks[0]).toMatchObject({ sandboxStatus: "pending", verificationNeedsRefresh: true });
+    expect(tasks[0]?.verificationResult).toBeUndefined();
+    await client.approveLiveWorktree(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves the requested command separately from expanded required checks for retries", async () => {
     const expanded = "/bin/sh -c 'cargo test' && /bin/sh -c 'cargo fmt --check'";
     fetchMock.mockResolvedValueOnce(response({ ...runResult(), command: expanded }))

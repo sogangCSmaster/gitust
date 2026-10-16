@@ -1,14 +1,14 @@
 import {
-  Component,
-  createMemo,
   createEffect,
-  on,
-  createSelector,
+  createMemo,
   createSignal,
   For,
+  on,
+  type Component,
 } from "solid-js";
-import { Badge } from "../primitives/Badge";
-
+import { Card } from "../components/ui/card";
+import { StatusBadge } from "../components/workspace/presentation";
+import { cn } from "../lib/utils";
 export type DiffLineType = "context" | "add" | "del" | "hunk";
 
 export interface DiffLine {
@@ -26,136 +26,98 @@ export interface VirtualDiffViewerProps {
   rowHeight?: number;
 }
 
-/**
- * High-speed O(1) viewport-sliced Virtualized Diff Viewer capable of scrolling
- * long files by rendering only the current viewport.
- */
 export const VirtualDiffViewer: Component<VirtualDiffViewerProps> = (props) => {
-  const rowHeight = () => props.rowHeight ?? 20;
+  const rowHeight = () => props.rowHeight ?? 24;
   const viewportHeight = () => props.height ?? 360;
-  const overscan = 14;
-
   const [scrollTop, setScrollTop] = createSignal(0);
-  const [selectedLine, setSelectedLine] = createSignal<number | null>(null);
+  const [selected, setSelected] = createSignal<number | null>(null);
   let viewport: HTMLDivElement | undefined;
-  createEffect(on(() => props.filePath, () => {
-    setScrollTop(0);
-    setSelectedLine(null);
-    if (viewport) {
-      viewport.scrollTop = 0;
-      viewport.scrollLeft = 0;
-    }
-  }));
-  const isLineSelected = createSelector(selectedLine);
-
-  const totalHeight = createMemo(() => props.lines.length * rowHeight());
-
-  const stats = createMemo(() => {
-    let additions = 0;
-    let deletions = 0;
-    for (const line of props.lines) {
-      if (line.type === "add") additions++;
-      else if (line.type === "del") deletions++;
-    }
-    return { additions, deletions };
-  });
-
-  const visibleCount = createMemo(
-    () => Math.ceil(viewportHeight() / rowHeight()) + overscan * 2
+  createEffect(
+    on(
+      () => props.filePath,
+      () => {
+        setScrollTop(0);
+        setSelected(null);
+        if (viewport) {
+          viewport.scrollTop = 0;
+          viewport.scrollLeft = 0;
+        }
+      },
+    ),
   );
-
-  const startIdx = createMemo(() => {
-    const total = props.lines.length;
-    const rh = rowHeight();
-    const rawStart = Math.max(0, Math.floor(scrollTop() / rh) - overscan);
-    const maxStart = Math.max(0, total - visibleCount());
-    return Math.min(rawStart, maxStart);
-  });
-
-  const visibleSlice = createMemo(() => {
-    const start = startIdx();
-    const end = Math.min(props.lines.length, start + visibleCount());
-    return props.lines.slice(start, end);
-  });
-
+  const count = () => Math.ceil(viewportHeight() / rowHeight()) + 28;
+  const start = createMemo(() =>
+    Math.min(
+      Math.max(0, Math.floor(scrollTop() / rowHeight()) - 14),
+      Math.max(0, props.lines.length - count()),
+    ),
+  );
+  const visible = createMemo(() =>
+    props.lines.slice(start(), start() + count()),
+  );
+  const stats = createMemo(() => ({
+    add: props.lines.filter((line) => line.type === "add").length,
+    del: props.lines.filter((line) => line.type === "del").length,
+  }));
   return (
-    <div class="ds-diff-container">
-      <div class="ds-diff-toolbar">
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            gap: "var(--ds-space-2)",
-          }}
-        >
-          <span style={{ color: "var(--ds-fg-primary)", "font-weight": 600 }}>
-            {props.filePath}
-          </span>
-          <Badge variant="neutral" mono>
-            {props.lines.length.toLocaleString()} lines (Virtualized)
-          </Badge>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            gap: "var(--ds-space-2)",
-          }}
-        >
-          <span style={{ color: "var(--ds-success-fg)" }}>
-            +{stats().additions.toLocaleString()}
-          </span>
-          <span style={{ color: "var(--ds-danger-fg)" }}>
-            -{stats().deletions.toLocaleString()}
-          </span>
-          <span style={{ color: "var(--ds-fg-muted)" }}>
-            DOM nodes: {visibleSlice().length}
-          </span>
+    <Card class="min-w-0 overflow-hidden">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
+        <code class="min-w-0 break-all text-xs">{props.filePath}</code>
+        <div class="flex items-center gap-3 text-xs">
+          <span class="text-success-foreground">+{stats().add}</span>
+          <span class="text-error-foreground">−{stats().del}</span>
+          <StatusBadge>{props.lines.length.toLocaleString()} lines</StatusBadge>
         </div>
       </div>
-
       <div
-        class="ds-diff-viewport"
         ref={viewport}
+        class="relative overflow-auto overscroll-contain font-mono text-xs"
         style={{ height: `${viewportHeight()}px` }}
-        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        tabIndex={0}
+        aria-label="Repository code and diff"
       >
         <div
-          class="ds-diff-spacer"
-          style={{ height: `${totalHeight()}px` }}
+          class="relative min-w-full"
+          style={{ height: `${props.lines.length * rowHeight()}px` }}
         >
-          <For each={visibleSlice()}>
-            {(line) => (
+          <For each={visible()}>
+            {(line, index) => (
               <div
-                class="ds-diff-row"
-                data-type={line.type}
-                data-selected={isLineSelected(line.index)}
+                class={cn(
+                  "absolute left-0 flex min-w-full cursor-pointer items-center whitespace-pre border-l-2 border-transparent",
+                  line.type === "add" && "bg-success text-success-foreground",
+                  line.type === "del" && "bg-error text-error-foreground",
+                  line.type === "hunk" && "bg-info text-info-foreground",
+                  selected() === line.index && "border-primary",
+                )}
                 style={{
-                  transform: `translateY(${line.index * rowHeight()}px)`,
+                  height: `${rowHeight()}px`,
+                  transform: `translateY(${(start() + index()) * rowHeight()}px)`,
                 }}
-                onClick={() => setSelectedLine(line.index)}
+                onClick={() => setSelected(line.index)}
               >
-                <span class="ds-diff-gutter">
+                <span class="w-12 shrink-0 select-none px-2 text-right text-muted-foreground">
                   {line.oldLineNumber ?? ""}
                 </span>
-                <span class="ds-diff-gutter">
+                <span class="w-12 shrink-0 select-none px-2 text-right text-muted-foreground">
                   {line.newLineNumber ?? ""}
                 </span>
-                <span class="ds-diff-sign">
+                <span class="w-8 shrink-0 select-none text-center">
                   {line.type === "add"
                     ? "+"
                     : line.type === "del"
-                      ? "-"
+                      ? "−"
                       : line.type === "hunk"
                         ? "@@"
                         : " "}
                 </span>
-                <span class="ds-diff-code">{line.content}</span>
+                <span class="pr-4">{line.content}</span>
               </div>
             )}
           </For>
         </div>
       </div>
-    </div>
+    </Card>
   );
 };

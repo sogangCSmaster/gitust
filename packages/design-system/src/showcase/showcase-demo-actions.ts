@@ -154,7 +154,7 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
       prev.map((j) => ({ ...j, status: "success", duration: "12s (cached)" }))
     );
     cb.showQuickFeedback(
-      "Gitust Actions: Dispatched workflow re-run to corp-runner-linux-01 (0ms Optimistic)"
+      "Demo pipeline reset. No server workflow was started."
     );
   };
 
@@ -170,7 +170,7 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
         const nextRole =
           roles[(roles.indexOf(u.role) + 1) % roles.length] ?? "Developer";
         cb.showQuickFeedback(
-          `IAM Role Updated: @${u.username} → ${nextRole} (0ms Optimistic)`
+          `Demo role changed: @${u.username} → ${nextRole}`
         );
         return { ...u, role: nextRole };
       })
@@ -183,7 +183,7 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
         if (u.id !== userId) return u;
         const nextStatus = u.status === "active" ? "suspended" : "active";
         cb.showQuickFeedback(
-          `Account Status Updated: @${u.username} → ${nextStatus.toUpperCase()} (0ms Optimistic)`
+          `Demo account status changed: @${u.username} → ${nextStatus.toUpperCase()}`
         );
         return { ...u, status: nextStatus };
       })

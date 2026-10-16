@@ -43,8 +43,8 @@ interface IconDef {
 
 /**
  * Crisp 16x16 vector paths tailored for high-density developer interfaces.
- * Rendered once into a global hidden <svg><defs> sprite and instantiated via <use href="#ds-icon-..." />
- * for O(1) GPU instancing and zero DOM bloat across 10,000-row virtualized views.
+ * Rendered once into a global hidden <svg><defs> sprite and instantiated via <use href="#gitust-icon-..." />
+ * so workspace icons reuse a shared set of SVG path definitions.
  */
 export const ICON_DEFS: Record<IconName, IconDef> = {
   "git-pull-request": {
@@ -89,10 +89,7 @@ export const ICON_DEFS: Record<IconName, IconDef> = {
     ],
   },
   "issue-closed": {
-    paths: [
-      "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12Z",
-      "m5.75 8 1.5 1.5 3-3",
-    ],
+    paths: ["M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12Z", "m5.75 8 1.5 1.5 3-3"],
   },
   "issue-draft": {
     paths: [
@@ -140,10 +137,7 @@ export const ICON_DEFS: Record<IconName, IconDef> = {
     paths: ["m4.5 4.5 7 7", "m11.5 4.5-7 7"],
   },
   clock: {
-    paths: [
-      "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12Z",
-      "M8 5v3.25l2.25 1.25",
-    ],
+    paths: ["M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12Z", "M8 5v3.25l2.25 1.25"],
   },
   zap: {
     paths: ["M9 1.5 3.5 9H8l-1 5.5L12.5 7H8l1-5.5Z"],
@@ -162,9 +156,7 @@ export const ICON_DEFS: Record<IconName, IconDef> = {
     ],
   },
   moon: {
-    paths: [
-      "M13.2 10.2A5.5 5.5 0 0 1 5.8 2.8a5.5 5.5 0 1 0 7.4 7.4Z",
-    ],
+    paths: ["M13.2 10.2A5.5 5.5 0 0 1 5.8 2.8a5.5 5.5 0 1 0 7.4 7.4Z"],
   },
   terminal: {
     paths: ["m3.5 5 3.5 3-3.5 3", "M8.5 11h4"],
@@ -191,12 +183,7 @@ export const ICON_DEFS: Record<IconName, IconDef> = {
     ],
   },
   diff: {
-    paths: [
-      "M8 3v5",
-      "M5.5 5.5h5",
-      "M5.5 12h5",
-      "M2.5 2.5h11v11h-11v-11Z",
-    ],
+    paths: ["M8 3v5", "M5.5 5.5h5", "M5.5 12h5", "M2.5 2.5h11v11h-11v-11Z"],
   },
   sliders: {
     paths: [
@@ -212,10 +199,7 @@ export const ICON_DEFS: Record<IconName, IconDef> = {
     paths: ["M4.5 3.25 12.5 8l-8 4.75V3.25Z"],
   },
   "rotate-ccw": {
-    paths: [
-      "M2.5 4v3.5H6",
-      "M3 7.5A5.5 5.5 0 1 1 4.2 12",
-    ],
+    paths: ["M2.5 4v3.5H6", "M3 7.5A5.5 5.5 0 1 1 4.2 12"],
   },
   users: {
     paths: [
@@ -283,26 +267,20 @@ export const ICON_DEFS: Record<IconName, IconDef> = {
 const ICON_ENTRIES = Object.entries(ICON_DEFS) as [IconName, IconDef][];
 
 /**
- * Mounts once at the root of the app. Defines all <symbol id="ds-icon-*"> nodes
- * so every <Icon /> in the app is a lightweight 2-node <svg><use /></svg> GPU instance.
+ * Mounts once at the root of the app. Defines all <symbol id="gitust-icon-*"> nodes
+ * so every <Icon /> in the app is a lightweight 2-node <svg><use /></svg> SVG instance.
  */
 export const IconSpriteSheet: Component = () => {
   return (
     <svg
       aria-hidden="true"
-      style={{
-        position: "absolute",
-        width: 0,
-        height: 0,
-        overflow: "hidden",
-        "pointer-events": "none",
-      }}
+      class="pointer-events-none absolute size-0 overflow-hidden"
     >
       <defs>
         <For each={ICON_ENTRIES}>
           {([name, def]) => (
             <symbol
-              id={`ds-icon-${name}`}
+              id={`gitust-icon-${name}`}
               viewBox="0 0 16 16"
               fill="none"
               stroke="currentColor"
@@ -333,10 +311,10 @@ export const Icon: Component<IconProps> = (props) => {
       height={size()}
       viewBox="0 0 16 16"
       aria-hidden="true"
-      class={`ds-icon ${props.class ?? ""}`}
+      class={`inline-block shrink-0 align-middle ${props.class ?? ""}`}
       style={props.style}
     >
-      <use href={`#ds-icon-${props.name}`} />
+      <use href={`#gitust-icon-${props.name}`} />
     </svg>
   );
 };

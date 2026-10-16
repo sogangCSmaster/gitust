@@ -7,6 +7,8 @@ use tower::ServiceExt;
 
 #[path = "tests_auth.rs"]
 mod tests_auth;
+#[path = "tests_check_steps.rs"]
+mod tests_check_steps;
 #[path = "tests_external_review.rs"]
 mod tests_external_review;
 #[path = "tests_git_http.rs"]

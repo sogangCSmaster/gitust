@@ -1,8 +1,25 @@
-import { Component, createSignal, For, Show } from "solid-js";
-import { Badge } from "../primitives/Badge";
-import { Button } from "../primitives/Button";
-import { Icon } from "../primitives/Icon";
-import { Input } from "../primitives/Input";
+import { createSignal, For, Show, type Component } from "solid-js";
+import { Button } from "../components/ui/button";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import {
+  Field,
+  Section,
+  StatusBadge,
+} from "../components/workspace/presentation";
 
 export interface LiveInviteItem {
   id: string;
@@ -41,7 +58,7 @@ export interface EnterpriseCredentialsPanelProps {
   lastIssuedInviteUrl?: string | null;
   onIssueInvite?: (
     targetEmail: string,
-    role: "SiteAdmin" | "Maintainer" | "Developer"
+    role: "SiteAdmin" | "Maintainer" | "Developer",
   ) => void;
   onRevokeInvite?: (inviteId: string) => void;
   livePats?: LivePatItem[];
@@ -57,445 +74,309 @@ export interface EnterpriseCredentialsPanelProps {
 export const EnterpriseCredentialsPanel: Component<
   EnterpriseCredentialsPanelProps
 > = (props) => {
-  const [redeemUsername, setRedeemUsername] = createSignal("");
-  const [redeemPassword, setRedeemPassword] = createSignal("");
-
-  const [inviteEmail, setInviteEmail] = createSignal("");
-  const [inviteRole, setInviteRole] = createSignal<
+  const [username, setUsername] = createSignal("");
+  const [password, setPassword] = createSignal("");
+  const [email, setEmail] = createSignal("");
+  const [role, setRole] = createSignal<
     "SiteAdmin" | "Maintainer" | "Developer"
   >("Developer");
-
   const [patName, setPatName] = createSignal("");
   const [sshTitle, setSshTitle] = createSignal("");
-  const [sshPubkey, setSshPubkey] = createSignal("");
-
-  const isExpired = (iso: string | null | undefined): boolean =>
-    Boolean(iso && Date.parse(iso) <= Date.now());
-
-  const handleRedeemSubmit = () => {
+  const [sshKey, setSshKey] = createSignal("");
+  const expired = (date: string | null | undefined) =>
+    Boolean(date && Date.parse(date) <= Date.now());
+  const unavailable = () =>
+    props.onPolicyFeedback(
+      "This action needs a connected Gitust server and an authorized account.",
+    );
+  const redeem = () => {
     const token = props.redeemToken.trim();
-    const pwd = redeemPassword();
     if (props.redeemMode === "invite") {
-      if (props.onRedeemInvite) {
-        props.onRedeemInvite(token, redeemUsername().trim(), pwd);
-      } else {
-        props.onPolicyFeedback(
-          "Invite redeemed via single-use SHA-256 token & Argon2id hash"
-        );
-      }
-    } else if (props.onRedeemPasswordReset) {
-      props.onRedeemPasswordReset(token, pwd);
+      props.onRedeemInvite
+        ? props.onRedeemInvite(token, username().trim(), password())
+        : unavailable();
     } else {
-      props.onPolicyFeedback(
-        "Password reset redeemed & prior sessions revoked"
-      );
+      props.onRedeemPasswordReset
+        ? props.onRedeemPasswordReset(token, password())
+        : unavailable();
     }
-    setRedeemPassword("");
+    setPassword("");
   };
-
   return (
-    <div
-      style={{
-        display: "flex",
-        "flex-direction": "column",
-        gap: "var(--ds-space-4)",
-      }}
-    >
-      {/* Single-Use Invite / Password-Reset Token Redemption Card */}
-      <div class="ds-card">
-        <div class="ds-card-header">
-          <span
-            style={{
-              display: "inline-flex",
-              "align-items": "center",
-              gap: "var(--ds-space-1-5)",
-            }}
-          >
-            <Icon name="key" size={13} />
-            <span>Redeem Single-Use Invite or Password-Reset Link</span>
-          </span>
-          <div style={{ display: "flex", gap: "var(--ds-space-1)" }}>
-            <Button
-              size="xs"
-              variant={props.redeemMode === "invite" ? "primary" : "secondary"}
-              onClick={() => props.onChangeRedeemMode("invite")}
+    <div class="grid min-w-0 gap-6 xl:grid-cols-2">
+      <Section
+        title="Accept an invitation"
+        description="Use the single-use link shared by your administrator."
+      >
+        <Tabs
+          value={props.redeemMode}
+          onChange={(value) =>
+            props.onChangeRedeemMode(value as "invite" | "reset")
+          }
+        >
+          <TabsList class="w-full">
+            <TabsTrigger value="invite" class="flex-1">
+              Accept invite
+            </TabsTrigger>
+            <TabsTrigger value="reset" class="flex-1">
+              Reset password
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value={props.redeemMode}>
+            <form
+              class="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                redeem();
+              }}
             >
-              Accept Invite
-            </Button>
-            <Button
-              size="xs"
-              variant={props.redeemMode === "reset" ? "primary" : "secondary"}
-              onClick={() => props.onChangeRedeemMode("reset")}
-            >
-              Reset Password
-            </Button>
-          </div>
-        </div>
-        <div class="ds-card-body">
-          <Input
-            icon={<Icon name="key" size={14} />}
-            value={props.redeemToken}
-            onInput={(e) => props.onRedeemTokenInput(e.currentTarget.value)}
-            placeholder={
-              props.redeemMode === "invite"
-                ? "Single-use invite token (gitust_inv_...)"
-                : "Single-use reset token (gitust_rst_...)"
-            }
-          />
-          <Show when={props.redeemMode === "invite"}>
-            <Input
-              icon={<Icon name="users" size={14} />}
-              value={redeemUsername()}
-              onInput={(e) => setRedeemUsername(e.currentTarget.value)}
-              placeholder="Choose username (e.g. alice_dev)"
-            />
-          </Show>
-          <Input
-            type="password"
-            icon={<Icon name="lock" size={14} />}
-            value={redeemPassword()}
-            onInput={(e) => setRedeemPassword(e.currentTarget.value)}
-            placeholder="New password (min 10 characters, Argon2id)"
-          />
-          <Button
-            variant="primary"
-            icon={<Icon name="check" size={14} />}
-            onClick={handleRedeemSubmit}
-          >
-            {props.redeemMode === "invite"
-              ? "Redeem Invite & Activate Account"
-              : "Redeem Reset Token & Rotate Password"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Site Admin Single-Use Invite-Link Generator */}
-      <div class="ds-card">
-        <div class="ds-card-header">
-          <span
-            style={{
-              display: "inline-flex",
-              "align-items": "center",
-              gap: "var(--ds-space-1-5)",
-            }}
-          >
-            <Icon name="shield-check" size={13} />
-            <span>Site Admin Invite-Link Issuer (72h Single-Use)</span>
-          </span>
-          <Badge variant="accent">No Public Signup</Badge>
-        </div>
-        <div class="ds-card-body">
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--ds-space-2)",
-              "align-items": "center",
-              "flex-wrap": "wrap",
-            }}
-          >
-            <div style={{ flex: "1" }}>
-              <Input
-                icon={<Icon name="users" size={14} />}
-                value={inviteEmail()}
-                onInput={(e) => setInviteEmail(e.currentTarget.value)}
-                placeholder={`engineer@${props.allowedDomain}`}
+              <Field
+                label="Single-use token"
+                value={props.redeemToken}
+                onValueChange={props.onRedeemTokenInput}
+                placeholder="Paste your invite or reset token"
               />
-            </div>
-            <Button
-              size="xs"
-              variant="secondary"
-              onClick={() =>
-                setInviteRole((r) =>
-                  r === "Developer"
-                    ? "Maintainer"
-                    : r === "Maintainer"
-                      ? "SiteAdmin"
-                      : "Developer"
-                )
-              }
-            >
-              Role: {inviteRole()}
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              icon={<Icon name="plus" size={13} />}
-              onClick={() => {
-                if (props.onIssueInvite) {
-                  props.onIssueInvite(inviteEmail().trim(), inviteRole());
-                  setInviteEmail("");
-                } else {
-                  props.onPolicyFeedback(
-                    `Issued 72h single-use invite link for ${inviteEmail() || `dev@${props.allowedDomain}`}`
-                  );
-                }
-              }}
-            >
-              Issue Invite Link
-            </Button>
-          </div>
-
-          <Show when={props.lastIssuedInviteUrl}>
-            {(url) => (
-              <div
-                class="ds-mono"
-                style={{
-                  padding: "var(--ds-space-2)",
-                  background: "var(--ds-bg-subtle)",
-                  border: "1px solid var(--ds-border-subtle)",
-                  "border-radius": "var(--ds-radius-sm)",
-                  "font-size": "var(--ds-font-size-2xs)",
-                  "word-break": "break-all",
-                }}
-              >
-                One-time link (share via messenger; SHA-256 stored in DB):{" "}
-                <strong>{url()}</strong>
-              </div>
-            )}
-          </Show>
-
-          <Show when={(props.liveInvites?.length ?? 0) > 0}>
-            <div
-              style={{
-                display: "flex",
-                "flex-direction": "column",
-                gap: "var(--ds-space-1-5)",
-              }}
-            >
-              <For each={props.liveInvites}>
-                {(inv) => (
-                  <div
-                    style={{
-                      display: "flex",
-                      "align-items": "center",
-                      "justify-content": "space-between",
-                      "font-size": "var(--ds-font-size-2xs)",
-                      padding: "var(--ds-space-1-5) var(--ds-space-2)",
-                      background: "var(--ds-bg-subtle)",
-                      "border-radius": "var(--ds-radius-sm)",
-                    }}
-                  >
-                    <span class="ds-mono">
-                      {inv.target_email} · {inv.purpose} ({inv.assigned_role})
-                    </span>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "var(--ds-space-1-5)",
-                        "align-items": "center",
-                      }}
-                    >
-                      <Badge
-                        variant={
-                          inv.revoked_at
-                            ? "danger"
-                            : inv.used_at
-                              ? "neutral"
-                              : isExpired(inv.expires_at)
-                                ? "warning"
-                                : "success"
-                        }
-                        mono
-                      >
-                        {inv.revoked_at
+              <Show when={props.redeemMode === "invite"}>
+                <Field
+                  label="Username"
+                  value={username()}
+                  onValueChange={setUsername}
+                  placeholder="Choose a username"
+                  autocomplete="username"
+                />
+              </Show>
+              <Field
+                label="New password"
+                type="password"
+                value={password()}
+                onValueChange={setPassword}
+                autocomplete="new-password"
+              />
+              <Button type="submit">
+                {props.redeemMode === "invite"
+                  ? "Activate account"
+                  : "Reset password"}
+              </Button>
+            </form>
+          </TabsContent>
+        </Tabs>
+      </Section>
+      <Section
+        title="Invite a teammate"
+        description="Invites expire after 72 hours and can only be used once."
+      >
+        <Field
+          label="Email address"
+          type="email"
+          value={email()}
+          onValueChange={setEmail}
+          placeholder={`name@${props.allowedDomain}`}
+        />
+        <Select
+          options={["Developer", "Maintainer", "SiteAdmin"]}
+          value={role()}
+          onChange={(value) => {
+            if (value)
+              setRole(value as "SiteAdmin" | "Maintainer" | "Developer");
+          }}
+          itemComponent={(item) => (
+            <SelectItem item={item.item}>{item.item.rawValue}</SelectItem>
+          )}
+        >
+          <SelectLabel class="mb-2 block text-xs">Role</SelectLabel>
+          <SelectTrigger aria-label="Invite role">
+            <SelectValue<string>>
+              {(state) => state.selectedOption()}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent />
+        </Select>
+        <Button
+          variant="outline"
+          onClick={() =>
+            props.onIssueInvite
+              ? props.onIssueInvite(email().trim(), role())
+              : unavailable()
+          }
+        >
+          Issue invite link
+        </Button>
+        <Show when={props.lastIssuedInviteUrl}>
+          {(url) => (
+            <Alert>
+              <AlertDescription>
+                <p class="mb-2 font-medium">Copy this single-use link.</p>
+                <code class="break-all text-xs">{url()}</code>
+              </AlertDescription>
+            </Alert>
+          )}
+        </Show>
+        <ul class="divide-y">
+          <For each={props.liveInvites}>
+            {(invite) => (
+              <li class="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+                <div class="min-w-0">
+                  <p class="break-all">{invite.target_email}</p>
+                  <p class="mt-1 text-xs text-muted-foreground">
+                    {invite.assigned_role} · expires{" "}
+                    {new Date(invite.expires_at).toLocaleString()}
+                  </p>
+                </div>
+                <Show
+                  when={
+                    !invite.used_at &&
+                    !invite.revoked_at &&
+                    !expired(invite.expires_at)
+                  }
+                  fallback={
+                    <StatusBadge>
+                      {invite.used_at
+                        ? "Used"
+                        : invite.revoked_at
                           ? "Revoked"
-                          : inv.used_at
-                            ? "Used"
-                            : isExpired(inv.expires_at)
-                              ? "Expired"
-                              : "Active"}
-                      </Badge>
-                      <Show
-                        when={
-                          !inv.revoked_at &&
-                          !inv.used_at &&
-                          !isExpired(inv.expires_at) &&
-                          props.onRevokeInvite
-                        }
-                      >
-                        <Button
-                          size="xs"
-                          variant="danger"
-                          onClick={() => props.onRevokeInvite?.(inv.id)}
-                        >
-                          Revoke
-                        </Button>
-                      </Show>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
-      </div>
-
-      {/* Git Credentials: PAT (HTTPS) & SSH Public Keys (russh) */}
-      <div class="ds-card">
-        <div class="ds-card-header">
-          <span
-            style={{
-              display: "inline-flex",
-              "align-items": "center",
-              gap: "var(--ds-space-1-5)",
-            }}
-          >
-            <Icon name="terminal" size={13} />
-            <span>Git Access: Personal Access Tokens (HTTPS) &amp; SSH Keys</span>
-          </span>
-          <Badge variant="info" mono>
-            HTTPS + russh
-          </Badge>
-        </div>
-        <div class="ds-card-body">
-          <div style={{ display: "flex", gap: "var(--ds-space-2)" }}>
-            <div style={{ flex: "1" }}>
-              <Input
-                icon={<Icon name="key" size={14} />}
-                value={patName()}
-                onInput={(e) => setPatName(e.currentTarget.value)}
-                placeholder="PAT description (e.g. macbook-cli)"
-              />
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={<Icon name="plus" size={13} />}
-              onClick={() => {
-                if (props.onCreatePat) {
-                  props.onCreatePat(patName().trim());
-                  setPatName("");
-                } else {
-                  props.onPolicyFeedback(
-                    "Created Personal Access Token (gitust_pat_...)"
-                  );
-                }
-              }}
-            >
-              Generate PAT
-            </Button>
-          </div>
-
-          <Show when={props.lastIssuedPatToken}>
-            {(tok) => (
-              <div
-                class="ds-mono"
-                style={{
-                  padding: "var(--ds-space-2)",
-                  background: "var(--ds-bg-subtle)",
-                  border: "1px solid var(--ds-border-subtle)",
-                  "border-radius": "var(--ds-radius-sm)",
-                  "font-size": "var(--ds-font-size-2xs)",
-                  "word-break": "break-all",
-                }}
-              >
-                New PAT (copy now; only SHA-256 stored): <strong>{tok()}</strong>
-              </div>
+                          : "Expired"}
+                    </StatusBadge>
+                  }
+                >
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => props.onRevokeInvite?.(invite.id)}
+                  >
+                    Revoke invite
+                  </Button>
+                </Show>
+              </li>
             )}
-          </Show>
-
-          <Show when={(props.livePats?.length ?? 0) > 0}>
-            <For each={props.livePats}>
-              {(pat) => (
-                <div
-                  style={{
-                    display: "flex",
-                    "align-items": "center",
-                    "justify-content": "space-between",
-                    "font-size": "var(--ds-font-size-2xs)",
-                  }}
-                >
-                  <span class="ds-mono">
-                    {pat.name} ({pat.token_prefix}...)
-                  </span>
-                  <Show
-                    when={!pat.revoked && !isExpired(pat.expires_at)}
-                    fallback={
-                      <Badge variant={pat.revoked ? "danger" : "warning"}>
-                        {pat.revoked ? "Revoked" : "Expired"}
-                      </Badge>
-                    }
-                  >
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => props.onRevokePat?.(pat.id)}
-                    >
-                      Revoke PAT
-                    </Button>
-                  </Show>
+          </For>
+        </ul>
+      </Section>
+      <Section
+        title="Personal access tokens"
+        description="Use a token to authenticate Git over HTTPS."
+      >
+        <form
+          class="flex flex-wrap items-end gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            props.onCreatePat
+              ? props.onCreatePat(patName().trim())
+              : unavailable();
+            setPatName("");
+          }}
+        >
+          <Field
+            class="min-w-0 flex-1 basis-40"
+            label="Token name"
+            value={patName()}
+            onValueChange={setPatName}
+            placeholder="MacBook CLI"
+          />
+          <Button type="submit" variant="outline">
+            Generate PAT
+          </Button>
+        </form>
+        <Show when={props.lastIssuedPatToken}>
+          {(token) => (
+            <Alert>
+              <AlertDescription>
+                <p class="mb-2 font-medium">
+                  Copy your token now. It will not be shown again.
+                </p>
+                <code class="break-all text-xs">{token()}</code>
+              </AlertDescription>
+            </Alert>
+          )}
+        </Show>
+        <ul class="divide-y">
+          <For each={props.livePats}>
+            {(pat) => (
+              <li class="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div class="min-w-0">
+                  <p class="break-words text-sm">{pat.name}</p>
+                  <code class="text-xs text-muted-foreground">
+                    {pat.token_prefix}…
+                  </code>
                 </div>
-              )}
-            </For>
-          </Show>
-
-          <div style={{ display: "flex", gap: "var(--ds-space-2)" }}>
-            <div style={{ flex: "1" }}>
-              <Input
-                value={sshTitle()}
-                onInput={(e) => setSshTitle(e.currentTarget.value)}
-                placeholder="SSH key title"
-              />
-            </div>
-            <div style={{ flex: "2" }}>
-              <Input
-                value={sshPubkey()}
-                onInput={(e) => setSshPubkey(e.currentTarget.value)}
-                placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..."
-              />
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={<Icon name="plus" size={13} />}
-              onClick={() => {
-                if (props.onRegisterSshKey) {
-                  props.onRegisterSshKey(sshTitle().trim(), sshPubkey().trim());
-                  setSshTitle("");
-                  setSshPubkey("");
-                } else {
-                  props.onPolicyFeedback(
-                    "Registered OpenSSH public key with SHA-256 fingerprint"
-                  );
-                }
-              }}
-            >
-              Add SSH Key
-            </Button>
-          </div>
-
-          <Show when={(props.liveSshKeys?.length ?? 0) > 0}>
-            <For each={props.liveSshKeys}>
-              {(key) => (
-                <div
-                  style={{
-                    display: "flex",
-                    "align-items": "center",
-                    "justify-content": "space-between",
-                    "font-size": "var(--ds-font-size-2xs)",
-                  }}
+                <Show
+                  when={!pat.revoked && !expired(pat.expires_at)}
+                  fallback={
+                    <StatusBadge tone={pat.revoked ? "danger" : "warning"}>
+                      {pat.revoked ? "Revoked" : "Expired"}
+                    </StatusBadge>
+                  }
                 >
-                  <span class="ds-mono">
-                    {key.title} · {key.fingerprint_sha256}
-                  </span>
-                  <Show
-                    when={!key.revoked}
-                    fallback={<Badge variant="danger">Revoked</Badge>}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => props.onRevokePat?.(pat.id)}
                   >
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => props.onRevokeSshKey?.(key.id)}
-                    >
-                      Revoke Key
-                    </Button>
-                  </Show>
+                    Revoke PAT
+                  </Button>
+                </Show>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Section>
+      <Section
+        title="SSH public keys"
+        description="Register a public key for Git SSH access. Private keys stay on your machine."
+      >
+        <form
+          class="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            props.onRegisterSshKey
+              ? props.onRegisterSshKey(sshTitle().trim(), sshKey().trim())
+              : unavailable();
+            setSshTitle("");
+            setSshKey("");
+          }}
+        >
+          <Field
+            label="Key title"
+            value={sshTitle()}
+            onValueChange={setSshTitle}
+            placeholder="Work laptop"
+          />
+          <Field
+            label="OpenSSH public key"
+            value={sshKey()}
+            onValueChange={setSshKey}
+            placeholder="ssh-ed25519 AAAA..."
+          />
+          <Button type="submit" variant="outline">
+            Add SSH key
+          </Button>
+        </form>
+        <ul class="divide-y">
+          <For each={props.liveSshKeys}>
+            {(key) => (
+              <li class="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div class="min-w-0">
+                  <p class="text-sm">{key.title}</p>
+                  <code class="break-all text-xs text-muted-foreground">
+                    {key.fingerprint_sha256}
+                  </code>
                 </div>
-              )}
-            </For>
-          </Show>
-        </div>
-      </div>
+                <Show
+                  when={!key.revoked}
+                  fallback={<StatusBadge tone="danger">Revoked</StatusBadge>}
+                >
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => props.onRevokeSshKey?.(key.id)}
+                  >
+                    Revoke key
+                  </Button>
+                </Show>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Section>
     </div>
   );
 };

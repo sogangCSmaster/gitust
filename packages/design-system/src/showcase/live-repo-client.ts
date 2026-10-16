@@ -19,7 +19,7 @@ export const getLiveToken = (): string | null => {
   } catch (err) {
     console.warn(
       "Unable to read gitust_token from localStorage:",
-      formatErr(err)
+      formatErr(err),
     );
     return null;
   }
@@ -27,7 +27,7 @@ export const getLiveToken = (): string | null => {
 
 export const statusDiffLine = (
   content: string,
-  type: "context" | "add" | "del" | "hunk" = "hunk"
+  type: "context" | "add" | "del" | "hunk" = "hunk",
 ): DiffLine[] => [
   {
     index: 0,
@@ -40,7 +40,7 @@ export const statusDiffLine = (
 
 export interface LiveRepoClientCallbacks {
   setActiveCommitRev: (rev: string) => void;
-  setLookupMicros: (micros: number) => void;
+  setLookupMicros: (micros: number | null) => void;
   setSelectedFilePath: (path: string) => void;
   setLiveDiffLines: (lines: DiffLine[] | null) => void;
   setLiveFileTreeNodes: (nodes: FileTreeNode[] | null) => void;
@@ -66,7 +66,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     try {
       const res = await fetch(
         `/api/v1/repo/diff?head=${encodeURIComponent(rev)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       if (!res.ok) {
@@ -95,19 +95,19 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
                 kind: "context" | "add" | "del" | "hunk";
                 content: string;
               },
-              idx: number
+              idx: number,
             ) => ({
               index: idx,
               oldLineNumber: ln.old_line ?? null,
               newLineNumber: ln.new_line ?? null,
               type: ln.kind,
               content: ln.content,
-            })
-          )
+            }),
+          ),
         );
       } else {
         cb.setLiveDiffLines(
-          statusDiffLine(`[No file changes in commit ${rev}]`, "hunk")
+          statusDiffLine(`[No file changes in commit ${rev}]`, "hunk"),
         );
       }
     } catch (err) {
@@ -122,17 +122,31 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     path: string;
     kind: "file" | "dir";
   }) => {
-    cb.setSelectedFilePath(node.path);
-    if (node.kind !== "file") return;
     const reqId = ++latestViewReqId;
+    cb.setSelectedFilePath(node.path);
+    cb.setLookupMicros(null);
+    cb.setLiveDiffLines([]);
+    if (node.kind !== "file") {
+      cb.setLiveDiffLines(
+        statusDiffLine(
+          `[Directory: ${node.path} — select a file to preview]`,
+          "hunk",
+        ),
+      );
+      return;
+    }
     const rev = cb.getActiveCommitRev();
     const token = getLiveToken();
-    if (!token) return;
-    cb.setLiveDiffLines([]);
+    if (!token) {
+      cb.setLiveDiffLines(
+        statusDiffLine("[Sign in to preview repository files]", "hunk"),
+      );
+      return;
+    }
     try {
       const res = await fetch(
         `/api/v1/repo/blob?rev=${encodeURIComponent(rev)}&path=${encodeURIComponent(node.path)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       if (!res.ok) {
@@ -158,7 +172,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       } else if (typeof blob.content === "string") {
         if (blob.content.length === 0) {
           cb.setLiveDiffLines(
-            statusDiffLine(`[Empty file: ${node.path} (0 bytes)]`, "hunk")
+            statusDiffLine(`[Empty file: ${node.path} (0 bytes)]`, "hunk"),
           );
         } else {
           const rawLines = blob.content.split("\n");
@@ -169,15 +183,15 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
               newLineNumber: idx + 1,
               type: "context" as const,
               content: line,
-            }))
+            })),
           );
         }
         cb.showQuickFeedback(
-          `Loaded ${node.path} via in-process gix (${blob.lookup_micros ?? 0}µs)`
+          `Loaded ${node.path} via in-process gix (${blob.lookup_micros ?? 0}µs)`,
         );
       } else {
         cb.setLiveDiffLines(
-          statusDiffLine(`[No text content returned for ${node.path}]`, "hunk")
+          statusDiffLine(`[No text content returned for ${node.path}]`, "hunk"),
         );
       }
     } catch (err) {
@@ -204,7 +218,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         cb.setLiveFileTreeNodes([]);
         cb.setLiveDiffLines([]);
         cb.showQuickFeedback(
-          `Live repository hydration failed (HTTP ${commitsRes.status}/${treeRes.status})`
+          `Live repository hydration failed (HTTP ${commitsRes.status}/${treeRes.status})`,
         );
         return;
       }
@@ -222,7 +236,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
           tData.entries.map((e: { path: string; is_dir: boolean }) => ({
             path: e.path,
             kind: e.is_dir ? ("dir" as const) : ("file" as const),
-          }))
+          })),
         );
       }
       await loadLiveCommitDiff("HEAD");
@@ -232,7 +246,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       cb.setLiveFileTreeNodes([]);
       cb.setLiveDiffLines([]);
       cb.showQuickFeedback(
-        `Live repository hydration failed: ${formatErr(err)}`
+        `Live repository hydration failed: ${formatErr(err)}`,
       );
     }
   };
@@ -240,12 +254,14 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   const triggerGithubSync = () => {
     const token = getLiveToken();
     if (!token) {
-      cb.showQuickFeedback("Sign in to fetch from the configured GitHub mirror");
+      cb.showQuickFeedback(
+        "Sign in to fetch from the configured GitHub mirror",
+      );
       return;
     }
     const t0 = performance.now();
     cb.showQuickFeedback(
-      "GitHub Read-Only Mirror Sync: Synchronizing upstream refs (Agent branches kept private)..."
+      "GitHub Read-Only Mirror Sync: Synchronizing upstream refs (Agent branches kept private)...",
     );
     void (async () => {
       try {
@@ -268,14 +284,14 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
             ? report.skipped_branches.length
             : 0;
           cb.showQuickFeedback(
-            `GitHub Mirror Synced @ ${sha} in ${dt}ms (${priv} private agent branches isolated, ${skippedCount} skipped)`
+            `GitHub Mirror Synced @ ${sha} in ${dt}ms (${priv} private agent branches isolated, ${skippedCount} skipped)`,
           );
           await hydrateFromLiveBackend();
         } else {
           const errText = (await res.text().catch(() => "")).trim();
           if (token !== getLiveToken()) return;
           cb.showQuickFeedback(
-            `GitHub Mirror Sync rejected (HTTP ${res.status} in ${dt}ms${errText ? `: ${errText}` : ""})`
+            `GitHub Mirror Sync rejected (HTTP ${res.status} in ${dt}ms${errText ? `: ${errText}` : ""})`,
           );
         }
       } catch (err) {

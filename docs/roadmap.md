@@ -27,10 +27,11 @@ In progress. Implemented portions:
 - Clean-commit verification, fast-forward approval, and separate exact-SHA publication.
 - Durable approval/publication records and explicit remote-failure retry.
 - Required Checks from committed merge-target configuration during explicit verification.
+- Per-command verification outcomes, measured durations, and skipped checks in HTTP/MCP and the workbench.
 
 Remaining work:
 
-- Automatic Checks on branch updates, run history, and per-check results.
+- Automatic Checks on branch updates and durable run history.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Broader administration UI and repository lifecycle management.

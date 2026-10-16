@@ -1,9 +1,15 @@
-import { Component, createMemo, createSignal, For } from "solid-js";
-import { Badge, BadgeVariant } from "../primitives/Badge";
-import { Button } from "../primitives/Button";
-import { Icon } from "../primitives/Icon";
-import { Input } from "../primitives/Input";
-
+import { createMemo, createSignal, For, type Component } from "solid-js";
+import { Button } from "../components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "../components/ui/card";
+import { Field, StatusBadge } from "../components/workspace/presentation";
+import { Icon } from "../components/workspace/icon";
+import { cn } from "../lib/utils";
 export interface ActionJobStep {
   id: string;
   name: string;
@@ -31,107 +37,47 @@ export interface ActionsPipelineViewProps {
   height?: number;
 }
 
-/**
- * CI/CD pipeline interface and viewport-sliced log viewer.
- * Built for Self-Hosted Enterprise runners with instant log filtering across 10,000+ lines.
- */
 export const ActionsPipelineView: Component<ActionsPipelineViewProps> = (
-  props
+  props,
 ) => {
-  const rowHeight = 20;
-  const viewportHeight = () => props.height ?? 420;
-  const overscan = 14;
-
-  let viewportRef: HTMLDivElement | undefined;
+  const rowHeight = 24;
+  const height = () => props.height ?? 420;
+  const [query, setQuery] = createSignal("");
   const [scrollTop, setScrollTop] = createSignal(0);
-  const [logQuery, setLogQuery] = createSignal("");
-
-  const filteredLogs = createMemo(() => {
-    const q = logQuery().trim().toLowerCase();
-    if (!q) return props.logs;
-    return props.logs.filter(
-      (l) =>
-        l.text.toLowerCase().includes(q) || l.level.toLowerCase().includes(q)
-    );
-  });
-
-  const visibleCount = createMemo(
-    () => Math.ceil(viewportHeight() / rowHeight) + overscan * 2
+  let viewport: HTMLDivElement | undefined;
+  const logs = createMemo(() =>
+    props.logs.filter((line) =>
+      `${line.level} ${line.text}`
+        .toLowerCase()
+        .includes(query().trim().toLowerCase()),
+    ),
   );
-
-  const startIdx = createMemo(() => {
-    const total = filteredLogs().length;
-    const rawStart = Math.max(0, Math.floor(scrollTop() / rowHeight) - overscan);
-    const maxStart = Math.max(0, total - visibleCount());
-    return Math.min(rawStart, maxStart);
-  });
-
-  const visibleLogs = createMemo(() => {
-    const list = filteredLogs();
-    const start = startIdx();
-    const end = Math.min(list.length, start + visibleCount());
-    return list.slice(start, end);
-  });
-
-  const statusBadge = (status: ActionJobStep["status"]): BadgeVariant => {
-    switch (status) {
-      case "success":
-        return "success";
-      case "running":
-        return "warning";
-      case "failed":
-        return "danger";
-      case "queued":
-        return "neutral";
-    }
-  };
-
+  const count = () => Math.ceil(height() / rowHeight) + 28;
+  const start = createMemo(() =>
+    Math.min(
+      Math.max(0, Math.floor(scrollTop() / rowHeight) - 14),
+      Math.max(0, logs().length - count()),
+    ),
+  );
+  const visible = createMemo(() => logs().slice(start(), start() + count()));
   return (
-    <div class="ds-actions-layout">
-      {/* Left Sidebar: Workflow Jobs & Self-Hosted Runner Assignment */}
-      <div class="ds-actions-sidebar">
-        <div class="ds-actions-sidebar-header">
-          <span
-            style={{
-              display: "inline-flex",
-              "align-items": "center",
-              gap: "var(--ds-space-1-5)",
-            }}
-          >
-            <Icon name="play" size={13} />
-            <span>{props.workflowName}</span>
-          </span>
-          <Badge variant="neutral" mono>
-            {props.commitSha}
-          </Badge>
-        </div>
-
-        <For each={props.jobs}>
-          {(job) => (
-            <div
-              class="ds-actions-job-row"
-              data-active={props.activeJobId === job.id}
-              onClick={() => props.onSelectJob(job.id)}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "var(--ds-space-2)",
-                  "min-width": 0,
-                }}
+    <div class="grid min-w-0 gap-5 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <Card class="min-w-0 self-start">
+        <CardHeader>
+          <CardTitle class="break-all text-sm">{props.workflowName}</CardTitle>
+          <CardDescription class="font-mono text-xs">
+            {props.branch} · {props.commitSha}
+          </CardDescription>
+        </CardHeader>
+        <CardContent class="space-y-2">
+          <For each={props.jobs}>
+            {(job) => (
+              <Button
+                variant={props.activeJobId === job.id ? "secondary" : "ghost"}
+                class="h-auto w-full justify-between gap-3 whitespace-normal px-3 py-3 text-left"
+                onClick={() => props.onSelectJob(job.id)}
               >
-                <span
-                  style={{
-                    display: "inline-flex",
-                    color:
-                      job.status === "success"
-                        ? "var(--ds-success-fg)"
-                        : job.status === "failed"
-                          ? "var(--ds-danger-fg)"
-                          : "var(--ds-warning-fg)",
-                  }}
-                >
+                <span class="flex items-center gap-2">
                   <Icon
                     name={
                       job.status === "success"
@@ -140,141 +86,87 @@ export const ActionsPipelineView: Component<ActionsPipelineViewProps> = (
                           ? "x"
                           : "clock"
                     }
-                    size={14}
                   />
+                  <span>{job.name}</span>
                 </span>
-                <span
-                  style={{
-                    overflow: "hidden",
-                    "text-overflow": "ellipsis",
-                    "white-space": "nowrap",
-                  }}
+                <StatusBadge
+                  tone={
+                    job.status === "success"
+                      ? "success"
+                      : job.status === "failed"
+                        ? "danger"
+                        : job.status === "running"
+                          ? "warning"
+                          : "neutral"
+                  }
                 >
-                  {job.name}
-                </span>
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "var(--ds-space-1-5)",
-                }}
-              >
-                <Badge variant={statusBadge(job.status)} mono>
                   {job.duration}
-                </Badge>
-              </div>
-            </div>
-          )}
-        </For>
-
-        <div
-          style={{
-            padding: "var(--ds-space-2-5)",
-            "background-color": "var(--ds-bg-secondary)",
-            "border-top": "1px solid var(--ds-border-subtle)",
-            display: "flex",
-            "flex-direction": "column",
-            gap: "var(--ds-space-2)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              "align-items": "center",
-              "justify-content": "space-between",
-              "font-size": "var(--ds-font-size-2xs)",
-              color: "var(--ds-fg-muted)",
-            }}
-          >
-            <span>Self-Hosted Runner</span>
-            <span class="ds-mono" style={{ color: "var(--ds-success-fg)" }}>
-              corp-runner-linux-01 (Online)
-            </span>
-          </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<Icon name="rotate-ccw" size={13} />}
-            shortcut="r"
-            onClick={props.onRerunAll}
-          >
-            Re-run All Jobs (Optimistic)
+                </StatusBadge>
+              </Button>
+            )}
+          </For>
+          <p class="pt-3 text-xs text-muted-foreground">
+            Sample runner ·{" "}
+            {props.jobs.find((job) => job.id === props.activeJobId)?.runner}
+          </p>
+          <Button variant="outline" class="w-full" onClick={props.onRerunAll}>
+            <Icon name="rotate-ccw" />
+            Replay demo jobs
           </Button>
-        </div>
-      </div>
-
-      {/* Right Pane: Virtualized 10,000-Line Live Build Console */}
-      <div class="ds-diff-container">
-        <div class="ds-diff-toolbar">
-          <div
-            style={{
-              display: "flex",
-              "align-items": "center",
-              gap: "var(--ds-space-2)",
+        </CardContent>
+      </Card>
+      <Card class="min-w-0 overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b p-4">
+          <div>
+            <h2 class="font-medium">Job console</h2>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Sample logs · {logs().length.toLocaleString()} lines
+            </p>
+          </div>
+          <Field
+            label="Filter console logs"
+            hideLabel
+            type="search"
+            class="w-full sm:max-w-xs"
+            value={query()}
+            onValueChange={(value) => {
+              setQuery(value);
+              setScrollTop(0);
+              if (viewport) viewport.scrollTop = 0;
             }}
-          >
-            <Icon name="terminal" size={14} />
-            <span style={{ "font-weight": 600 }}>
-              Job Console Stream ({filteredLogs().length.toLocaleString()}{" "}
-              lines)
-            </span>
-            <Badge variant="info" mono>
-              <Icon name="git-branch" size={11} />
-              <span>{props.branch}</span>
-            </Badge>
-          </div>
-          <div style={{ width: "280px" }}>
-            <Input
-              icon={<Icon name="search" size={13} />}
-              placeholder="Filter console logs (e.g. error, cargo)..."
-              value={logQuery()}
-              onInput={(e) => {
-                setLogQuery(e.currentTarget.value);
-                setScrollTop(0);
-                if (viewportRef) viewportRef.scrollTop = 0;
-              }}
-            />
-          </div>
+            placeholder="Filter logs..."
+          />
         </div>
-
         <div
-          ref={viewportRef}
-          class="ds-diff-viewport"
-          style={{ height: `${viewportHeight()}px` }}
-          onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+          ref={viewport}
+          class="relative overflow-auto overscroll-contain font-mono text-xs"
+          style={{ height: `${height()}px` }}
+          onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+          tabIndex={0}
+          aria-label="Sample job console"
         >
           <div
-            class="ds-diff-spacer"
-            style={{ height: `${filteredLogs().length * rowHeight}px` }}
+            class="relative min-w-full"
+            style={{ height: `${logs().length * rowHeight}px` }}
           >
-            <For each={visibleLogs()}>
-              {(line, idx) => (
+            <For each={visible()}>
+              {(line, index) => (
                 <div
-                  class="ds-log-row"
-                  data-level={line.level}
+                  class={cn(
+                    "absolute flex min-w-full items-center gap-4 whitespace-pre px-4",
+                    line.level === "error" && "text-error-foreground",
+                    line.level === "success" && "text-success-foreground",
+                    line.level === "warn" && "text-warning-foreground",
+                  )}
                   style={{
-                    transform: `translateY(${(startIdx() + idx()) * rowHeight}px)`,
+                    height: `${rowHeight}px`,
+                    transform: `translateY(${(start() + index()) * rowHeight}px)`,
                   }}
                 >
-                  <span
-                    style={{
-                      width: "44px",
-                      color: "var(--ds-fg-subtle)",
-                      "user-select": "none",
-                      "flex-shrink": 0,
-                    }}
-                  >
+                  <span class="w-10 shrink-0 select-none text-muted-foreground">
                     {line.index + 1}
                   </span>
-                  <span
-                    style={{
-                      width: "92px",
-                      color: "var(--ds-fg-muted)",
-                      "user-select": "none",
-                      "flex-shrink": 0,
-                    }}
-                  >
+                  <span class="w-20 shrink-0 text-muted-foreground">
                     {line.timestamp}
                   </span>
                   <span>{line.text}</span>
@@ -283,7 +175,7 @@ export const ActionsPipelineView: Component<ActionsPipelineViewProps> = (
             </For>
           </div>
         </div>
-      </div>
+      </Card>
     </div>
   );
 };

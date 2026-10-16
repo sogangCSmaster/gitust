@@ -47,7 +47,7 @@ const mapLiveUsers = (
     department: "Live account",
     role: mapRoleLabel(u.role),
     twoFactorEnabled: false,
-    status: u.status === "Active" ? "active" : "suspended",
+    status: u.status === "active" ? "active" : "suspended",
   }));
 
 export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
@@ -139,7 +139,7 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
               username: me.username,
               email: me.email,
               role: me.role,
-              status: "Active",
+              status: "active",
             },
           ])
         );

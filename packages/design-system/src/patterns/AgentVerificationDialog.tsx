@@ -1,10 +1,16 @@
-import { Component, createSignal, Show } from "solid-js";
-import { Badge } from "../primitives/Badge";
-import { Button } from "../primitives/Button";
-import { Dialog } from "../primitives/Dialog";
-import { Input } from "../primitives/Input";
+import { createSignal, For, Show, type Component } from "solid-js";
+import { Button } from "../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "../components/ui/dialog";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import { Card, CardContent } from "../components/ui/card";
+import { Field, StatusBadge } from "../components/workspace/presentation";
 import type { AgentSandboxTask } from "./AgentSwarmView";
-
 export interface AgentVerificationDialogProps {
   task: AgentSandboxTask;
   canRun: boolean;
@@ -12,74 +18,175 @@ export interface AgentVerificationDialogProps {
   onRefresh: () => void;
   onClose: () => void;
 }
-
-export const AgentVerificationDialog: Component<AgentVerificationDialogProps> = (props) => {
+export const AgentVerificationDialog: Component<
+  AgentVerificationDialogProps
+> = (props) => {
   const [command, setCommand] = createSignal(
-    props.task.verificationResult?.requestedCommand ?? props.task.verificationResult?.command ?? "",
+    props.task.verificationResult?.requestedCommand ??
+      props.task.verificationResult?.command ??
+      "",
   );
-  const terminal = () => props.task.sandboxStatus === "merged" || props.task.sandboxStatus === "discarded";
-  const blocked = () => !props.canRun || terminal() || Boolean(props.task.operation) ||
-    props.task.sandboxStatus === "compiling" || props.task.verificationNeedsRefresh;
-  const outputStyle = {
-    "white-space": "pre-wrap", "overflow-wrap": "anywhere", "font-family": "var(--ds-font-mono)",
-    "font-size": "var(--ds-font-size-xs)", margin: "var(--ds-space-0)",
-    padding: "var(--ds-space-2)", "background-color": "var(--ds-bg-canvas)",
-  } as const;
-
+  const terminal = () =>
+    props.task.sandboxStatus === "merged" ||
+    props.task.sandboxStatus === "discarded";
+  const blocked = () =>
+    !props.canRun ||
+    terminal() ||
+    Boolean(props.task.operation) ||
+    props.task.sandboxStatus === "compiling" ||
+    props.task.verificationNeedsRefresh;
   return (
-    <Dialog open onClose={props.onClose} title="Worktree verification">
-      <div style={{ display: "flex", "flex-direction": "column", gap: "var(--ds-space-3)" }}>
-        <div class="ds-mono">{props.task.branch}</div>
-        <p style={{ margin: "var(--ds-space-0)", color: "var(--ds-fg-secondary)" }}>
-          Run a command in this worktree. A clean committed revision must pass verification before approval.
-          Required checks configured on the merge target run after your command; every command must pass.
-          Execution requires a SiteAdmin and a server started with trusted single-user sandbox execution enabled.
-        </p>
-        <Badge variant={props.task.sandboxStatus === "verified" ? "success" : "neutral"}>
-          {props.task.verificationNeedsRefresh ? "Server state unconfirmed" : props.task.sandboxStatus}
-        </Badge>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent class="max-h-[90svh] w-[calc(100%-2rem)] max-w-2xl rounded-lg">
+        <DialogHeader>
+          <DialogTitle>Worktree verification</DialogTitle>
+          <DialogDescription>
+            Verify a clean, committed revision before approval. Every required
+            check must pass. Execution requires a SiteAdmin and trusted
+            single-user sandbox execution on the server.
+          </DialogDescription>
+        </DialogHeader>
+        <div class="flex flex-wrap items-center gap-3">
+          <code class="break-all text-xs text-muted-foreground">
+            {props.task.branch}
+          </code>
+          <StatusBadge
+            tone={
+              props.task.sandboxStatus === "verified" ? "success" : "neutral"
+            }
+          >
+            {props.task.verificationNeedsRefresh
+              ? "Server state unconfirmed"
+              : props.task.sandboxStatus}
+          </StatusBadge>
+        </div>
         <Show when={props.task.verifiedCommit}>
-          {(sha) => <span class="ds-mono">Verified commit: {sha()}</span>}
+          {(sha) => (
+            <p class="break-all font-mono text-xs text-muted-foreground">
+              Verified commit: {sha()}
+            </p>
+          )}
         </Show>
         <Show when={!terminal()}>
-          <label>
-            Verification command
-            <Input
-              aria-label="Verification command"
-              value={command()}
-              onInput={(event) => setCommand(event.currentTarget.value)}
-              placeholder="Enter the command you want to verify"
-              disabled={Boolean(props.task.operation)}
-            />
-          </label>
-          <div style={{ display: "flex", gap: "var(--ds-space-2)" }}>
-            <Button variant="primary" disabled={Boolean(blocked()) || !command().trim()}
-              onClick={() => props.onRun(props.task.id, command())}>
-              {props.task.operation === "verifying" ? "Verifying..." : "Run verification"}
+          <Field
+            label="Verification command"
+            value={command()}
+            onValueChange={setCommand}
+            placeholder="Enter the command you want to verify"
+            disabled={Boolean(props.task.operation)}
+          />
+          <div class="flex flex-wrap gap-2">
+            <Button
+              disabled={Boolean(blocked()) || !command().trim()}
+              onClick={() => props.onRun(props.task.id, command())}
+            >
+              {props.task.operation === "verifying"
+                ? "Verifying..."
+                : "Run verification"}
             </Button>
-            <Button onClick={props.onRefresh} disabled={Boolean(props.task.operation)}>Refresh worktrees</Button>
+            <Button
+              variant="outline"
+              disabled={Boolean(props.task.operation)}
+              onClick={props.onRefresh}
+            >
+              Refresh worktrees
+            </Button>
           </div>
         </Show>
         <Show when={props.task.verificationError}>
-          {(error) => <p role="status" style={{ margin: "var(--ds-space-0)", color: "var(--ds-danger-fg)" }}>{error()}</p>}
+          {(error) => (
+            <Alert variant="destructive">
+              <AlertDescription>{error()}</AlertDescription>
+            </Alert>
+          )}
         </Show>
         <Show when={props.task.verificationResult}>
           {(result) => (
-            <div style={{ display: "flex", "flex-direction": "column", gap: "var(--ds-space-2)" }}>
-              <strong>Last command result</strong>
-              <code style={outputStyle}>{result().command}</code>
-              <div class="ds-mono">Exit code: {result().exitCode} · Duration: {result().durationMs}ms</div>
-              <Show when={result().outputTruncated}>
-                <Badge variant="warning">Output truncated by server</Badge>
+            <div class="space-y-4">
+              <h3 class="font-medium">Last verification result</h3>
+              <Show when={result().steps?.length}>
+                <ol aria-label="Verification commands" class="space-y-3">
+                  <For each={result().steps}>
+                    {(step) => (
+                      <li>
+                        <Card>
+                          <CardContent class="space-y-3 p-4">
+                            <div class="flex items-center justify-between gap-3">
+                              <span class="text-xs text-muted-foreground">
+                                {step.required
+                                  ? "Required check"
+                                  : "Your command"}
+                              </span>
+                              <StatusBadge
+                                tone={
+                                  step.exitCode === null
+                                    ? "neutral"
+                                    : step.exitCode === 0
+                                      ? "success"
+                                      : "danger"
+                                }
+                              >
+                                {step.exitCode === null
+                                  ? "Skipped"
+                                  : step.exitCode === 0
+                                    ? "Passed"
+                                    : "Failed"}
+                              </StatusBadge>
+                            </div>
+                            <pre class="whitespace-pre-wrap break-all font-mono text-xs">
+                              {step.command}
+                            </pre>
+                            <p class="text-xs text-muted-foreground">
+                              {step.exitCode === null
+                                ? "Not run because an earlier command failed."
+                                : `Exit code: ${step.exitCode} · Duration: ${step.durationMs}ms`}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      </li>
+                    )}
+                  </For>
+                </ol>
               </Show>
-              <span>stdout</span>
-              <pre style={outputStyle}>{result().stdout || "No stdout"}</pre>
-              <span>stderr</span>
-              <pre style={outputStyle}>{result().stderr || "No stderr"}</pre>
+              <h3 class="font-medium">Combined command and output</h3>
+              <pre class="whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs">
+                {result().command}
+              </pre>
+              <p class="font-mono text-xs text-muted-foreground">
+                Exit code: {result().exitCode} · Duration: {result().durationMs}
+                ms
+              </p>
+              <Show when={result().outputTruncated}>
+                <StatusBadge tone="warning">
+                  Output truncated by server
+                </StatusBadge>
+              </Show>
+              <For
+                each={[
+                  { label: "stdout", value: result().stdout },
+                  { label: "stderr", value: result().stderr },
+                ]}
+              >
+                {(output) => (
+                  <div class="space-y-2">
+                    <h4 class="text-xs text-muted-foreground">
+                      {output.label}
+                    </h4>
+                    <pre class="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs">
+                      {output.value || `No ${output.label}`}
+                    </pre>
+                  </div>
+                )}
+              </For>
             </div>
           )}
         </Show>
-      </div>
+      </DialogContent>
     </Dialog>
   );
 };

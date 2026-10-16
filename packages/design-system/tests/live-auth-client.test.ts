@@ -52,3 +52,23 @@ it("does not restore a previous account's credentials after session replacement"
   await refresh;
   expect(cb.setLiveSession).not.toHaveBeenCalled();
 });
+it("shows active and suspended accounts using the server's lowercase status values", async () => {
+  fetchMock.mockImplementation(async (url: string) => response(
+    url.endsWith("/me") ? { user_id: "admin", username: "admin", email: "admin@example.test", role: "SiteAdmin" }
+      : url.endsWith("/admin/users") ? [
+        { id: "enabled", username: "enabled", email: "a@example.test", role: "Developer", status: "active" },
+        { id: "disabled", username: "disabled", email: "b@example.test", role: "Developer", status: "suspended" },
+      ] : []
+  ));
+  await createLiveAuthClient(cb).hydrateAuthData();
+  expect(cb.setEnterpriseUsers).toHaveBeenLastCalledWith([
+    expect.objectContaining({ liveId: "enabled", status: "active" }),
+    expect.objectContaining({ liveId: "disabled", status: "suspended" }),
+  ]);
+});
+it("shows a signed-in non-admin's own account as active", async () => {
+  await createLiveAuthClient(cb).hydrateAuthData();
+  expect(cb.setEnterpriseUsers).toHaveBeenLastCalledWith([
+    expect.objectContaining({ liveId: "a", status: "active" }),
+  ]);
+});

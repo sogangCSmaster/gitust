@@ -19,10 +19,12 @@
 //!   System paths (`/usr`, `/bin`, ...) stay readable so toolchains work.
 //! - **Network**: denied unless explicitly allowed.
 //! - **Environment**: cleared; `HOME`/`TMPDIR` point to the per-run scratch dir.
-//! - **Processes**: the command runs in its own process group, which is killed when the lead
-//!   process exits, times out, or the future is dropped.
+//! - **Processes**: each command runs in its own process group, which is killed when its lead
+//!   process exits, times out, or the future is dropped. Check sequences share files and scratch
+//!   directories, but cannot rely on a previous command keeping background processes alive.
 
 mod command;
+mod execution;
 mod mcp;
 mod policy;
 #[cfg(test)]
@@ -31,23 +33,22 @@ mod tests;
 mod tests_policy_failclosed;
 #[cfg(test)]
 mod tests_required_commands;
+#[cfg(test)]
+mod tests_steps;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use gitust_core::{SandboxRunId, WorktreeId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
-use tokio::process::Command;
 use tokio::sync::Semaphore;
 
 pub use mcp::{builtin_mcp_tools, McpToolDescriptor};
-use policy::{build_sanitized_path, prepare_run};
 
 /// Maximum bytes captured per stream (`stdout` / `stderr`).
 pub(crate) const MAX_SANDBOX_STREAM_BYTES: u64 = 1024 * 1024;
@@ -208,6 +209,15 @@ impl SandboxSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxCommandResult {
+    pub command: String,
+    pub required: bool,
+    /// None means this command was skipped after an earlier failure.
+    pub exit_code: Option<i32>,
+    pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxExecutionResult {
     pub run_id: SandboxRunId,
     pub worktree_id: WorktreeId,
@@ -218,6 +228,8 @@ pub struct SandboxExecutionResult {
     pub stderr: String,
     #[serde(default)]
     pub output_truncated: bool,
+    #[serde(default)]
+    pub steps: Vec<SandboxCommandResult>,
     pub backend: SandboxBackend,
     pub network_isolated: bool,
 }
@@ -303,167 +315,25 @@ impl LocalSandboxExecutor {
         self.execute_with_checks(worktree_id, spec, command_str, &[])
             .await
     }
+}
 
-    /// Runs each required check in its own shell after the requested command succeeds.
-    /// One process group, execution deadline, and output cap cover the entire sequence.
-    pub async fn execute_with_checks(
-        &self,
-        worktree_id: WorktreeId,
-        spec: &SandboxSpec,
-        requested: &str,
-        required: &[String],
-    ) -> Result<SandboxExecutionResult, SandboxError> {
-        let execution = command::ShellCommand::new(requested, required);
-        let command_str = execution.display;
-        let _permit = self
-            .semaphore
-            .acquire()
-            .await
-            .map_err(|_| SandboxError::ConcurrencyLimiterClosed)?;
+struct PipeDrainGuard(tokio::task::JoinHandle<(Vec<u8>, bool)>);
 
-        let start = Instant::now();
-        let run_id = SandboxRunId::new();
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let mut cleanup_guard = SandboxCleanupGuard {
-            pid: None,
-            run_dir: Some(spec.scratch_base.join(run_id.0.to_string())),
-            cancelled: Arc::clone(&cancelled),
-        };
-        let spec_owned = spec.clone();
-        let allow_network = self.allow_network;
-        let prepared = tokio::task::spawn_blocking(move || {
-            let anticipated = spec_owned.scratch_base.join(run_id.0.to_string());
-            let res = prepare_run(&spec_owned, run_id, &execution.script, allow_network).map(
-                |mut prepared| {
-                    prepared
-                        .args
-                        .extend(execution.args.into_iter().map(Into::into));
-                    prepared
-                },
-            );
-            if res.is_err() || cancelled.load(Ordering::SeqCst) {
-                // fail-open-ok: best-effort cleanup of anticipated scratch dir on prepare failure or cancellation.
-                let _ = fs::remove_dir_all(&anticipated);
-                // fail-open-ok: if `prepare_run` succeeded just as cancellation arrived, clean up the canonical `run_dir` too.
-                if let Ok(ref p) = res {
-                    // fail-open-ok: best-effort cleanup of canonical `run_dir` on cancellation.
-                    let _ = fs::remove_dir_all(&p.run_dir);
-                }
-            }
-            res
-        })
-        .await
-        .map_err(|e| SandboxError::Prepare {
-            path: spec.workdir.display().to_string(),
-            message: e.to_string(),
-        })??;
-
-        cleanup_guard.run_dir = Some(prepared.run_dir.clone());
-
-        let mut cmd = Command::new(&prepared.program);
-        cmd.args(&prepared.args)
-            .current_dir(&prepared.workdir)
-            .env_clear()
-            .env("PATH", build_sanitized_path())
-            .env("HOME", &prepared.home)
-            .env("TMPDIR", &prepared.tmp)
-            .env("TEMP", &prepared.tmp)
-            .env("TMP", &prepared.tmp)
-            .env("USER", "gitust-sandbox")
-            .env("LOGNAME", "gitust-sandbox")
-            .env("LANG", "C.UTF-8")
-            .env("TERM", "xterm-256color")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GITUST_SANDBOX_ISOLATED", "1")
-            .envs(prepared.toolchain_env.iter().map(|(k, v)| (*k, v)))
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-
-        #[cfg(unix)]
-        cmd.process_group(0);
-
-        let mut child = cmd.spawn().map_err(|e| SandboxError::SpawnFailed {
-            command: command_str.to_owned(),
-            message: e.to_string(),
-        })?;
-        cleanup_guard.pid = child.id();
-
-        let stdout_partial = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let stderr_partial = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let stdout_task = tokio::spawn(read_capped(
-            child.stdout.take(),
-            Arc::clone(&stdout_partial),
-        ));
-        let stderr_task = tokio::spawn(read_capped(
-            child.stderr.take(),
-            Arc::clone(&stderr_partial),
-        ));
-
-        let timeout_duration = Duration::from_secs(self.timeout_secs.max(1));
-        let wait_outcome = tokio::time::timeout(timeout_duration, child.wait()).await;
-
-        if let Some(pid) = cleanup_guard.pid.take() {
-            kill_process_group(pid);
-        }
-
-        let status = match wait_outcome {
-            Ok(Ok(status)) => status,
-            Ok(Err(e)) => {
-                stdout_task.abort();
-                stderr_task.abort();
-                return Err(SandboxError::SpawnFailed {
-                    command: command_str.to_owned(),
-                    message: e.to_string(),
-                });
-            }
-            Err(_) => {
-                stdout_task.abort();
-                stderr_task.abort();
-                return Err(SandboxError::TimedOut {
-                    command: command_str.to_owned(),
-                    timeout_secs: self.timeout_secs,
-                });
-            }
-        };
-
-        let (stdout_bytes, stdout_truncated) = await_pipe_drain(stdout_task, &stdout_partial).await;
-        let (stderr_bytes, stderr_truncated) = await_pipe_drain(stderr_task, &stderr_partial).await;
-
-        if let Some(run_dir) = cleanup_guard.run_dir.take() {
-            // fail-open-ok: scratch cleanup failure does not expand the finished sandbox.
-            let _ = tokio::task::spawn_blocking(move || fs::remove_dir_all(run_dir)).await;
-        }
-        drop(cleanup_guard);
-
-        Ok(SandboxExecutionResult {
-            run_id,
-            worktree_id,
-            command: command_str.to_owned(),
-            // fail-open-ok: signal termination is an explicit failed exit status, never success.
-            exit_code: status.code().unwrap_or(-1),
-            // fail-open-ok: duration is display-only and saturates instead of wrapping on overflow.
-            duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
-            stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
-            stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
-            output_truncated: stdout_truncated || stderr_truncated,
-            backend: prepared.backend,
-            network_isolated: !self.allow_network,
-        })
+impl Drop for PipeDrainGuard {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
 async fn await_pipe_drain(
-    mut task: tokio::task::JoinHandle<(Vec<u8>, bool)>,
+    task: tokio::task::JoinHandle<(Vec<u8>, bool)>,
     partial: &Arc<std::sync::Mutex<Vec<u8>>>,
 ) -> (Vec<u8>, bool) {
-    match tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, &mut task).await {
+    let mut task = PipeDrainGuard(task);
+    match tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, &mut task.0).await {
         Ok(Ok(res)) => res,
         Ok(Err(_)) | Err(_) => {
-            task.abort();
+            task.0.abort();
             // fail-open-ok: poisoned output buffers hold diagnostic bytes only; truncated remains true.
             let captured = std::mem::take(&mut *partial.lock().unwrap_or_else(|e| e.into_inner()));
             (captured, true)
@@ -474,12 +344,11 @@ async fn await_pipe_drain(
 async fn read_capped<R: tokio::io::AsyncRead + Unpin>(
     pipe: Option<R>,
     partial: Arc<std::sync::Mutex<Vec<u8>>>,
+    cap: usize,
 ) -> (Vec<u8>, bool) {
     let Some(mut p) = pipe else {
         return (Vec::new(), false);
     };
-    // fail-open-ok: conversion fallback preserves the same fixed 1MiB output cap.
-    let cap = usize::try_from(MAX_SANDBOX_STREAM_BYTES).unwrap_or(1024 * 1024);
     let mut chunk = [0_u8; 8192];
     let mut truncated = false;
     loop {

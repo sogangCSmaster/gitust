@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root,
+  [data-theme="light"] {
+    color-scheme: light;
+    --background: 0 0% 100%;
+    --foreground: 240 10% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 8%;
+    --primary: 240 6% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 43%;
+    --accent: 240 5% 94%;
+    --accent-foreground: 240 6% 10%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 90%;
+    --input: 240 6% 86%;
+    --ring: 240 5% 40%;
+    --success: 145 55% 94%;
+    --success-foreground: 145 72% 27%;
+    --warning: 40 90% 94%;
+    --warning-foreground: 28 85% 32%;
+    --error: 0 80% 96%;
+    --error-foreground: 0 72% 45%;
+    --info: 210 90% 96%;
+    --info-foreground: 210 80% 40%;
+    --sidebar: 240 5% 98%;
+    --sidebar-foreground: 240 6% 25%;
+    --sidebar-accent: 240 5% 92%;
+    --sidebar-accent-foreground: 240 6% 10%;
+    --radius: 0.625rem;
+  }
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --background: 240 6% 7%;
+    --foreground: 240 5% 96%;
+    --card: 240 5% 9%;
+    --card-foreground: 240 5% 96%;
+    --popover: 240 5% 11%;
+    --popover-foreground: 240 5% 96%;
+    --primary: 240 5% 96%;
+    --primary-foreground: 240 6% 10%;
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 240 5% 96%;
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 5% 64%;
+    --accent: 240 4% 18%;
+    --accent-foreground: 240 5% 96%;
+    --destructive: 0 60% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 4% 18%;
+    --input: 240 4% 24%;
+    --ring: 240 5% 65%;
+    --success: 150 25% 12%;
+    --success-foreground: 150 55% 62%;
+    --warning: 35 35% 12%;
+    --warning-foreground: 40 80% 66%;
+    --error: 0 30% 14%;
+    --error-foreground: 0 80% 72%;
+    --info: 210 30% 14%;
+    --info-foreground: 210 80% 74%;
+    --sidebar: 240 6% 8%;
+    --sidebar-foreground: 240 5% 78%;
+    --sidebar-accent: 240 4% 16%;
+    --sidebar-accent-foreground: 240 5% 96%;
+  }
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply m-0 bg-background font-sans text-sm text-foreground antialiased;
+  }
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+  ::selection {
+    @apply bg-primary/20;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

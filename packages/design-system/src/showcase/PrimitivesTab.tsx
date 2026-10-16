@@ -1,293 +1,164 @@
-import { Component, For } from "solid-js";
+import { createSignal, For, type Component } from "solid-js";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
 import {
-  Avatar,
-  Badge,
-  Button,
-  ICON_DEFS,
-  Icon,
-  IconName,
-  Input,
-  Kbd,
-} from "../index";
-
-const ALL_ICON_NAMES = Object.keys(ICON_DEFS) as IconName[];
-
+  Switch,
+  SwitchControl,
+  SwitchLabel,
+  SwitchThumb,
+} from "../components/ui/switch";
+import { Checkbox } from "../components/ui/checkbox";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../components/ui/tabs";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogHeader,
+  DialogTrigger,
+} from "../components/ui/dialog";
+import {
+  Field,
+  KeyHint,
+  PageHeading,
+  PersonAvatar,
+  Section,
+  StatusBadge,
+} from "../components/workspace/presentation";
+import { Icon, ICON_DEFS, type IconName } from "../components/workspace/icon";
 export const PrimitivesTab: Component = () => {
+  const [notifications, setNotifications] = createSignal(false);
+  const [checked, setChecked] = createSignal(false);
   return (
-    <div
-      style={{
-        display: "grid",
-        "grid-template-columns": "repeat(auto-fit, minmax(360px, 1fr))",
-        gap: "var(--ds-space-4)",
-      }}
-    >
-      {/* Card 1: GPU-Instanced SVG Sprite Icon System */}
-      <section
-        style={{
-          padding: "var(--ds-space-4)",
-          "background-color": "var(--ds-bg-primary)",
-          border: "1px solid var(--ds-border-default)",
-          "border-radius": "var(--ds-radius-md)",
-          display: "flex",
-          "flex-direction": "column",
-          gap: "var(--ds-space-3)",
-          "grid-column": "1 / -1",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "space-between",
-          }}
+    <div class="space-y-6">
+      <PageHeading
+        title="Components"
+        description="The solid-ui foundation for every workspace view. These controls are interactive design examples."
+      />
+      <div class="grid gap-6 lg:grid-cols-2">
+        <Section
+          title="Actions"
+          description="One clear primary action, with quieter alternatives."
         >
-          <div>
-            <h2 style={{ "font-size": "var(--ds-font-size-md)" }}>
-              Zero-Dependency SVG &lt;symbol&gt; Sprite Icon System
-            </h2>
-            <p
-              style={{
-                "font-size": "var(--ds-font-size-xs)",
-                color: "var(--ds-fg-secondary)",
-              }}
-            >
-              Parsed once in memory via &lt;defs&gt; and rendered via GPU
-              instanced &lt;use href="#ds-icon-..." /&gt; with 0 external
-              runtime dependencies.
-            </p>
+          <div class="flex flex-wrap gap-2">
+            <Button>
+              <Icon name="plus" />
+              New worktree
+            </Button>
+            <Button variant="outline">View changes</Button>
+            <Button variant="ghost">Cancel</Button>
           </div>
-          <Badge variant="success" mono>
-            {ALL_ICON_NAMES.length} Icons · ~1.4 KB Gzip
-          </Badge>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            "grid-template-columns": "repeat(auto-fill, minmax(140px, 1fr))",
-            gap: "var(--ds-space-2)",
-          }}
+        </Section>
+        <Section
+          title="Status"
+          description="A consistent visual language across reviews and runs."
         >
-          <For each={ALL_ICON_NAMES}>
-            {(iconName) => (
-              <div
-                class="ds-mono"
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "var(--ds-space-2)",
-                  padding: "var(--ds-space-2) var(--ds-space-2-5)",
-                  "background-color": "var(--ds-bg-secondary)",
-                  border: "1px solid var(--ds-border-subtle)",
-                  "border-radius": "var(--ds-radius-sm)",
-                  "font-size": "var(--ds-font-size-2xs)",
-                  color: "var(--ds-fg-secondary)",
-                }}
-              >
-                <span
-                  style={{
-                    color: "var(--ds-fg-primary)",
-                    display: "inline-flex",
-                  }}
-                >
-                  <Icon name={iconName} size={15} />
-                </span>
-                <span
-                  style={{
-                    overflow: "hidden",
-                    "text-overflow": "ellipsis",
-                    "white-space": "nowrap",
-                  }}
-                >
-                  {iconName}
-                </span>
+          <div class="flex flex-wrap gap-2">
+            <StatusBadge tone="success">Ready</StatusBadge>
+            <StatusBadge tone="warning">Running</StatusBadge>
+            <StatusBadge tone="merged">Merged</StatusBadge>
+            <Badge variant="secondary">Pending</Badge>
+          </div>
+        </Section>
+        <Section
+          title="Inputs"
+          description="Labelled controls with keyboard focus and accessible state."
+        >
+          <Field
+            label="Search your workspace"
+            hideLabel
+            placeholder="Search your workspace..."
+          />
+          <Switch
+            class="flex items-center justify-between"
+            checked={notifications()}
+            onChange={setNotifications}
+          >
+            <SwitchLabel>Sample notifications</SwitchLabel>
+            <SwitchControl>
+              <SwitchThumb />
+            </SwitchControl>
+          </Switch>
+          <div class="flex items-center gap-2">
+            <Checkbox
+              checked={checked()}
+              onChange={setChecked}
+              aria-label="Select sample item"
+            />
+            <span class="text-sm text-muted-foreground">
+              Select a sample item
+            </span>
+          </div>
+        </Section>
+        <Section title="People & navigation">
+          <div class="flex items-center gap-3">
+            <PersonAvatar name="Yu Seungjae" />
+            <PersonAvatar name="Gitoxide Core" />
+            <KeyHint keys="mod+k" />
+          </div>
+          <Tabs defaultValue="overview">
+            <TabsList>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="activity">Activity</TabsTrigger>
+            </TabsList>
+            <TabsContent
+              value="overview"
+              class="pt-3 text-sm text-muted-foreground"
+            >
+              Your workspace at a glance.
+            </TabsContent>
+            <TabsContent
+              value="activity"
+              class="pt-3 text-sm text-muted-foreground"
+            >
+              Recent changes and reviews.
+            </TabsContent>
+          </Tabs>
+          <Dialog>
+            <DialogTrigger as={Button} variant="outline">
+              Open sample dialog
+            </DialogTrigger>
+            <DialogContent class="w-[calc(100%-2rem)] rounded-lg">
+              <DialogHeader>
+                <DialogTitle>A moment of focus</DialogTitle>
+                <DialogDescription>
+                  Escape closes this dialog and returns focus to its trigger.
+                </DialogDescription>
+              </DialogHeader>
+            </DialogContent>
+          </Dialog>
+        </Section>
+        <Section title="Icon library" class="lg:col-span-2">
+          <Collapsible>
+            <CollapsibleTrigger as={Button} variant="ghost" class="-ml-3">
+              <Icon name="chevron-right" />
+              Browse {Object.keys(ICON_DEFS).length} workspace icons
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div class="grid grid-cols-2 gap-5 pt-5 sm:grid-cols-3 lg:grid-cols-5">
+                <For each={Object.keys(ICON_DEFS) as IconName[]}>
+                  {(name) => (
+                    <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Icon name={name} size={18} />
+                      <span>{name}</span>
+                    </div>
+                  )}
+                </For>
               </div>
-            )}
-          </For>
-        </div>
-      </section>
-
-      {/* Card 2: Buttons */}
-      <section
-        style={{
-          padding: "var(--ds-space-4)",
-          "background-color": "var(--ds-bg-primary)",
-          border: "1px solid var(--ds-border-default)",
-          "border-radius": "var(--ds-radius-md)",
-          display: "flex",
-          "flex-direction": "column",
-          gap: "var(--ds-space-3)",
-        }}
-      >
-        <h2 style={{ "font-size": "var(--ds-font-size-md)" }}>
-          Buttons &amp; Shortcut Pills
-        </h2>
-        <div
-          style={{
-            display: "flex",
-            "flex-wrap": "wrap",
-            gap: "var(--ds-space-2)",
-            "align-items": "center",
-          }}
-        >
-          <Button
-            variant="primary"
-            icon={<Icon name="git-merge" size={14} />}
-            shortcut="mod+enter"
-          >
-            Merge Pull Request
-          </Button>
-          <Button
-            variant="secondary"
-            icon={<Icon name="git-branch" size={14} />}
-            shortcut="c"
-          >
-            New Branch
-          </Button>
-          <Button
-            variant="ghost"
-            icon={<Icon name="issue-opened" size={14} />}
-            shortcut="g i"
-          >
-            Issues
-          </Button>
-          <Button variant="danger" icon={<Icon name="x" size={14} />}>
-            Delete Repo
-          </Button>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            "flex-wrap": "wrap",
-            gap: "var(--ds-space-2)",
-            "align-items": "center",
-          }}
-        >
-          <Button size="xs" variant="secondary">
-            Size XS (22px)
-          </Button>
-          <Button size="sm" variant="secondary">
-            Size SM (26px)
-          </Button>
-          <Button size="md" variant="secondary">
-            Size MD (30px)
-          </Button>
-          <Button size="lg" variant="secondary">
-            Size LG (36px)
-          </Button>
-        </div>
-      </section>
-
-      {/* Card 3: Git Domain Badges */}
-      <section
-        style={{
-          padding: "var(--ds-space-4)",
-          "background-color": "var(--ds-bg-primary)",
-          border: "1px solid var(--ds-border-default)",
-          "border-radius": "var(--ds-radius-md)",
-          display: "flex",
-          "flex-direction": "column",
-          gap: "var(--ds-space-3)",
-        }}
-      >
-        <h2 style={{ "font-size": "var(--ds-font-size-md)" }}>
-          Semantic &amp; Git Domain Badges
-        </h2>
-        <div
-          style={{
-            display: "flex",
-            "flex-wrap": "wrap",
-            gap: "var(--ds-space-2)",
-          }}
-        >
-          <Badge variant="success">
-            <Icon name="git-pull-request" size={12} />
-            <span>Open</span>
-          </Badge>
-          <Badge variant="merged">
-            <Icon name="git-merge" size={12} />
-            <span>Merged</span>
-          </Badge>
-          <Badge variant="danger">
-            <Icon name="issue-closed" size={12} />
-            <span>Closed</span>
-          </Badge>
-          <Badge variant="warning">
-            <Icon name="clock" size={12} />
-            <span>CI Pending</span>
-          </Badge>
-          <Badge variant="info">
-            <Icon name="issue-draft" size={12} />
-            <span>Draft PR</span>
-          </Badge>
-          <Badge variant="neutral" mono>
-            <Icon name="shield-check" size={12} />
-            <span>a94f8c1 (Verified)</span>
-          </Badge>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            gap: "var(--ds-space-2)",
-          }}
-        >
-          <Avatar name="Yu Seungjae" size="xs" />
-          <Avatar name="Gitoxide Core" size="sm" />
-          <Avatar name="Superhuman UX" size="md" />
-          <span style={{ color: "var(--ds-fg-secondary)" }}>
-            Zero-image deterministic initials avatars
-          </span>
-        </div>
-      </section>
-
-      {/* Card 4: Inputs & Chord Keybindings */}
-      <section
-        style={{
-          padding: "var(--ds-space-4)",
-          "background-color": "var(--ds-bg-primary)",
-          border: "1px solid var(--ds-border-default)",
-          "border-radius": "var(--ds-radius-md)",
-          display: "flex",
-          "flex-direction": "column",
-          gap: "var(--ds-space-3)",
-        }}
-      >
-        <h2 style={{ "font-size": "var(--ds-font-size-md)" }}>
-          High-Density Inputs &amp; Chords
-        </h2>
-        <Input
-          icon={<Icon name="search" size={14} />}
-          placeholder="Search commits by SHA, author, or message..."
-          shortcut="mod+f"
-        />
-        <div
-          style={{
-            display: "flex",
-            "flex-wrap": "wrap",
-            gap: "var(--ds-space-3)",
-            "align-items": "center",
-            "font-size": "var(--ds-font-size-xs)",
-            color: "var(--ds-fg-secondary)",
-          }}
-        >
-          <span>
-            Swarm: <Kbd keys="g w" />
-          </span>
-          <span>
-            Issues: <Kbd keys="g i" />
-          </span>
-          <span>
-            Diff: <Kbd keys="g d" />
-          </span>
-          <span>
-            Actions: <Kbd keys="g a" />
-          </span>
-          <span>
-            Admin: <Kbd keys="g s" />
-          </span>
-        </div>
-      </section>
+            </CollapsibleContent>
+          </Collapsible>
+        </Section>
+      </div>
     </div>
   );
 };

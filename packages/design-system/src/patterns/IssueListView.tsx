@@ -1,17 +1,22 @@
 import {
-  Component,
-  createMemo,
   createEffect,
-  createSelector,
+  createMemo,
   createSignal,
   For,
   Show,
+  type Component,
 } from "solid-js";
-import { Badge, BadgeVariant } from "../primitives/Badge";
-import { Icon, IconName } from "../primitives/Icon";
-import { Input } from "../primitives/Input";
-import { Kbd } from "../primitives/Kbd";
-import { Avatar } from "../primitives/TabsAndAvatar";
+import { Card } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
+import { Icon } from "../components/workspace/icon";
+import {
+  EmptyState,
+  Field,
+  PersonAvatar,
+  StatusBadge,
+  type StatusTone,
+} from "../components/workspace/presentation";
 
 export interface IssueItem {
   id: number;
@@ -19,7 +24,7 @@ export interface IssueItem {
   title: string;
   status: "open" | "closed" | "merged" | "draft";
   author: string;
-  labels: { name: string; variant: BadgeVariant }[];
+  labels: { name: string; variant: StatusTone }[];
   commentsCount: number;
   updatedAt: string;
   branch?: string;
@@ -38,7 +43,7 @@ export interface IssueListViewProps {
 
 export function filterIssueItems(
   items: IssueItem[],
-  rawQuery: string
+  rawQuery: string,
 ): IssueItem[] {
   const q = rawQuery.trim().toLowerCase();
   if (!q) return items;
@@ -49,9 +54,7 @@ export function filterIssueItems(
     if (q.includes("is:pr") && item.kind !== "pr") return false;
     if (q.includes("is:issue") && item.kind !== "issue") return false;
 
-    const cleanText = q
-      .replace(/is:(open|closed|merged|pr|issue)/g, "")
-      .trim();
+    const cleanText = q.replace(/is:(open|closed|merged|pr|issue)/g, "").trim();
     if (!cleanText) return true;
     return (
       item.title.toLowerCase().includes(cleanText) ||
@@ -64,216 +67,129 @@ export function filterIssueItems(
 
 export const IssueListView: Component<IssueListViewProps> = (props) => {
   const [localFilter, setLocalFilter] = createSignal("");
-  const filterQuery = () => props.filterQuery ?? localFilter();
-  const setFilterQuery = (q: string) => {
-    setLocalFilter(q);
-    props.onFilterQueryChange?.(q);
-  };
-
   const [selectedIds, setSelectedIds] = createSignal<Set<number>>(new Set());
-  const isRowFocused = createSelector(() => props.focusedIndex);
-
-  const filteredItems = createMemo(() =>
-    filterIssueItems(props.items, filterQuery())
-  );
-
-  const statusBadgeVariant = (status: IssueItem["status"]): BadgeVariant => {
-    switch (status) {
-      case "open":
-        return "success";
-      case "closed":
-        return "danger";
-      case "merged":
-        return "merged";
-      case "draft":
-        return "info";
-    }
-  };
-
-  const itemIconName = (item: IssueItem): IconName => {
-    if (item.kind === "pr") {
-      if (item.status === "merged") return "git-merge";
-      return "git-pull-request";
-    }
-    if (item.status === "closed") return "issue-closed";
-    if (item.status === "draft") return "issue-draft";
-    return "issue-opened";
-  };
-
-  const toggleSelect = (id: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  let list: HTMLDivElement | undefined;
+  const query = () => props.filterQuery ?? localFilter();
+  const items = createMemo(() => filterIssueItems(props.items, query()));
+  let list: HTMLUListElement | undefined;
   createEffect(() => {
     const index = props.focusedIndex;
-    filteredItems();
-    list?.children[index]?.scrollIntoView({ block: "nearest" });
+    items();
+    list?.children[index]?.scrollIntoView?.({ block: "nearest" });
   });
-
+  const toggleSelected = (id: number, checked: boolean) =>
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      checked ? next.add(id) : next.delete(id);
+      return next;
+    });
   return (
-    <div
-      style={{
-        display: "flex",
-        "flex-direction": "column",
-        gap: "var(--ds-space-3)",
-      }}
-    >
-      {/* Superhuman Instant Filter Bar */}
-      <div
-        style={{
-          display: "flex",
-          "align-items": "center",
-          gap: "var(--ds-space-2)",
-        }}
-      >
-        <Input
+    <div class="space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <Field
+          class="w-full sm:max-w-sm"
+          label="Filter issues and pull requests"
+          hideLabel
+          type="search"
+          placeholder="Search, or try is:open..."
           inputRef={props.filterRef}
-          icon={<Icon name="search" size={14} />}
-          placeholder="Instant filter (try: is:open, is:pr, gix, russh) — 0ms local index"
-          value={filterQuery()}
-          onInput={(e) => {
-            setFilterQuery(e.currentTarget.value);
+          value={query()}
+          onValueChange={(value) => {
+            setLocalFilter(value);
+            props.onFilterQueryChange?.(value);
             props.onFocusIndexChange(0);
           }}
-          shortcut="/"
         />
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            gap: "var(--ds-space-1-5)",
-            "flex-shrink": 0,
-            color: "var(--ds-fg-muted)",
-            "font-size": "var(--ds-font-size-xs)",
-          }}
-        >
-          <span>Navigate:</span>
-          <Kbd keys="j" />
-          <Kbd keys="k" />
-          <span>Toggle state (Optimistic 0ms):</span>
-          <Kbd keys="e" />
-        </div>
+        <p class="text-xs text-muted-foreground">
+          {selectedIds().size
+            ? `${selectedIds().size} selected`
+            : `${items().length} results`}
+        </p>
       </div>
-
-      {/* High-Density Issue / PR List */}
-      <div
-        class="ds-issue-list"
-        ref={list}
-        role="listbox"
-        aria-label="Issues and Pull Requests"
-      >
-        <For each={filteredItems()}>
-          {(item, index) => {
-            const isChecked = () => selectedIds().has(item.id);
-
-            return (
-              <div
-                role="option"
-                aria-selected={isRowFocused(index())}
-                data-focused={isRowFocused(index())}
-                class="ds-issue-row"
+      <Card class="overflow-hidden">
+        <Show when={!items().length}>
+          <EmptyState
+            title="No matching issues"
+            description="Try a different search or status."
+          />
+        </Show>
+        <ul ref={list} aria-label="Issues and pull requests" class="divide-y">
+          <For each={items()}>
+            {(item, index) => (
+              <li
+                class="space-y-2 p-4 data-[focused=true]:bg-muted/50"
+                data-focused={props.focusedIndex === index()}
                 onMouseEnter={() => props.onFocusIndexChange(index())}
-                onClick={() => props.onToggleStatus(item.id)}
               >
-                <div class="ds-issue-left">
-                  <input
-                    type="checkbox"
-                    checked={isChecked()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleSelect(item.id);
-                    }}
-                    style={{
-                      "accent-color": "var(--ds-accent-primary)",
-                      cursor: "pointer",
-                    }}
+                <div class="flex items-start gap-3">
+                  <Checkbox
+                    aria-label={`Select issue ${item.id}`}
+                    checked={selectedIds().has(item.id)}
+                    onChange={(checked) => toggleSelected(item.id, checked)}
+                    class="mt-1"
                   />
-                  <span class="ds-issue-id">#{item.id}</span>
-                  <Badge variant={statusBadgeVariant(item.status)}>
-                    <Icon name={itemIconName(item)} size={12} />
-                    <span>{item.status}</span>
-                  </Badge>
-                  <span class="ds-issue-title">{item.title}</span>
-                  <For each={item.labels}>
-                    {(lbl) => <Badge variant={lbl.variant}>{lbl.name}</Badge>}
-                  </For>
-                </div>
-
-                <div class="ds-issue-right">
-                  <Show when={item.branch}>
-                    {(br) => (
-                      <Badge variant="neutral" mono>
-                        <Icon name="git-branch" size={12} />
-                        <span>{br()}</span>
-                      </Badge>
-                    )}
-                  </Show>
-                  <Show when={item.ciStatus}>
-                    {(ci) => (
-                      <span
-                        title={`CI: ${ci()}`}
-                        style={{
-                          display: "inline-flex",
-                          "align-items": "center",
-                          color:
-                            ci() === "success"
-                              ? "var(--ds-success-fg)"
-                              : ci() === "failed"
-                                ? "var(--ds-danger-fg)"
-                                : "var(--ds-warning-fg)",
-                        }}
+                  <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="font-mono text-xs text-muted-foreground">
+                        #{item.id}
+                      </span>
+                      <StatusBadge
+                        tone={
+                          item.status === "open"
+                            ? "success"
+                            : item.status === "closed"
+                              ? "danger"
+                              : item.status === "merged"
+                                ? "merged"
+                                : "info"
+                        }
                       >
                         <Icon
                           name={
-                            ci() === "success"
-                              ? "check"
-                              : ci() === "failed"
-                                ? "x"
-                                : "clock"
+                            item.kind === "pr"
+                              ? "git-pull-request"
+                              : "issue-opened"
                           }
-                          size={14}
+                          size={12}
                         />
+                        {item.status}
+                      </StatusBadge>
+                      <For each={item.labels}>
+                        {(label) => (
+                          <StatusBadge tone={label.variant}>
+                            {label.name}
+                          </StatusBadge>
+                        )}
+                      </For>
+                    </div>
+                    <Button
+                      variant="link"
+                      class="mt-1 h-auto justify-start whitespace-normal p-0 text-left text-foreground"
+                      onClick={() => props.onToggleStatus(item.id)}
+                    >
+                      {item.title}
+                    </Button>
+                    <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                      <PersonAvatar name={item.author} class="size-5" />
+                      <span>{item.author}</span>
+                      <span>{item.updatedAt}</span>
+                      <span class="inline-flex items-center gap-1">
+                        <Icon name="comment" size={12} />
+                        {item.commentsCount}
                       </span>
-                    )}
-                  </Show>
-                  <span
-                    class="ds-mono"
-                    style={{
-                      display: "inline-flex",
-                      "align-items": "center",
-                      "justify-content": "flex-end",
-                      gap: "4px",
-                      "font-size": "var(--ds-font-size-xs)",
-                      color: "var(--ds-fg-muted)",
-                      width: "42px",
-                    }}
-                  >
-                    <Icon name="comment" size={12} />
-                    <span>{item.commentsCount}</span>
-                  </span>
-                  <Avatar name={item.author} size="xs" />
-                  <span
-                    style={{
-                      "font-size": "var(--ds-font-size-xs)",
-                      color: "var(--ds-fg-muted)",
-                      width: "48px",
-                      "text-align": "right",
-                    }}
-                  >
-                    {item.updatedAt}
-                  </span>
+                      <Show when={item.branch}>
+                        <code class="break-all">{item.branch}</code>
+                      </Show>
+                      <Show when={item.ciStatus}>
+                        <span>CI: {item.ciStatus}</span>
+                      </Show>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          }}
-        </For>
-      </div>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Card>
     </div>
   );
 };

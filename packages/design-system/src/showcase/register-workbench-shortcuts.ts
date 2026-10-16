@@ -28,7 +28,7 @@ export interface WorkbenchShortcutCallbacks {
 }
 
 export function registerWorkbenchShortcuts(
-  cb: WorkbenchShortcutCallbacks
+  cb: WorkbenchShortcutCallbacks,
 ): Array<() => void> {
   return [
     shortcutManager.register({
@@ -43,59 +43,58 @@ export function registerWorkbenchShortcuts(
     }),
     shortcutManager.register({
       id: "nav.swarm",
-      title: "Go to Agent Swarm & Sandbox Fleet",
+      title: "Go to worktrees",
       category: "Navigation",
       keys: "g w",
-      description:
-        "Orchestrate Claude Code / Cursor parallel branches & sandboxes",
+      description: "Review isolated changes and verification results.",
       handler: () => cb.setActiveTab("swarm"),
     }),
     shortcutManager.register({
       id: "nav.issues",
-      title: "Go to Issues & Pull Requests",
+      title: "Go to issues & pull requests",
       category: "Navigation",
       keys: "g i",
-      description: "Superhuman list view with j/k navigation",
+      description: "Explore sample issues with keyboard navigation.",
       handler: () => cb.setActiveTab("issues"),
     }),
     shortcutManager.register({
       id: "nav.diff",
-      title: "Go to 10,000-Line Virtualized Diff Viewer",
+      title: "Go to changes",
       category: "Navigation",
       keys: "g d",
-      description: "Viewport-sliced PR diff viewer",
+      description: "Browse repository commits and diffs.",
       handler: () => cb.setActiveTab("diff"),
     }),
     shortcutManager.register({
       id: "nav.actions",
-      title: "Go to Gitust Actions CI/CD & Live Log Stream",
+      title: "Go to Actions demo",
       category: "Navigation",
       keys: "g a",
-      description: "GitHub/Gitea Actions workflow pipeline & 10k-line console",
+      description: "Explore sample pipeline jobs and logs.",
       handler: () => cb.setActiveTab("actions"),
     }),
     shortcutManager.register({
       id: "nav.admin",
-      title: "Go to Enterprise Auth, SSO & Site Admin Console",
+      title: "Go to access & accounts",
       category: "Navigation",
       keys: "g s",
-      description: "Self-hosted on-premise IAM, domain lock, and user roles",
+      description: "Manage your account, invitations and Git credentials.",
       handler: () => cb.setActiveTab("admin"),
     }),
     shortcutManager.register({
       id: "nav.tree",
-      title: "Go to 5,000-File Monorepo Tree",
+      title: "Go to repository files",
       category: "Navigation",
       keys: "g t",
-      description: "Instant file finder and virtualized tree",
+      description: "Search paths and preview repository files.",
       handler: () => cb.setActiveTab("tree"),
     }),
     shortcutManager.register({
       id: "nav.primitives",
-      title: "Go to Design Tokens & UI Primitives",
+      title: "Go to components",
       category: "Navigation",
       keys: "g p",
-      description: "Inspect tokens, buttons, badges, icons, and typography",
+      description: "Explore the solid-ui component reference.",
       handler: () => cb.setActiveTab("primitives"),
     }),
     shortcutManager.register({
@@ -134,16 +133,17 @@ export function registerWorkbenchShortcuts(
     }),
     shortcutManager.register({
       id: "swarm.approve",
-      title: "Approve & Fast-Forward Merge Focused Agent Branch",
+      title: "Approve & merge selected worktree",
       category: "Actions",
       keys: "a",
-      description: "Approve and fast-forward merge locally; GitHub publication is separate",
+      description:
+        "Approve and fast-forward merge locally; GitHub publication is separate",
       handler: () => {
         if (cb.getActiveTab() === "swarm") {
           const list = cb.getVisibleSwarmTasks();
           const clampedIdx = Math.min(
             cb.getFocusedSwarmIdx(),
-            Math.max(0, list.length - 1)
+            Math.max(0, list.length - 1),
           );
           const task = list[clampedIdx];
           if (task) cb.approveAndMergeSwarmTask(task.id);
@@ -152,16 +152,16 @@ export function registerWorkbenchShortcuts(
     }),
     shortcutManager.register({
       id: "swarm.discard",
-      title: "Discard Focused Agent Branch & Sandbox",
+      title: "Discard selected worktree",
       category: "Actions",
       keys: "x",
-      description: "Drop CoW worktree snapshot immediately",
+      description: "Remove the unmerged local branch.",
       handler: () => {
         if (cb.getActiveTab() === "swarm") {
           const list = cb.getVisibleSwarmTasks();
           const clampedIdx = Math.min(
             cb.getFocusedSwarmIdx(),
-            Math.max(0, list.length - 1)
+            Math.max(0, list.length - 1),
           );
           const task = list[clampedIdx];
           if (task) cb.discardSwarmTask(task.id);
@@ -170,23 +170,24 @@ export function registerWorkbenchShortcuts(
     }),
     shortcutManager.register({
       id: "swarm.spawn",
-      title: "Spawn +10 Parallel Agent Sandbox Branches",
+      title: "Create worktree",
       category: "Actions",
       keys: "s",
-      description: "Benchmark <1ms CoW worktree fork for coding agents",
+      description:
+        "Create an isolated workspace. Demo mode uses sample worktrees.",
       handler: () => cb.spawnBatchAgentSwarm(),
     }),
     shortcutManager.register({
       id: "issue.toggle",
-      title: "Toggle Focused Issue Open/Closed (Optimistic)",
+      title: "Toggle selected demo issue status",
       category: "Issues & PRs",
       keys: "e",
-      description: "Instant 0ms state mutation without spinner",
+      description: "Toggle a sample issue between open and closed.",
       handler: () => {
         const list = cb.getVisibleIssues();
         const clampedIdx = Math.min(
           cb.getFocusedIssueIdx(),
-          Math.max(0, list.length - 1)
+          Math.max(0, list.length - 1),
         );
         const item = list[clampedIdx];
         if (item) cb.toggleIssueStatus(item.id);
@@ -194,23 +195,23 @@ export function registerWorkbenchShortcuts(
     }),
     shortcutManager.register({
       id: "issue.create",
-      title: "Create Instant Issue",
+      title: "Create demo issue",
       category: "Issues & PRs",
       keys: "c",
-      description: "Insert a new issue with 0ms optimistic feedback",
+      description: "Add an issue to the sample list.",
       handler: () => cb.createOptimisticIssue(),
     }),
     shortcutManager.register({
       id: "actions.rerun",
-      title: "Re-run CI/CD Workflow Jobs",
+      title: "Replay Actions demo",
       category: "Actions",
       keys: "r",
-      description: "Trigger instant re-run on self-hosted runner",
+      description: "Reset sample jobs and logs.",
       handler: () => cb.rerunAllActionJobs(),
     }),
     shortcutManager.register({
       id: "filter.focus",
-      title: "Focus Instant Filter Bar",
+      title: "Search issues",
       category: "Actions",
       keys: "/",
       description: "Filter issues and PRs as you type",
@@ -221,21 +222,21 @@ export function registerWorkbenchShortcuts(
     }),
     shortcutManager.register({
       id: "view.theme",
-      title: "Toggle Dark / Light High-Contrast Theme",
+      title: "Toggle light / dark theme",
       category: "View & Theme",
       keys: "shift+t",
-      description: "Zero-runtime CSS Custom Property theme switch",
+      description: "Switch the workspace appearance.",
       handler: () => {
         const next = toggleTheme();
-        cb.showQuickFeedback(`Theme switched to ${next.toUpperCase()} (0ms)`);
+        cb.showQuickFeedback(`Theme switched to ${next.toUpperCase()}`);
       },
     }),
     shortcutManager.register({
       id: "view.help",
-      title: "Show Keyboard Shortcuts Reference",
+      title: "Show keyboard shortcuts",
       category: "View & Theme",
       keys: "?",
-      description: "Inspect all registered single & chord shortcuts",
+      description: "View navigation and action shortcuts.",
       allowWhenModalOpen: true,
       handler: () => cb.toggleShortcutsModal(),
     }),

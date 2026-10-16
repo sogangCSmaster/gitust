@@ -1,48 +1,32 @@
-import "./tokens/tokens.css";
-import "./primitives/primitives.css";
-import "./patterns/patterns.css";
-
-// Theme & Tokens
-export { getTheme, setTheme, toggleTheme, type ThemeMode } from "./tokens/theme";
-
-// Keyboard & Shortcut Engine
+import "./styles.css";
+export {
+  getTheme,
+  setTheme,
+  toggleTheme,
+  type ThemeMode,
+} from "./tokens/theme";
 export {
   shortcutManager,
   formatShortcutKeys,
   type ShortcutDefinition,
   type KeystrokeTelemetry,
 } from "./keyboard/shortcut-manager";
-
-// Core Primitives
 export {
   Icon,
   IconSpriteSheet,
   ICON_DEFS,
   type IconName,
   type IconProps,
-} from "./primitives/Icon";
-export { Kbd, type KbdProps } from "./primitives/Kbd";
+} from "./components/workspace/icon";
+export { Button, type ButtonProps } from "./components/ui/button";
+export { Badge, type BadgeProps } from "./components/ui/badge";
 export {
-  Button,
-  type ButtonProps,
-  type ButtonVariant,
-  type ButtonSize,
-} from "./primitives/Button";
-export {
-  Badge,
-  type BadgeProps,
-  type BadgeVariant,
-} from "./primitives/Badge";
-export { Input, type InputProps } from "./primitives/Input";
-export {
-  Avatar,
-  Tabs,
-  type AvatarProps,
-  type TabItem,
-  type TabsProps,
-} from "./primitives/TabsAndAvatar";
-export { Dialog, type DialogProps } from "./primitives/Dialog";
-
+  KeyHint,
+  StatusBadge,
+  Field,
+  PersonAvatar,
+  type StatusTone as BadgeVariant,
+} from "./components/workspace/presentation";
 // Domain-Specific High-Performance Patterns
 export {
   CommandPalette,
@@ -89,7 +73,8 @@ export {
   filterAgentSwarmTasks,
   type AgentSwarmViewProps,
   type AgentSandboxTask,
+  type AgentVerificationResult,
+  type AgentVerificationStep,
   type AgentProvider,
 } from "./patterns/AgentSwarmView";
 export { ActiveChordHUD } from "./patterns/ActiveChordHUD";
-

@@ -1,158 +1,86 @@
-import { Component, createSignal } from "solid-js";
-import { Badge } from "../primitives/Badge";
-import { Icon } from "../primitives/Icon";
-import { Input } from "../primitives/Input";
-
+import { createSignal, For, type Component } from "solid-js";
+import {
+  Switch,
+  SwitchControl,
+  SwitchThumb,
+  SwitchLabel,
+  SwitchDescription,
+} from "../components/ui/switch";
+import {
+  Field,
+  Section,
+  StatusBadge,
+} from "../components/workspace/presentation";
 export const EnterprisePolicyPreview: Component<{
   liveMode?: boolean;
   onPolicyFeedback: (message: string) => void;
 }> = (props) => {
-  const [inviteOnly, setInviteOnly] = createSignal(true);
-  const [require2FA, setRequire2FA] = createSignal(true);
-  const [ssoEnforced, setSsoEnforced] = createSignal(false);
-  const [allowedDomain, setAllowedDomain] = createSignal("company.internal");
-
-  const toggleSwitch = (
-    label: string,
-    getter: () => boolean,
-    setter: (v: boolean) => void
-  ) => {
-    if (props.liveMode) return;
-    const next = !getter();
-    setter(next);
-    props.onPolicyFeedback(
-      `Demo policy preview: ${label} → ${next ? "ENABLED" : "DISABLED"} · not applied to the server`
-    );
-  };
-
+  const [inviteOnly, setInviteOnly] = createSignal(true),
+    [twoFactor, setTwoFactor] = createSignal(true),
+    [sso, setSso] = createSignal(false),
+    [domain, setDomain] = createSignal("company.internal");
+  const policies = [
+    {
+      label: "Invite-only accounts",
+      description: "Accounts are created through administrator-issued links.",
+      get: inviteOnly,
+      set: setInviteOnly,
+    },
+    {
+      label: "Two-factor authentication",
+      description:
+        "Planned policy preview. Not enforced by the current server.",
+      get: twoFactor,
+      set: setTwoFactor,
+    },
+    {
+      label: "Corporate SSO",
+      description:
+        "Planned OIDC/SAML integration. Not connected to the server.",
+      get: sso,
+      set: setSso,
+    },
+  ];
   return (
-        <div class="ds-card">
-          <div class="ds-card-header">
-            <span
-              style={{
-                display: "inline-flex",
-                "align-items": "center",
-                gap: "var(--ds-space-1-5)",
+    <Section
+      title="Security policy preview"
+      description="Demonstration controls only. Changes here are never applied to the server."
+    >
+      <StatusBadge>Planned · Demo</StatusBadge>
+      <div class="divide-y">
+        <For each={policies}>
+          {(policy) => (
+            <Switch
+              class="flex items-center justify-between gap-6 py-4"
+              checked={policy.get()}
+              disabled={props.liveMode}
+              onChange={(checked) => {
+                if (props.liveMode) return;
+                policy.set(checked);
+                props.onPolicyFeedback(
+                  `Demo policy preview: ${policy.label} → ${checked ? "ENABLED" : "DISABLED"} · not applied to the server`,
+                );
               }}
             >
-              <Icon name="shield-check" size={13} />
-              <span>Planned security policies · Demo</span>
-            </span>
-            <Badge variant="neutral">Not connected to server</Badge>
-          </div>
-          <div class="ds-card-body">
-            <div class="ds-toggle-row">
-              <div>
-                <div style={{ "font-weight": 500 }}>
-                  Disable Public Registration (Invite-Only)
-                </div>
-                <div
-                  style={{
-                    "font-size": "var(--ds-font-size-2xs)",
-                    color: "var(--ds-fg-muted)",
-                  }}
-                >
-                  Accounts are created strictly via Site Admin single-use links
-                </div>
+              <div class="space-y-2">
+                <SwitchLabel>{policy.label}</SwitchLabel>
+                <SwitchDescription class="text-xs text-muted-foreground">
+                  {policy.description}
+                </SwitchDescription>
               </div>
-              <button
-                type="button"
-                disabled={props.liveMode}
-                role="switch"
-                aria-checked={inviteOnly()}
-                data-checked={inviteOnly()}
-                class="ds-switch"
-                onClick={() =>
-                  toggleSwitch("Invite-Only Mode", inviteOnly, setInviteOnly)
-                }
-              >
-                <span class="ds-switch-thumb" />
-              </button>
-            </div>
-
-            <div class="ds-toggle-row">
-              <div>
-                <div style={{ "font-weight": 500 }}>
-                  Mandatory 2FA / Passkey &amp; Signed Commits
-                </div>
-                <div
-                  style={{
-                    "font-size": "var(--ds-font-size-2xs)",
-                    color: "var(--ds-fg-muted)",
-                  }}
-                >
-                  Require hardware WebAuthn/TOTP and SSH/GPG commit signatures
-                </div>
-              </div>
-              <button
-                type="button"
-                disabled={props.liveMode}
-                role="switch"
-                aria-checked={require2FA()}
-                data-checked={require2FA()}
-                class="ds-switch"
-                onClick={() =>
-                  toggleSwitch(
-                    "Mandatory 2FA & Signed Commits",
-                    require2FA,
-                    setRequire2FA
-                  )
-                }
-              >
-                <span class="ds-switch-thumb" />
-              </button>
-            </div>
-
-            <div class="ds-toggle-row">
-              <div>
-                <div style={{ "font-weight": 500 }}>
-                  Enforce Corporate SSO (OIDC / SAML) Only
-                </div>
-                <div
-                  style={{
-                    "font-size": "var(--ds-font-size-2xs)",
-                    color: "var(--ds-fg-muted)",
-                  }}
-                >
-                  Phase 4 Enterprise SSO integration toggle
-                </div>
-              </div>
-              <button
-                type="button"
-                disabled={props.liveMode}
-                role="switch"
-                aria-checked={ssoEnforced()}
-                data-checked={ssoEnforced()}
-                class="ds-switch"
-                onClick={() =>
-                  toggleSwitch(
-                    "Enforce Corporate SSO",
-                    ssoEnforced,
-                    setSsoEnforced
-                  )
-                }
-              >
-                <span class="ds-switch-thumb" />
-              </button>
-            </div>
-
-            <div>
-              <div
-                style={{
-                  "font-size": "var(--ds-font-size-xs)",
-                  "margin-bottom": "var(--ds-space-1)",
-                  color: "var(--ds-fg-secondary)",
-                }}
-              >
-                Allowed Email Domain Whitelist
-              </div>
-              <Input
-                disabled={props.liveMode}
-                value={allowedDomain()}
-                onInput={(e) => setAllowedDomain(e.currentTarget.value)}
-              />
-            </div>
-          </div>
-        </div>
+              <SwitchControl>
+                <SwitchThumb />
+              </SwitchControl>
+            </Switch>
+          )}
+        </For>
+      </div>
+      <Field
+        label="Allowed email domain (preview)"
+        disabled={props.liveMode}
+        value={domain()}
+        onValueChange={setDomain}
+      />
+    </Section>
   );
 };

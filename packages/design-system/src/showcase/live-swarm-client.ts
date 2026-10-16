@@ -1,5 +1,6 @@
 import type { AgentProvider, AgentSandboxTask } from "../patterns/AgentSwarmView";
 import { formatErr, getLiveToken } from "./live-repo-client";
+import { parseVerificationResult } from "./live-verification-result";
 
 export interface LiveWorktreeRecord {
   id: string;
@@ -191,7 +192,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       ? `Publishing approved ${target.branch} to GitHub...`
       : action === "approve"
         ? `Approving & fast-forward merging ${target.branch} into ${target.baseBranch}...`
-        : `Discarding CoW Worktree ${target.branch} on server...`);
+        : `Discarding worktree ${target.branch} on server...`);
 
     try {
       const endpoint = `/api/v1/swarm/worktrees/${encodeURIComponent(liveId)}`;
@@ -203,7 +204,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).trim()}`);
       if (action === "discard") {
         cb.setSwarmTasks((tasks) => tasks.filter((task) => task.liveId !== liveId));
-        cb.showQuickFeedback(`Discarded CoW Worktree ${target.branch} & removed branch`);
+        cb.showQuickFeedback(`Discarded worktree ${target.branch} & removed branch`);
         return;
       }
       const result = (await res.json()) as LiveWorktreeRecord;
@@ -273,18 +274,10 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       });
       if (!isCurrent(epoch, token)) return;
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).trim()}`);
-      const result = await res.json();
+      const rawResult: unknown = await res.json();
       if (!isCurrent(epoch, token)) return;
-      if (result.worktree_id !== liveId || typeof result.command !== "string" ||
-          !Number.isInteger(result.exit_code) || !Number.isFinite(result.duration_ms) ||
-          result.duration_ms < 0 || typeof result.stdout !== "string" || typeof result.stderr !== "string") {
-        throw new Error("Invalid verification result from server");
-      }
-      updateTarget((task) => ({ ...task, verificationResult: {
-        requestedCommand: command,
-        command: result.command, exitCode: result.exit_code, durationMs: result.duration_ms,
-        stdout: result.stdout, stderr: result.stderr, outputTruncated: result.output_truncated === true,
-      } }));
+      const result = parseVerificationResult(rawResult, liveId, command);
+      updateTarget((task) => ({ ...task, verificationResult: result }));
       // Exit zero alone is not approval evidence: the server may have invalidated the commit.
       const statusRes = await fetch("/api/v1/swarm/worktrees", {
         headers: { Authorization: `Bearer ${token}` },
@@ -297,14 +290,14 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       const authoritative = records.find((record) => record.id === liveId);
       if (!authoritative) throw new Error("Worktree missing from server state; refresh worktrees");
       const mapped = mapLiveWorktreeToTask(authoritative, id);
-      if (mapped.sandboxStatus === "verified" && result.exit_code !== 0) {
+      if (mapped.sandboxStatus === "verified" && result.exitCode !== 0) {
         throw new Error("Failed command conflicts with server verification state; refresh worktrees");
       }
-      const verified = mapped.sandboxStatus === "verified" && result.exit_code === 0;
+      const verified = mapped.sandboxStatus === "verified" && result.exitCode === 0;
       updateTarget((task) => ({
         ...mapped, id: task.id, verificationResult: task.verificationResult,
         verificationError: verified ? undefined : mapped.verificationError ||
-          `Command exited ${result.exit_code}; server worktree status is ${mapped.sandboxStatus}.`,
+          `Command exited ${result.exitCode}; server worktree status is ${mapped.sandboxStatus}.`,
       }));
       cb.showQuickFeedback(verified
         ? `Verified ${target.branch} at ${mapped.verifiedCommit?.slice(0, 12)}`
@@ -333,7 +326,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
     spawningIds.add(newId);
     const suffix = `${Date.now().toString(36)}-${newId}`;
     const branch = `agent/claude/task-${suffix}`;
-    const promptSummary = `Live CoW worktree #${newId} materialized via Agent Swarm UI`;
+    const promptSummary = `New worktree #${newId}`;
     const optimisticTask: AgentSandboxTask = {
       id: newId,
       agent: "Claude Code",

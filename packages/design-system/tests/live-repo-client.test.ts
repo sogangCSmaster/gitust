@@ -10,7 +10,9 @@ let client: ReturnType<typeof createLiveRepoClient>;
 const response = (data: unknown) => new Response(JSON.stringify(data));
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => { resolve = r; });
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
   return { promise, resolve };
 }
 beforeEach(() => {
@@ -21,9 +23,16 @@ beforeEach(() => {
   vi.stubGlobal("window", { localStorage: { getItem: () => token } });
   vi.stubGlobal("fetch", fetchMock);
   client = createLiveRepoClient({
-    setActiveCommitRev: vi.fn(), setLookupMicros: vi.fn(), setSelectedFilePath: vi.fn(),
-    setLiveDiffLines: (value) => { lines = value; }, setLiveFileTreeNodes: vi.fn(),
-    setLiveCommits: vi.fn(), getActiveCommitRev: () => "HEAD", showQuickFeedback: feedback,
+    setActiveCommitRev: vi.fn(),
+    setLookupMicros: vi.fn(),
+    setSelectedFilePath: vi.fn(),
+    setLiveDiffLines: (value) => {
+      lines = value;
+    },
+    setLiveFileTreeNodes: vi.fn(),
+    setLiveCommits: vi.fn(),
+    getActiveCommitRev: () => "HEAD",
+    showQuickFeedback: feedback,
   });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -31,7 +40,10 @@ afterEach(() => vi.unstubAllGlobals());
 it("does not accept a previous account's blob or sync response", async () => {
   const pending = deferred<Response>();
   fetchMock.mockReturnValueOnce(pending.promise);
-  const lookup = client.selectFileFromTree({ path: "private.txt", kind: "file" });
+  const lookup = client.selectFileFromTree({
+    path: "private.txt",
+    kind: "file",
+  });
   token = "session-b";
   pending.resolve(response({ content: "private account content" }));
   await lookup;
@@ -49,10 +61,36 @@ it("does not accept a previous account's blob or sync response", async () => {
 });
 it("keeps the newest selected viewer response", async () => {
   const old = deferred<Response>();
-  fetchMock.mockReturnValueOnce(old.promise).mockResolvedValueOnce(response({ content: "new" }));
+  fetchMock
+    .mockReturnValueOnce(old.promise)
+    .mockResolvedValueOnce(response({ content: "new" }));
   const first = client.selectFileFromTree({ path: "old", kind: "file" });
   await client.selectFileFromTree({ path: "new", kind: "file" });
   old.resolve(response({ content: "old" }));
   await first;
   expect(lines?.[0].content).toBe("new");
+});
+it("invalidates a pending file response when a directory is selected", async () => {
+  const selected: string[] = [];
+  const view = createLiveRepoClient({
+    setActiveCommitRev: vi.fn(),
+    setLookupMicros: vi.fn(),
+    setSelectedFilePath: (path) => selected.push(path),
+    setLiveDiffLines: (value) => {
+      lines = value;
+    },
+    setLiveFileTreeNodes: vi.fn(),
+    setLiveCommits: vi.fn(),
+    getActiveCommitRev: () => "HEAD",
+    showQuickFeedback: feedback,
+  });
+  const pending = deferred<Response>();
+  fetchMock.mockReturnValueOnce(pending.promise);
+  const first = view.selectFileFromTree({ path: "old.txt", kind: "file" });
+  await view.selectFileFromTree({ path: "src", kind: "dir" });
+  pending.resolve(response({ content: "old file content" }));
+  await first;
+  expect(selected.at(-1)).toBe("src");
+  expect(lines?.[0]?.content).toContain("Directory: src");
+  expect(fetchMock).toHaveBeenCalledOnce();
 });

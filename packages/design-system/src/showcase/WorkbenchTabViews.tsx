@@ -1,27 +1,26 @@
-import { Component, For, Show } from "solid-js";
+import { For, Show, type Component } from "solid-js";
 import {
-  ActionJobStep,
   ActionsPipelineView,
-  AgentSandboxTask,
   AgentSwarmView,
-  Badge,
-  Button,
-  DiffLine,
   EnterpriseAdminView,
-  EnterpriseAdminViewProps,
-  EnterpriseUser,
-  FileTreeNode,
-  Icon,
-  IssueItem,
   IssueListView,
-  Kbd,
   VirtualDiffViewer,
   VirtualFileTree,
+  type ActionJobStep,
+  type AgentSandboxTask,
+  type DiffLine,
+  type EnterpriseAdminViewProps,
+  type EnterpriseUser,
+  type FileTreeNode,
+  type IssueItem,
+  type ActionLogLine,
 } from "../index";
+import { Button } from "../components/ui/button";
+import { PageHeading, StatusBadge } from "../components/workspace/presentation";
+import { Icon } from "../components/workspace/icon";
 import type { LiveCommitSummary } from "./live-repo-client";
-import type { ActionLogLine } from "../index";
-import { PrimitivesTab } from "./PrimitivesTab";
 import type { WorkbenchTab } from "./WorkbenchApp";
+import { PrimitivesTab } from "./PrimitivesTab";
 
 export interface WorkbenchTabViewsProps {
   activeTab: WorkbenchTab;
@@ -66,319 +65,142 @@ export interface WorkbenchTabViewsProps {
   onSelectFileFromTree: (node: { path: string; kind: "file" | "dir" }) => void;
 }
 
-export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
-  return (
-    <>
-      {/* TAB 0: Agent Swarm & Micro-Sandbox Fleet Control */}
-      <Show when={props.activeTab === "swarm"}>
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "space-between",
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                "font-size": "var(--ds-font-size-lg)",
-                "font-weight": 600,
-              }}
-            >
-              Agent Swarm &amp; Micro-Sandbox Execution Engine
-            </h1>
-            <p
-              style={{
-                "font-size": "var(--ds-font-size-xs)",
-                color: "var(--ds-fg-secondary)",
-              }}
-            >
-              Spawn an isolated worktree and run a verification command before approval.
-              Triage with <Kbd keys="j" /> / <Kbd keys="k" />, press <Kbd keys="a" /> to
-              approve and merge locally, <Kbd keys="x" /> to discard, or <Kbd keys="s" /> to spawn.
-              Publish approved merges to GitHub separately.
-            </p>
-          </div>
-          <Badge variant="merged" mono>
-            <Icon name="cpu" size={12} />
-            <span>Local worktree execution</span>
-          </Badge>
-        </div>
-
-        <AgentSwarmView
-          tasks={props.swarmTasks}
-          focusedIndex={props.focusedSwarmIdx}
-          onFocusIndexChange={props.onFocusedSwarmIdxChange}
-          onApproveMerge={props.onApproveMergeSwarmTask}
-          onDiscardBranch={props.onDiscardSwarmTask}
-          onPublishGithub={props.onPublishSwarmTask}
-          onVerifyWorktree={props.onVerifySwarmTask}
-          onRefreshWorktrees={props.onRefreshSwarmTasks}
-          canRunVerification={props.adminAuthProps?.liveSession?.role === "SiteAdmin"}
-          liveMode={props.liveMode}
-          onSpawnBatchSwarm={props.onSpawnBatchAgentSwarm}
-          onTriggerGithubSync={props.onTriggerGithubSync}
-          filterQuery={props.swarmFilter}
-          onFilterQueryChange={props.onSwarmFilterChange}
-        />
-      </Show>
-
-      {/* TAB 1: Superhuman Issue & PR List */}
-      <Show when={props.activeTab === "issues"}>
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "space-between",
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                "font-size": "var(--ds-font-size-lg)",
-                "font-weight": 600,
-              }}
-            >
-              Keyboard-First Issues &amp; Pull Requests
-            </h1>
-            <p
-              style={{
-                "font-size": "var(--ds-font-size-xs)",
-                color: "var(--ds-fg-secondary)",
-              }}
-            >
-              Use <Kbd keys="j" /> / <Kbd keys="k" /> to move focus,{" "}
-              <Kbd keys="e" /> to toggle Open/Closed in 0ms, <Kbd keys="c" /> to
-              create an instant issue, or <Kbd keys="/" /> to filter.
-            </p>
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<Icon name="plus" size={13} />}
-            shortcut="c"
-            onClick={props.onCreateOptimisticIssue}
-          >
-            New Issue
+export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
+  <>
+    <Show when={props.activeTab === "swarm"}>
+      <PageHeading
+        title="Worktrees"
+        description="A separate space for every agent. Verify changes, then merge with confidence."
+      />
+      <AgentSwarmView
+        tasks={props.swarmTasks}
+        focusedIndex={props.focusedSwarmIdx}
+        onFocusIndexChange={props.onFocusedSwarmIdxChange}
+        onApproveMerge={props.onApproveMergeSwarmTask}
+        onDiscardBranch={props.onDiscardSwarmTask}
+        onPublishGithub={props.onPublishSwarmTask}
+        onVerifyWorktree={props.onVerifySwarmTask}
+        onRefreshWorktrees={props.onRefreshSwarmTasks}
+        canRunVerification={
+          props.adminAuthProps?.liveSession?.role === "SiteAdmin"
+        }
+        liveMode={props.liveMode}
+        onSpawnBatchSwarm={props.onSpawnBatchAgentSwarm}
+        onTriggerGithubSync={props.onTriggerGithubSync}
+        filterQuery={props.swarmFilter}
+        onFilterQueryChange={props.onSwarmFilterChange}
+      />
+    </Show>
+    <Show when={props.activeTab === "issues"}>
+      <PageHeading
+        title="Issues & pull requests"
+        description="Sample issues and pull requests. Filter, triage and explore the interface."
+        action={
+          <Button onClick={props.onCreateOptimisticIssue}>
+            <Icon name="plus" />
+            New demo issue
           </Button>
-        </div>
-
-        <IssueListView
-          items={props.issues}
-          focusedIndex={props.focusedIssueIdx}
-          onFocusIndexChange={props.onFocusedIssueIdxChange}
-          onToggleStatus={props.onToggleIssueStatus}
-          filterRef={props.filterRef}
-          filterQuery={props.issueFilter}
-          onFilterQueryChange={props.onIssueFilterChange}
-        />
-      </Show>
-
-      {/* TAB 2: 10,000-Line Virtualized Diff Viewer & gix Commit Selector */}
-      <Show when={props.activeTab === "diff"}>
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "space-between",
-            "flex-wrap": "wrap",
-            gap: "var(--ds-space-2)",
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                "font-size": "var(--ds-font-size-lg)",
-                "font-weight": 600,
-              }}
+        }
+      />
+      <IssueListView
+        items={props.issues}
+        focusedIndex={props.focusedIssueIdx}
+        onFocusIndexChange={props.onFocusedIssueIdxChange}
+        onToggleStatus={props.onToggleIssueStatus}
+        filterRef={props.filterRef}
+        filterQuery={props.issueFilter}
+        onFilterQueryChange={props.onIssueFilterChange}
+      />
+    </Show>
+    <Show when={props.activeTab === "diff"}>
+      <PageHeading
+        title="Changes"
+        description={
+          props.liveMode
+            ? "Browse commits and inspect changes from the connected repository."
+            : "Explore sample commits and a virtualized diff."
+        }
+      />
+      <div class="flex flex-wrap gap-2">
+        <For each={props.liveCommits}>
+          {(commit) => (
+            <Button
+              variant={
+                props.activeCommitRev === commit.sha ||
+                props.activeCommitRev === commit.short_sha
+                  ? "secondary"
+                  : "outline"
+              }
+              size="sm"
+              title={commit.summary}
+              onClick={() => props.onSelectCommitDiff(commit.sha)}
             >
-              Virtualized Code &amp; Diff Viewer (In-Process gix Engine)
-            </h1>
-            <p
-              style={{
-                "font-size": "var(--ds-font-size-xs)",
-                color: "var(--ds-fg-secondary)",
-                "margin-top": "var(--ds-space-1)",
-              }}
-            >
-              Renders the visible diff and blob lines with viewport slicing.
-            </p>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              "align-items": "center",
-              gap: "var(--ds-space-2)",
-              "flex-wrap": "wrap",
-            }}
-          >
-            <For each={props.liveCommits}>
-              {(c) => (
-                <Button
-                  size="xs"
-                  variant={
-                    props.activeCommitRev === c.sha ||
-                    props.activeCommitRev === c.short_sha
-                      ? "primary"
-                      : "secondary"
-                  }
-                  icon={<Icon name="git-commit" size={12} />}
-                  onClick={() => props.onSelectCommitDiff(c.sha)}
-                >
-                  {c.short_sha} · {c.summary.slice(0, 28)}
-                </Button>
-              )}
-            </For>
-            <Show when={props.lookupMicros !== null}>
-              <Badge variant="success" mono>
-                <Icon name="zap" size={12} />
-                <span>gix {props.lookupMicros}µs</span>
-              </Badge>
-            </Show>
-          </div>
-        </div>
-
-        <VirtualDiffViewer
-          filePath={props.selectedFilePath}
-          lines={props.diffLines}
-          height={480}
-        />
-      </Show>
-
-      {/* TAB 3: Gitust Actions CI/CD Pipeline & 10,000-Line Log Streamer */}
-      <Show when={props.activeTab === "actions"}>
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "space-between",
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                "font-size": "var(--ds-font-size-lg)",
-                "font-weight": 600,
-              }}
-            >
-              Gitust Actions — Self-Hosted CI/CD Pipeline &amp; Live Console
-            </h1>
-            <p
-              style={{
-                "font-size": "var(--ds-font-size-xs)",
-                color: "var(--ds-fg-secondary)",
-              }}
-            >
-              Interface demo with generated logs and simulated jobs. Press <Kbd keys="r" /> to replay the demo.
-            </p>
-          </div>
-          <Badge variant="success" mono>
-            <Icon name="server" size={12} />
-            <span>Sample pipeline</span>
-          </Badge>
-        </div>
-
-        <ActionsPipelineView
-          workflowName="ci-enterprise-release.yml"
-          commitSha="5edd70a"
-          branch="main"
-          jobs={props.actionJobs}
-          activeJobId={props.activeJobId}
-          onSelectJob={props.onSelectJob}
-          onRerunAll={props.onRerunAllActionJobs}
-          logs={props.actionLogs}
-          height={440}
-        />
-      </Show>
-
-      {/* TAB 4: Enterprise Self-Hosted Admin, Auth & SSO Console */}
-      <Show when={props.activeTab === "admin"}>
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "space-between",
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                "font-size": "var(--ds-font-size-lg)",
-                "font-weight": 600,
-              }}
-            >
-              Enterprise Self-Hosted Auth, SSO &amp; Site Admin Console
-            </h1>
-            <p
-              style={{
-                "font-size": "var(--ds-font-size-xs)",
-                color: "var(--ds-fg-secondary)",
-              }}
-            >
-              Manage live accounts, invites, password resets and credentials.
-              SSO and additional security policies are planned.
-            </p>
-          </div>
-          <Badge variant="accent" mono>
-            <Icon name="lock" size={12} />
-            <span>Single-Binary On-Premise Mode</span>
-          </Badge>
-        </div>
-
-        <EnterpriseAdminView
-          users={props.enterpriseUsers}
-          onToggleRole={props.onToggleEnterpriseUserRole}
-          onToggleStatus={props.onToggleEnterpriseUserStatus}
-          onPolicyFeedback={props.onPolicyFeedback}
-          {...(props.adminAuthProps ?? {})}
-        />
-      </Show>
-
-      {/* TAB 5: 5,000-File Virtualized Monorepo File Tree */}
-      <Show when={props.activeTab === "tree"}>
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "space-between",
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                "font-size": "var(--ds-font-size-lg)",
-                "font-weight": 600,
-              }}
-            >
-              Virtualized Repository File Tree
-            </h1>
-            <p
-              style={{
-                "font-size": "var(--ds-font-size-xs)",
-                color: "var(--ds-fg-secondary)",
-              }}
-            >
-              Filter repository paths and select a file to preview its content.
-            </p>
-          </div>
-          <Badge variant="info" mono>
-            <Icon name="file-code" size={12} />
-            <span>{props.selectedFilePath}</span>
-          </Badge>
-        </div>
-
-        <VirtualFileTree
-          files={props.fileTreeNodes}
-          activePath={props.selectedFilePath}
-          onSelect={props.onSelectFileFromTree}
-          height={440}
-        />
-      </Show>
-
-      {/* TAB 6: Design Tokens, Vector Icon Sprite Sheet & Primitives Showcase */}
-      <Show when={props.activeTab === "primitives"}>
-        <PrimitivesTab />
-      </Show>
-    </>
-  );
-};
+              <Icon name="git-commit" />
+              <span>{commit.short_sha}</span>
+              <span class="hidden max-w-52 truncate sm:inline">
+                {commit.summary}
+              </span>
+            </Button>
+          )}
+        </For>
+        <Show when={props.lookupMicros !== null}>
+          <StatusBadge tone="success">
+            Lookup: {props.lookupMicros}µs
+          </StatusBadge>
+        </Show>
+      </div>
+      <VirtualDiffViewer
+        filePath={props.selectedFilePath}
+        lines={props.diffLines}
+        height={480}
+      />
+    </Show>
+    <Show when={props.activeTab === "actions"}>
+      <PageHeading
+        title="Actions"
+        description="Interface demo with generated logs and simulated jobs. Replay the sample pipeline to explore its states."
+      />
+      <ActionsPipelineView
+        workflowName="ci-enterprise-release.yml"
+        commitSha="5edd70a"
+        branch="main"
+        jobs={props.actionJobs}
+        activeJobId={props.activeJobId}
+        onSelectJob={props.onSelectJob}
+        onRerunAll={props.onRerunAllActionJobs}
+        logs={props.actionLogs}
+        height={440}
+      />
+    </Show>
+    <Show when={props.activeTab === "admin"}>
+      <PageHeading
+        title="Access & accounts"
+        description="Manage your local account, invitations and Git credentials. Planned security controls are labelled as previews."
+      />
+      <EnterpriseAdminView
+        users={props.enterpriseUsers}
+        onToggleRole={props.onToggleEnterpriseUserRole}
+        onToggleStatus={props.onToggleEnterpriseUserStatus}
+        onPolicyFeedback={props.onPolicyFeedback}
+        {...(props.adminAuthProps ?? {})}
+      />
+    </Show>
+    <Show when={props.activeTab === "tree"}>
+      <PageHeading
+        title="Repository files"
+        description={
+          props.liveMode
+            ? "Search paths and open files from the connected repository."
+            : "Browse a sample repository file tree."
+        }
+      />
+      <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(14rem,1fr)_minmax(0,2fr)]">
+        <VirtualFileTree files={props.fileTreeNodes} activePath={props.selectedFilePath} onSelect={props.onSelectFileFromTree} height={400} />
+        <VirtualDiffViewer filePath={props.selectedFilePath} lines={props.diffLines} height={400} />
+      </div>
+    </Show>
+    <Show when={props.activeTab === "primitives"}>
+      <PrimitivesTab />
+    </Show>
+  </>
+);

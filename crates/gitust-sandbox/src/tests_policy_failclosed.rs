@@ -123,3 +123,28 @@ async fn auth_state_in_bare_common_directory_stays_hidden_when_git_data_is_reada
     assert!(!result.stdout.contains("private-auth-state"));
     assert!(!auth.join("auth-db.json.lock").exists());
 }
+
+#[tokio::test]
+async fn cancelling_pipe_drain_aborts_its_reader_instead_of_detaching_it() {
+    struct MarkDropped(Arc<AtomicBool>);
+    impl Drop for MarkDropped {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    let dropped = Arc::new(AtomicBool::new(false));
+    let guard = MarkDropped(Arc::clone(&dropped));
+    let reader = tokio::spawn(async move {
+        let _guard = guard;
+        std::future::pending::<(Vec<u8>, bool)>().await
+    });
+    let partial = Arc::new(Mutex::new(Vec::new()));
+    let cancelled = tokio::time::timeout(
+        std::time::Duration::from_millis(5),
+        await_pipe_drain(reader, &partial),
+    )
+    .await;
+    assert!(cancelled.is_err());
+    tokio::task::yield_now().await;
+    assert!(dropped.load(Ordering::SeqCst));
+}

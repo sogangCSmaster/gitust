@@ -1,21 +1,21 @@
-import { Component, Show } from "solid-js";
+import { Show, type Component } from "solid-js";
+import { Card, CardContent } from "../components/ui/card";
+import { KeyHint } from "../components/workspace/presentation";
 import { shortcutManager } from "../keyboard/shortcut-manager";
-import { Kbd } from "../primitives/Kbd";
-
-export const ActiveChordHUD: Component = () => {
-  return (
-    <Show when={shortcutManager.activeChord()}>
-      {(prefix) => (
-        <div class="ds-chord-floater" role="status" aria-live="polite">
-          <span>Waiting for second key of chord:</span>
-          <Kbd keys={prefix()} />
-          <span style={{ color: "var(--ds-fg-muted)" }}>
-            (try <Kbd keys="w" />, <Kbd keys="i" />, <Kbd keys="d" />,{" "}
-            <Kbd keys="a" />, <Kbd keys="s" />, <Kbd keys="t" />,{" "}
-            <Kbd keys="p" />)
+export const ActiveChordHUD: Component = () => (
+  <Show when={shortcutManager.activeChord()}>
+    {(prefix) => (
+      <Card class="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 shadow-lg">
+        <CardContent
+          class="flex items-center gap-3 px-4 py-3 text-xs"
+          role="status"
+        >
+          <KeyHint keys={prefix()} />
+          <span class="whitespace-nowrap text-muted-foreground">
+            Waiting for the next key…
           </span>
-        </div>
-      )}
-    </Show>
-  );
-};
+        </CardContent>
+      </Card>
+    )}
+  </Show>
+);

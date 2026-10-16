@@ -28,10 +28,11 @@ In progress. Implemented portions:
 - Durable approval/publication records and explicit remote-failure retry.
 - Required Checks from committed merge-target configuration during explicit verification.
 - Per-command verification outcomes, measured durations, and skipped checks in HTTP/MCP and the workbench.
+- Bounded durable history of completed HTTP/MCP runs, with a SiteAdmin-only read API and no restoration of approval authority.
 
 Remaining work:
 
-- Automatic Checks on branch updates and durable run history.
+- Automatic Checks on branch updates; durable start/timeout/cancellation records and a workbench history viewer.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Broader administration UI and repository lifecycle management.

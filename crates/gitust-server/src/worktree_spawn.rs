@@ -129,6 +129,7 @@ pub(crate) async fn spawn_worktree_core(
         crate::state::sandbox_spec_for(&materialized, &state.auth_store).map_err(map_git_err)?;
     let worktree_dir = materialized.worktree_dir;
     let runtime = WorktreeRuntime {
+        common_git_dir: materialized.common_git_dir,
         created_by: Some(caller.user_id),
         sandbox_spec,
         worktree_dir: worktree_dir.clone(),

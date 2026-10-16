@@ -18,6 +18,7 @@ pub mod oauth;
 mod outbound;
 pub(crate) mod quota;
 pub mod repo;
+mod run_history;
 pub mod state;
 pub mod webui;
 mod worktree_owners;
@@ -190,6 +191,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/swarm/worktrees/{id}/sandbox",
             post(worktrees::exec_worktree_sandbox_handler),
+        )
+        .route(
+            "/api/v1/swarm/worktrees/{id}/runs",
+            get(run_history::list_handler),
         )
         .route(
             "/api/v1/swarm/worktrees/{id}/approve",

@@ -376,6 +376,7 @@ async fn smart_http_push_enforces_worktree_ownership_and_resets_verified_status(
     state.worktree_runtime.write().insert(
         wt_id,
         crate::state::WorktreeRuntime {
+            common_git_dir: m.common_git_dir.clone(),
             created_by: Some(principal_a.user_id),
             worktree_dir: m.worktree_dir.clone(),
             sandbox_spec: SandboxSpec::for_linked_worktree(

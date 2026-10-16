@@ -186,6 +186,7 @@ impl SandboxSpec {
             "worktrees",
             "gitust-worktree-service.lock",
             "gitust-approvals",
+            "gitust-check-runs",
             ".gitust",
         ] {
             rules.push(PathRule::new(

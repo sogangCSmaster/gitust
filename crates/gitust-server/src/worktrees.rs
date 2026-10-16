@@ -110,7 +110,7 @@ pub(crate) async fn exec_worktree_sandbox_core(
             "worktree has no checkout on this server".to_owned(),
         )
     })?;
-    let _run_guard = runtime.exec_lock.clone().try_lock_owned().map_err(|_| {
+    let run_guard = runtime.exec_lock.clone().try_lock_owned().map_err(|_| {
         (
             StatusCode::CONFLICT,
             "a sandbox run is already in progress for this worktree".to_owned(),
@@ -185,6 +185,26 @@ pub(crate) async fn exec_worktree_sandbox_core(
                     ));
                 }
             }
+            let common = runtime.common_git_dir.clone();
+            let branch = wt.branch.clone();
+            let user_id = caller.user_id;
+            let historical_commit = checked_commit.clone();
+            let historical_checks = checks_oid.clone();
+            // Keep removal excluded even if this request is dropped while persistence continues.
+            let (res, _run_guard) = tokio::task::spawn_blocking(move || {
+                let guard = run_guard;
+                let record = crate::run_history::RunRecord::new(
+                    user_id,
+                    verify,
+                    historical_commit,
+                    historical_checks,
+                    res.clone(),
+                );
+                crate::run_history::append(&common, wt.id, &branch, record)?;
+                Ok::<_, (StatusCode, String)>((res, guard))
+            })
+            .await
+            .map_err(internal_err)??;
             let store = state.auth_store.clone();
             let active_caller = caller.clone();
             let repo_id = wt.repo_id;
@@ -268,18 +288,20 @@ pub(crate) async fn discard_worktree_core(
         let wt_id = wt.id;
         let branch = wt.branch.clone();
         let base_commit = wt.base_commit.clone();
+        let common = runtime.common_git_dir.clone();
         let dir = runtime.worktree_dir.clone();
         tokio::task::spawn_blocking(move || {
             let _held_guard = run_guard;
-            let res = engine.remove_agent_worktree(&dir, &branch, &base_commit);
-            if res.is_ok() {
-                state_for_cleanup.remove_worktree_entry(wt_id);
-            }
-            res
+            // Remove diagnostics while the checkout is still recoverable if cleanup fails.
+            crate::run_history::remove(&common, wt_id)?;
+            engine
+                .remove_agent_worktree(&dir, &branch, &base_commit)
+                .map_err(map_git_err)?;
+            state_for_cleanup.remove_worktree_entry(wt_id);
+            Ok::<_, (StatusCode, String)>(())
         })
         .await
-        .map_err(internal_err)?
-        .map_err(map_git_err)?;
+        .map_err(internal_err)??;
         return Ok(StatusCode::NO_CONTENT);
     }
 

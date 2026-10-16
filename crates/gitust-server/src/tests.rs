@@ -21,6 +21,8 @@ mod tests_oauth;
 mod tests_outbound;
 #[path = "tests_required_checks.rs"]
 mod tests_required_checks;
+#[path = "tests_run_history.rs"]
+mod tests_run_history;
 #[path = "tests_verification.rs"]
 mod tests_verification;
 

@@ -110,6 +110,7 @@ pub struct WorktreeRuntime {
     /// Owner who spawned this worktree over HTTP (`None` for worktrees recovered on startup).
     pub created_by: Option<UserId>,
     pub worktree_dir: PathBuf,
+    pub common_git_dir: PathBuf,
     pub sandbox_spec: SandboxSpec,
     /// Serializes sandbox runs and removal for one worktree.
     pub exec_lock: Arc<tokio::sync::Mutex<()>>,
@@ -177,6 +178,7 @@ impl AppState {
                         m.worktree.github_synced = approval.published_to(&destination);
                     }
                     let runtime = WorktreeRuntime {
+                        common_git_dir: m.common_git_dir.clone(),
                         created_by: crate::worktree_owners::read(&m)?,
                         sandbox_spec: sandbox_spec_for(&m, &auth_store)?,
                         worktree_dir: m.worktree_dir,

@@ -457,3 +457,5 @@ async fn http_worktree_lifecycle_spawn_exec_approve_discard() {
         .iter()
         .all(|e| e.branch != "agent/claude/lifecycle"));
 }
+#[path = "tests_webui_assets.rs"]
+mod webui_assets;

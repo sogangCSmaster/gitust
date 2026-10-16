@@ -102,8 +102,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/", get(webui::web_index_handler))
         .route("/auth/accept-invite", get(webui::web_index_handler))
         .route("/auth/reset-password", get(webui::web_index_handler))
-        .route("/assets/index.js", get(webui::web_js_handler))
-        .route("/assets/index.css", get(webui::web_css_handler))
+        .route("/assets/{*path}", get(webui::web_asset_handler))
         .route("/api/v1/health", get(health_handler))
         .route("/api/v1/git/head", get(worktrees::git_head_handler))
         // Step 2-4: Blazing-Fast (<30ms) In-Process gix Code, Commit, Tree & Diff Browsing

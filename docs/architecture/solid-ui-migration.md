@@ -27,3 +27,17 @@ Completion requires:
 - The built single-file JavaScript bundle is 314.78 kB / 95.65 kB gzip, and CSS is 46.22 kB / 8.42 kB gzip in the Vite build. This exceeds the project’s 50 kB initial-JavaScript target; this migration does not claim that target is met. The existing embedded-server asset contract still uses one JS file.
 
 Runtime screenshots and local workflow results are retained in the task output. After migration validation, the user explicitly requested commit/push and authorized publication with the earlier Rust Gate B still incomplete; see `../security/check-results-review-2026-10-16.md`. This exception does not waive review for subsequent work.
+
+## Follow-up: deferred modules (2026-10-17)
+
+Access/accounts, the component reference and command search content load only when opened. The command dialog itself opens immediately, preserving the modal keyboard boundary while its content downloads. A failed feature download shows a visible reload action; it does not replace the rest of the workspace or silently report success. Command search receives focus once its module is ready and has an accessible label supplied to the actual command root.
+
+The server build embeds every generated JS/CSS file in a sorted, exact-name asset table. All assets remain inside the single binary; request paths never reach the runtime filesystem. Unknown paths return 404 with security headers rather than the SPA document. Module filenames contain content hashes, and a rebuild tracks the asset directory. The build rejects missing entry assets, unsupported asset types, directories and symlinks.
+
+Vite 6.4.4 on the local macOS development machine reports the entry JavaScript as 233.99 kB / 76.15 kB gzip, compared with 314.78 kB / 95.65 kB gzip before splitting (about 20% less compressed initial JS). CSS remains 46.22 kB / 8.42 kB gzip. Four additional modules are downloaded on demand; the combined download after opening all features is not smaller than the original bundle. The 50 kB initial-JS target is still unmet.
+
+`scripts/verify.sh` exits 0 with 67 frontend cases and the full Rust workspace suite. A module-serving regression first returned 404 with the original fixed routes, then passed for every built JS file with byte-for-byte comparisons. Deferred-feature cases cover immediate modal isolation, search focus, a real command callback and recoverable import rejection.
+
+Independent Gate A and the new static-asset/UI-scoped Gate B both returned CLEAR TO COMMIT with no remaining P0/P1/P2. The latter exercised 18 synthetic GET cases, security headers, assets served after deleting the synthetic build directory, rejected build inputs, and actual pending/rejected command modal behavior. The former also tested closing before module resolution, reopening, focus restoration and shortcut recovery. Older auth/sandbox/network attack surfaces were outside this follow-up's scope and were not retried.
+
+The rebuilt local Rust server serves every generated JS/CSS file byte-for-byte. Browser navigation opens the deferred Components, Access and command palette modules from port 3000 successfully; command search is focused. The existing live development screen on port 4200 remains available. The user subsequently requested a detailed commit and push for this follow-up.

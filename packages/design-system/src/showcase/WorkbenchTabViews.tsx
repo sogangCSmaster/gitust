@@ -1,8 +1,7 @@
-import { For, Show, type Component } from "solid-js";
+import { For, Show, lazy, type Component } from "solid-js";
 import {
   ActionsPipelineView,
   AgentSwarmView,
-  EnterpriseAdminView,
   IssueListView,
   VirtualDiffViewer,
   VirtualFileTree,
@@ -20,7 +19,17 @@ import { PageHeading, StatusBadge } from "../components/workspace/presentation";
 import { Icon } from "../components/workspace/icon";
 import type { LiveCommitSummary } from "./live-repo-client";
 import type { WorkbenchTab } from "./WorkbenchApp";
-import { PrimitivesTab } from "./PrimitivesTab";
+import { DeferredView } from "../components/workspace/deferred-view";
+const EnterpriseAdminView = lazy(() =>
+  import("../patterns/EnterpriseAdminView").then((module) => ({
+    default: module.EnterpriseAdminView,
+  })),
+);
+const PrimitivesTab = lazy(() =>
+  import("./PrimitivesTab").then((module) => ({
+    default: module.PrimitivesTab,
+  })),
+);
 
 export interface WorkbenchTabViewsProps {
   activeTab: WorkbenchTab;
@@ -177,13 +186,15 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         title="Access & accounts"
         description="Manage your local account, invitations and Git credentials. Planned security controls are labelled as previews."
       />
-      <EnterpriseAdminView
-        users={props.enterpriseUsers}
-        onToggleRole={props.onToggleEnterpriseUserRole}
-        onToggleStatus={props.onToggleEnterpriseUserStatus}
-        onPolicyFeedback={props.onPolicyFeedback}
-        {...(props.adminAuthProps ?? {})}
-      />
+      <DeferredView label="Access & accounts">
+        <EnterpriseAdminView
+          users={props.enterpriseUsers}
+          onToggleRole={props.onToggleEnterpriseUserRole}
+          onToggleStatus={props.onToggleEnterpriseUserStatus}
+          onPolicyFeedback={props.onPolicyFeedback}
+          {...(props.adminAuthProps ?? {})}
+        />
+      </DeferredView>
     </Show>
     <Show when={props.activeTab === "tree"}>
       <PageHeading
@@ -195,12 +206,23 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         }
       />
       <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(14rem,1fr)_minmax(0,2fr)]">
-        <VirtualFileTree files={props.fileTreeNodes} activePath={props.selectedFilePath} onSelect={props.onSelectFileFromTree} height={400} />
-        <VirtualDiffViewer filePath={props.selectedFilePath} lines={props.diffLines} height={400} />
+        <VirtualFileTree
+          files={props.fileTreeNodes}
+          activePath={props.selectedFilePath}
+          onSelect={props.onSelectFileFromTree}
+          height={400}
+        />
+        <VirtualDiffViewer
+          filePath={props.selectedFilePath}
+          lines={props.diffLines}
+          height={400}
+        />
       </div>
     </Show>
     <Show when={props.activeTab === "primitives"}>
-      <PrimitivesTab />
+      <DeferredView label="Components">
+        <PrimitivesTab />
+      </DeferredView>
     </Show>
   </>
 );

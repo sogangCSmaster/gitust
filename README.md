@@ -47,7 +47,7 @@ pnpm --filter @gitust/design-system build
 cargo build --release -p gitust-cli
 ```
 
-The binary is `target/release/gitust`. Build the web bundle before compiling the server: the binary embeds it. Gitust is written in Rust but currently invokes the Git CLI for several operations; it does not require Gitea, Forgejo, Docker, or Dagger.
+The binary is `target/release/gitust`. Build the web bundle before compiling the server: the binary embeds the stylesheet and every generated JavaScript module, including optional screens loaded on demand. No static-file directory or external CDN is needed at runtime. Gitust is written in Rust but currently invokes the Git CLI for several operations; it does not require Gitea, Forgejo, Docker, or Dagger.
 
 ## Try it locally
 

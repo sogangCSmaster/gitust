@@ -1,6 +1,7 @@
 import {
   Component,
   createMemo,
+  createEffect,
   createSignal,
   For,
   onCleanup,
@@ -44,6 +45,7 @@ import { registerWorkbenchShortcuts } from "./register-workbench-shortcuts";
 import { createShowcaseDemoActions } from "./showcase-demo-actions";
 import { ShortcutsReferenceModal, WorkbenchHeader } from "./WorkbenchHeader";
 import { WorkbenchTabViews } from "./WorkbenchTabViews";
+import { LiveRunHistoryDialog } from "./LiveRunHistoryDialog";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { SidebarProvider, SidebarInset } from "../components/ui/sidebar";
 import {
@@ -95,6 +97,20 @@ export const WorkbenchApp: Component = () => {
   );
   const [liveSession, setLiveSession] =
     createSignal<LiveAuthSessionInfo | null>(null);
+  const [historyTask, setHistoryTask] = createSignal<AgentSandboxTask | null>(
+    null,
+  );
+  const historyTarget = createMemo(() =>
+    liveMode() &&
+    liveSession()?.role === "SiteAdmin" &&
+    swarmTasks().some((task) => task.liveId === historyTask()?.liveId)
+      ? historyTask()
+      : null,
+  );
+  createEffect(() => {
+    if (!liveMode() || liveSession()?.role !== "SiteAdmin")
+      setHistoryTask(null);
+  });
   const [redeemMode, setRedeemMode] = createSignal<"invite" | "reset">(
     "invite",
   );
@@ -198,6 +214,7 @@ export const WorkbenchApp: Component = () => {
     setRedeemToken,
     fallbackUsers: INITIAL_ENTERPRISE_USERS,
     onTokenAuthenticated: () => {
+      setHistoryTask(null);
       setLiveMode(true);
       setEnterpriseUsers([]);
       setLiveCommits([]);
@@ -210,6 +227,7 @@ export const WorkbenchApp: Component = () => {
       void liveSwarmClient.hydrateSwarmWorktrees();
     },
     onTokenCleared: () => {
+      setHistoryTask(null);
       setLiveMode(false);
       setLiveCommits([]);
       setLookupMicros(null);
@@ -411,6 +429,11 @@ export const WorkbenchApp: Component = () => {
             onRefreshSwarmTasks={() =>
               void liveSwarmClient.hydrateSwarmWorktrees()
             }
+            onViewRunHistory={(id) => {
+              const task = swarmTasks().find((task) => task.liveId === id);
+              if (task && liveMode() && liveSession()?.role === "SiteAdmin")
+                setHistoryTask(task);
+            }}
             onSpawnBatchAgentSwarm={spawnBatchAgentSwarm}
             onTriggerGithubSync={liveClient.triggerGithubSync}
             swarmFilter={swarmFilter()}
@@ -482,6 +505,15 @@ export const WorkbenchApp: Component = () => {
       </SidebarInset>
 
       {/* Global Command Palette (Cmd+K) */}
+      <Show when={historyTarget()} keyed>
+        {(task) => (
+          <LiveRunHistoryDialog
+            worktreeId={task.liveId!}
+            branch={task.branch}
+            onClose={() => setHistoryTask(null)}
+          />
+        )}
+      </Show>
       <CommandPalette open={cmdOpen()} onClose={() => setCmdOpen(false)} />
 
       {/* Keyboard Shortcuts Reference Modal */}

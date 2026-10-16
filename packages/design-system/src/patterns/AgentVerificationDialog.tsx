@@ -1,4 +1,4 @@
-import { createSignal, For, Show, type Component } from "solid-js";
+import { createSignal, Show, type Component } from "solid-js";
 import { Button } from "../components/ui/button";
 import {
   Dialog,
@@ -8,7 +8,7 @@ import {
   DialogDescription,
 } from "../components/ui/dialog";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { Card, CardContent } from "../components/ui/card";
+import { VerificationResultDetails } from "./VerificationResultDetails";
 import { Field, StatusBadge } from "../components/workspace/presentation";
 import type { AgentSandboxTask } from "./AgentSwarmView";
 export interface AgentVerificationDialogProps {
@@ -107,82 +107,9 @@ export const AgentVerificationDialog: Component<
         </Show>
         <Show when={props.task.verificationResult}>
           {(result) => (
-            <div class="space-y-4">
+            <div class="min-w-0 space-y-4">
               <h3 class="font-medium">Last verification result</h3>
-              <Show when={result().steps?.length}>
-                <ol aria-label="Verification commands" class="space-y-3">
-                  <For each={result().steps}>
-                    {(step) => (
-                      <li>
-                        <Card>
-                          <CardContent class="space-y-3 p-4">
-                            <div class="flex items-center justify-between gap-3">
-                              <span class="text-xs text-muted-foreground">
-                                {step.required
-                                  ? "Required check"
-                                  : "Your command"}
-                              </span>
-                              <StatusBadge
-                                tone={
-                                  step.exitCode === null
-                                    ? "neutral"
-                                    : step.exitCode === 0
-                                      ? "success"
-                                      : "danger"
-                                }
-                              >
-                                {step.exitCode === null
-                                  ? "Skipped"
-                                  : step.exitCode === 0
-                                    ? "Passed"
-                                    : "Failed"}
-                              </StatusBadge>
-                            </div>
-                            <pre class="whitespace-pre-wrap break-all font-mono text-xs">
-                              {step.command}
-                            </pre>
-                            <p class="text-xs text-muted-foreground">
-                              {step.exitCode === null
-                                ? "Not run because an earlier command failed."
-                                : `Exit code: ${step.exitCode} · Duration: ${step.durationMs}ms`}
-                            </p>
-                          </CardContent>
-                        </Card>
-                      </li>
-                    )}
-                  </For>
-                </ol>
-              </Show>
-              <h3 class="font-medium">Combined command and output</h3>
-              <pre class="whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs">
-                {result().command}
-              </pre>
-              <p class="font-mono text-xs text-muted-foreground">
-                Exit code: {result().exitCode} · Duration: {result().durationMs}
-                ms
-              </p>
-              <Show when={result().outputTruncated}>
-                <StatusBadge tone="warning">
-                  Output truncated by server
-                </StatusBadge>
-              </Show>
-              <For
-                each={[
-                  { label: "stdout", value: result().stdout },
-                  { label: "stderr", value: result().stderr },
-                ]}
-              >
-                {(output) => (
-                  <div class="space-y-2">
-                    <h4 class="text-xs text-muted-foreground">
-                      {output.label}
-                    </h4>
-                    <pre class="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs">
-                      {output.value || `No ${output.label}`}
-                    </pre>
-                  </div>
-                )}
-              </For>
+              <VerificationResultDetails result={result()} />
             </div>
           )}
         </Show>

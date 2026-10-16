@@ -7,6 +7,7 @@ import * as DialogPrimitive from "@kobalte/core/dialog";
 import type { PolymorphicProps } from "@kobalte/core/polymorphic";
 
 import { cn } from "../../lib/utils";
+import { createModalFocusRestore } from "./modal-focus";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -52,8 +53,14 @@ const DialogContent = <T extends ValidComponent = "div">(
   const [, rest] = splitProps(props as DialogContentProps, [
     "class",
     "children",
+    "onOpenAutoFocus",
+    "onCloseAutoFocus",
   ]);
   const context = DialogPrimitive.useDialogContext();
+  const focus = createModalFocusRestore(
+    props as DialogContentProps,
+    context.modal,
+  );
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -64,6 +71,7 @@ const DialogContent = <T extends ValidComponent = "div">(
         )}
         {...rest}
         aria-modal={context.modal() ? true : undefined}
+        {...focus}
       >
         {props.children}
         <DialogPrimitive.CloseButton class="absolute right-3 top-3 inline-flex min-h-touch min-w-touch items-center justify-center rounded-sm sm:min-h-8 sm:min-w-8 opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[expanded]:bg-accent data-[expanded]:text-muted-foreground">

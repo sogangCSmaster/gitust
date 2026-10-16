@@ -8,6 +8,7 @@ import type { PolymorphicProps } from "@kobalte/core/polymorphic";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "../../lib/utils";
+import { createModalFocusRestore } from "./modal-focus";
 
 const Sheet = SheetPrimitive.Root;
 const SheetTrigger = SheetPrimitive.Trigger;
@@ -92,8 +93,14 @@ const SheetContent = <T extends ValidComponent = "div">(
     "position",
     "class",
     "children",
+    "onOpenAutoFocus",
+    "onCloseAutoFocus",
   ]);
   const context = SheetPrimitive.useDialogContext();
+  const focus = createModalFocusRestore(
+    props as DialogContentProps,
+    context.modal,
+  );
   return (
     <SheetPortal position={local.position}>
       <SheetOverlay />
@@ -105,6 +112,7 @@ const SheetContent = <T extends ValidComponent = "div">(
         )}
         {...others}
         aria-modal={context.modal() ? true : undefined}
+        {...focus}
       >
         {local.children}
         <SheetPrimitive.CloseButton class="absolute right-3 top-3 inline-flex min-h-touch min-w-touch items-center justify-center rounded-sm sm:min-h-8 sm:min-w-8 opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">

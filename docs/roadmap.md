@@ -29,10 +29,11 @@ In progress. Implemented portions:
 - Required Checks from committed merge-target configuration during explicit verification.
 - Per-command verification outcomes, measured durations, and skipped checks in HTTP/MCP and the workbench.
 - Bounded durable history of completed HTTP/MCP runs, with a SiteAdmin-only read API and no restoration of approval authority.
+- A live workbench history viewer for the latest five completed runs, including per-command outcomes, captured output and execution metadata, separate from current verification authority.
 
 Remaining work:
 
-- Automatic Checks on branch updates; durable start/timeout/cancellation records and a workbench history viewer.
+- Automatic Checks on branch updates; durable start/timeout/cancellation records.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Broader administration UI and repository lifecycle management.

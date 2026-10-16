@@ -79,6 +79,7 @@ export interface AgentSwarmViewProps {
   onPublishGithub: (id: number) => void;
   onVerifyWorktree: (id: number, command: string) => void;
   onRefreshWorktrees: () => void;
+  onViewRunHistory?: (worktreeId: string) => void;
   canRunVerification: boolean;
   liveMode: boolean;
   onSpawnBatchSwarm: () => void;
@@ -249,6 +250,25 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                     </CollapsibleContent>
                   </Collapsible>
                   <div class="flex flex-wrap gap-2">
+                    <Show
+                      when={
+                        props.liveMode &&
+                        props.canRunVerification &&
+                        props.onViewRunHistory &&
+                        task.liveId
+                      }
+                    >
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(event) => {
+                          event.currentTarget.focus();
+                          props.onViewRunHistory?.(task.liveId!);
+                        }}
+                      >
+                        <Icon name="clock" /> Run history
+                      </Button>
+                    </Show>
                     <Show
                       when={
                         task.liveId &&

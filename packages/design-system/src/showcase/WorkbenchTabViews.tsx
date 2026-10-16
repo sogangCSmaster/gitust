@@ -42,6 +42,7 @@ export interface WorkbenchTabViewsProps {
   onPublishSwarmTask: (id: number) => void;
   onVerifySwarmTask: (id: number, command: string) => void;
   onRefreshSwarmTasks: () => void;
+  onViewRunHistory: (worktreeId: string) => void;
   onSpawnBatchAgentSwarm: () => void;
   onTriggerGithubSync: () => void;
   swarmFilter: string;
@@ -90,6 +91,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         onPublishGithub={props.onPublishSwarmTask}
         onVerifyWorktree={props.onVerifySwarmTask}
         onRefreshWorktrees={props.onRefreshSwarmTasks}
+        onViewRunHistory={props.onViewRunHistory}
         canRunVerification={
           props.adminAuthProps?.liveSession?.role === "SiteAdmin"
         }

@@ -164,9 +164,11 @@ pub(crate) async fn spawn_worktree_core(
 
 pub(crate) async fn spawn_worktree_handler(
     State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
+    _caller: AuthenticatedPrincipal,
+    headers: axum::http::HeaderMap,
     Json(req): Json<SpawnWorktreeRequest>,
 ) -> Result<Json<AgentWorktree>, (StatusCode, String)> {
+    let caller = crate::auth::extract_principal(&headers, &state.auth_store)?;
     let target_repo_id = req.repo_id.unwrap_or(state.repo_id);
     let agent = req.agent.unwrap_or(AgentKind::ClaudeCode);
     let base_branch = req.base_branch.unwrap_or_else(|| "main".to_owned());
@@ -291,10 +293,12 @@ pub(crate) async fn exec_worktree_sandbox_core(
 
 pub(crate) async fn exec_worktree_sandbox_handler(
     State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
+    _caller: AuthenticatedPrincipal,
+    headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
     Json(req): Json<SandboxExecRequest>,
 ) -> Result<Json<SandboxExecutionResult>, (StatusCode, String)> {
+    let caller = crate::auth::extract_principal(&headers, &state.auth_store)?;
     let (res, _status) = exec_worktree_sandbox_core(&state, &caller, id, req.command, None).await?;
     Ok(Json(res))
 }

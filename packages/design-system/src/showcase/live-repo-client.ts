@@ -191,12 +191,14 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   const hydrateFromLiveBackend = async () => {
     const token = getLiveToken();
     if (!token) return;
+    const reqId = ++latestViewReqId;
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const [commitsRes, treeRes] = await Promise.all([
         fetch("/api/v1/repo/commits?rev=HEAD&limit=8", { headers }),
         fetch("/api/v1/repo/tree?rev=HEAD&recursive=true", { headers }),
       ]);
+      if (reqId !== latestViewReqId || !getLiveToken()) return;
       if (!commitsRes.ok || !treeRes.ok) {
         cb.setLiveCommits([]);
         cb.setLiveFileTreeNodes([]);
@@ -206,12 +208,15 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         );
         return;
       }
-      const cData = await commitsRes.json();
+      const [cData, tData] = await Promise.all([
+        commitsRes.json(),
+        treeRes.json(),
+      ]);
+      if (reqId !== latestViewReqId || !getLiveToken()) return;
       if (Array.isArray(cData.commits)) {
         cb.setLiveCommits(cData.commits);
         cb.setLookupMicros(Number(cData.lookup_micros ?? 0));
       }
-      const tData = await treeRes.json();
       if (Array.isArray(tData.entries)) {
         cb.setLiveFileTreeNodes(
           tData.entries.map((e: { path: string; is_dir: boolean }) => ({
@@ -222,6 +227,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       }
       await loadLiveCommitDiff("HEAD");
     } catch (err) {
+      if (reqId !== latestViewReqId || !getLiveToken()) return;
       cb.setLiveCommits([]);
       cb.setLiveFileTreeNodes([]);
       cb.setLiveDiffLines([]);

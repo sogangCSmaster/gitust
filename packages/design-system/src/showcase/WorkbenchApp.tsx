@@ -18,9 +18,14 @@ import {
   Icon,
   IconSpriteSheet,
   IssueItem,
+  LiveAuthSessionInfo,
+  LiveInviteItem,
+  LivePatItem,
+  LiveSshKeyItem,
   TabItem,
   Tabs,
 } from "../index";
+import { createLiveAuthClient } from "./live-auth-client";
 import { createLiveRepoClient, LiveCommitSummary } from "./live-repo-client";
 import {
   generateActionLogs,
@@ -78,10 +83,25 @@ export const WorkbenchApp: Component = () => {
   const [activeJobId, setActiveJobId] = createSignal("job-docker");
   const actionLogs = createMemo(() => generateActionLogs(10000));
 
-  // Showcase Enterprise Self-Hosted Admin & IAM State
+  // Showcase & Live Enterprise Self-Hosted Admin & IAM State
   const [enterpriseUsers, setEnterpriseUsers] = createSignal<EnterpriseUser[]>(
     INITIAL_ENTERPRISE_USERS
   );
+  const [liveSession, setLiveSession] =
+    createSignal<LiveAuthSessionInfo | null>(null);
+  const [redeemMode, setRedeemMode] = createSignal<"invite" | "reset">(
+    "invite"
+  );
+  const [redeemToken, setRedeemToken] = createSignal("");
+  const [liveInvites, setLiveInvites] = createSignal<LiveInviteItem[]>([]);
+  const [lastIssuedInviteUrl, setLastIssuedInviteUrl] = createSignal<
+    string | null
+  >(null);
+  const [livePats, setLivePats] = createSignal<LivePatItem[]>([]);
+  const [lastIssuedPatToken, setLastIssuedPatToken] = createSignal<
+    string | null
+  >(null);
+  const [liveSshKeys, setLiveSshKeys] = createSignal<LiveSshKeyItem[]>([]);
 
   let filterInputRef: HTMLInputElement | undefined;
 
@@ -142,6 +162,25 @@ export const WorkbenchApp: Component = () => {
     setLiveFileTreeNodes,
     setLiveCommits,
     getActiveCommitRev: activeCommitRev,
+    showQuickFeedback,
+  });
+
+  // Dedicated Live Auth & Credential Client (`/api/v1/auth/*` & `/api/v1/admin/*`)
+  const liveAuthClient = createLiveAuthClient({
+    setLiveSession,
+    setEnterpriseUsers,
+    setLiveInvites,
+    setLastIssuedInviteUrl,
+    setLivePats,
+    setLastIssuedPatToken,
+    setLiveSshKeys,
+    setRedeemToken,
+    fallbackUsers: INITIAL_ENTERPRISE_USERS,
+    onTokenAuthenticated: () => void liveClient.hydrateFromLiveBackend(),
+    onTokenCleared: () => {
+      setLiveDiffLines(null);
+      setLiveFileTreeNodes(null);
+    },
     showQuickFeedback,
   });
 
@@ -292,6 +331,29 @@ export const WorkbenchApp: Component = () => {
   };
 
   onMount(() => {
+    if (typeof window !== "undefined") {
+      const path = window.location.pathname;
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = (params.get("token") ?? "").trim();
+      if (
+        path.startsWith("/auth/accept-invite") ||
+        urlToken.startsWith("gitust_inv_")
+      ) {
+        setActiveTab("admin");
+        setRedeemMode("invite");
+        if (urlToken) setRedeemToken(urlToken);
+        window.history.replaceState({}, "", path);
+      } else if (
+        path.startsWith("/auth/reset-password") ||
+        urlToken.startsWith("gitust_rst_")
+      ) {
+        setActiveTab("admin");
+        setRedeemMode("reset");
+        if (urlToken) setRedeemToken(urlToken);
+        window.history.replaceState({}, "", path);
+      }
+    }
+    void liveAuthClient.hydrateAuthData();
     void liveClient.hydrateFromLiveBackend();
     const cleanups = registerWorkbenchShortcuts({
       getActiveTab: activeTab,
@@ -475,6 +537,36 @@ export const WorkbenchApp: Component = () => {
           onToggleEnterpriseUserRole={toggleEnterpriseUserRole}
           onToggleEnterpriseUserStatus={toggleEnterpriseUserStatus}
           onPolicyFeedback={showQuickFeedback}
+          adminAuthProps={{
+            liveSession: liveSession(),
+            onSignIn: (id, pwd) => void liveAuthClient.signIn(id, pwd),
+            onSignOut: () => void liveAuthClient.signOut(),
+            redeemMode: redeemMode(),
+            onChangeRedeemMode: setRedeemMode,
+            redeemToken: redeemToken(),
+            onRedeemTokenInput: setRedeemToken,
+            onRedeemInvite: (tok, user, pwd) =>
+              void liveAuthClient.redeemInvite(tok, user, pwd),
+            onRedeemPasswordReset: (tok, pwd) =>
+              void liveAuthClient.redeemPasswordReset(tok, pwd),
+            liveInvites: liveInvites(),
+            lastIssuedInviteUrl: lastIssuedInviteUrl(),
+            onIssueInvite: (email, role) =>
+              void liveAuthClient.issueInvite(email, role),
+            onRevokeInvite: (id) => void liveAuthClient.revokeInvite(id),
+            onIssuePasswordReset: (uid) =>
+              void liveAuthClient.issuePasswordReset(uid),
+            onDeactivateLiveUser: (uid) =>
+              void liveAuthClient.deactivateUser(uid),
+            livePats: livePats(),
+            lastIssuedPatToken: lastIssuedPatToken(),
+            onCreatePat: (name) => void liveAuthClient.createPat(name),
+            onRevokePat: (id) => void liveAuthClient.revokePat(id),
+            liveSshKeys: liveSshKeys(),
+            onRegisterSshKey: (title, key) =>
+              void liveAuthClient.registerSshKey(title, key),
+            onRevokeSshKey: (id) => void liveAuthClient.revokeSshKey(id),
+          }}
           fileTreeNodes={fileTreeNodes()}
           onSelectFileFromTree={(node) =>
             void liveClient.selectFileFromTree(node)

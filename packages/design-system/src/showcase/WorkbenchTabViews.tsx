@@ -8,6 +8,7 @@ import {
   Button,
   DiffLine,
   EnterpriseAdminView,
+  EnterpriseAdminViewProps,
   EnterpriseUser,
   FileTreeNode,
   Icon,
@@ -56,6 +57,7 @@ export interface WorkbenchTabViewsProps {
   onToggleEnterpriseUserRole: (id: number) => void;
   onToggleEnterpriseUserStatus: (id: number) => void;
   onPolicyFeedback: (msg: string) => void;
+  adminAuthProps?: Partial<EnterpriseAdminViewProps>;
   fileTreeNodes: FileTreeNode[];
   onSelectFileFromTree: (node: { path: string; kind: "file" | "dir" }) => void;
 }
@@ -325,6 +327,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
           onToggleRole={props.onToggleEnterpriseUserRole}
           onToggleStatus={props.onToggleEnterpriseUserStatus}
           onPolicyFeedback={props.onPolicyFeedback}
+          {...(props.adminAuthProps ?? {})}
         />
       </Show>
 

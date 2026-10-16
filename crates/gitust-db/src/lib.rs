@@ -14,27 +14,29 @@ mod credentials;
 mod crypto;
 mod invites;
 mod models;
+mod persistence;
 #[cfg(test)]
 mod tests;
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::Utc;
 use gitust_core::{
     AccountStatus, AuthError, AuthenticatedPrincipal, EnterpriseRole, EnterpriseSecurityPolicy,
-    RepoId, RepositoryRecord, TeamId, UserId, UserPublicProfile,
+    PersonalAccessTokenView, RepoId, RepositoryRecord, SshPublicKeyView, TeamId, UserId,
+    UserPublicProfile,
 };
 use parking_lot::{Mutex, RwLock};
-use uuid::Uuid;
+use subtle::ConstantTimeEq;
 
 pub use crypto::hash_token_sha256;
 pub use models::{IssuedInviteLink, IssuedPersonalAccessToken, LoginSessionResponse};
 
 use crypto::{hash_password_argon2, validate_repository_name, validate_username};
 use models::{AuthState, PersistedSnapshot, StoredUser};
+use persistence::DiskStamp;
 
 /// Maximum failed login attempts allowed per identifier or account within the rate-limit window.
 pub const MAX_LOGIN_ATTEMPTS: usize = 5;
@@ -48,12 +50,12 @@ pub(crate) const DEFAULT_SESSION_TTL_HOURS: i64 = 24 * 7;
 pub(crate) const MIN_PASSWORD_LEN: usize = 10;
 
 /// High-concurrency, O(1) indexed Authentication & Authorization Store.
-/// Disk persistence is synchronized via a dedicated `persist_last_revision` mutex OUTSIDE the in-memory `RwLock`,
-/// keeping in-memory reads non-blocking even during `fsync`.
+/// Disk persistence is synchronized via cross-process advisory file locking (`<auth-db>.lock`)
+/// and `DiskStamp` metadata checks OUTSIDE the in-memory `RwLock`.
 #[derive(Debug, Clone)]
 pub struct AuthStore {
     pub(crate) state: Arc<RwLock<AuthState>>,
-    pub(crate) persist_last_revision: Arc<Mutex<u64>>,
+    pub(crate) last_disk_stamp: Arc<Mutex<Option<DiskStamp>>>,
     pub(crate) persistence_path: Option<PathBuf>,
 }
 
@@ -68,7 +70,7 @@ impl AuthStore {
     pub fn new_in_memory() -> Self {
         Self {
             state: Arc::new(RwLock::new(AuthState::default())),
-            persist_last_revision: Arc::new(Mutex::new(0)),
+            last_disk_stamp: Arc::new(Mutex::new(None)),
             persistence_path: None,
         }
     }
@@ -85,83 +87,13 @@ impl AuthStore {
         } else {
             AuthState::default()
         };
-        let initial_rev = state.revision;
+        let initial_stamp = DiskStamp::of_path(&path_buf);
 
         Ok(Self {
             state: Arc::new(RwLock::new(state)),
-            persist_last_revision: Arc::new(Mutex::new(initial_rev)),
+            last_disk_stamp: Arc::new(Mutex::new(initial_stamp)),
             persistence_path: Some(path_buf),
         })
-    }
-
-    /// Persists a point-in-time snapshot to disk OUTSIDE the in-memory `RwLock`.
-    /// Uses revision ordering so a slower older snapshot never overwrites a newer snapshot.
-    pub(crate) fn persist_snapshot_unlocked(
-        &self,
-        snapshot: Option<PersistedSnapshot>,
-    ) -> Result<(), AuthError> {
-        let (Some(ref target_path), Some(snap)) = (&self.persistence_path, snapshot) else {
-            return Ok(());
-        };
-
-        let mut last_rev = self.persist_last_revision.lock();
-        if snap.revision <= *last_rev {
-            return Ok(());
-        }
-
-        if let Some(parent) = target_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|e| {
-                    AuthError::StorageError(format!("failed to create db parent dir: {e}"))
-                })?;
-            }
-        }
-
-        let tmp_path = target_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
-        let payload = serde_json::to_vec(&snap)
-            .map_err(|e| AuthError::StorageError(format!("failed to serialize auth db: {e}")))?;
-
-        {
-            let mut file = fs::File::create(&tmp_path).map_err(|e| {
-                AuthError::StorageError(format!("failed to create temp auth db: {e}"))
-            })?;
-
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let perms = fs::Permissions::from_mode(0o600);
-                file.set_permissions(perms).map_err(|e| {
-                    AuthError::StorageError(format!("failed to set 0600 permissions: {e}"))
-                })?;
-            }
-
-            file.write_all(&payload).map_err(|e| {
-                AuthError::StorageError(format!("failed to write temp auth db: {e}"))
-            })?;
-            file.sync_all().map_err(|e| {
-                AuthError::StorageError(format!("failed to fsync temp auth db: {e}"))
-            })?;
-        }
-
-        fs::rename(&tmp_path, target_path).map_err(|e| {
-            let _ = fs::remove_file(&tmp_path);
-            AuthError::StorageError(format!("failed to atomically replace auth db: {e}"))
-        })?;
-
-        *last_rev = snap.revision;
-        Ok(())
-    }
-
-    pub(crate) fn maybe_snapshot(&self, state: &mut AuthState) -> Option<PersistedSnapshot> {
-        state.revision = state.revision.saturating_add(1);
-        if self.persistence_path.is_some() {
-            Some(state.snapshot_current())
-        } else {
-            if state.revision.is_multiple_of(64) || state.sessions_by_hash.len() >= 1024 {
-                state.prune_expired(Utc::now());
-            }
-            None
-        }
     }
 
     /// Exclusively invoked by the `gitust admin create` CLI command.
@@ -177,7 +109,7 @@ impl AuthStore {
         let clean_email = email.trim().to_ascii_lowercase();
 
         {
-            let guard = self.state.read();
+            let guard = self.read_state();
             if !guard.users.is_empty() {
                 return Err(AuthError::AdminAlreadyBootstrapped);
             }
@@ -191,7 +123,7 @@ impl AuthStore {
         let password_hash = hash_password_argon2(password)?;
 
         let (profile, snapshot) = {
-            let mut guard = self.state.write();
+            let mut guard = self.write_state();
             if !guard.users.is_empty() {
                 return Err(AuthError::AdminAlreadyBootstrapped);
             }
@@ -262,7 +194,7 @@ impl AuthStore {
         target_user_id: UserId,
     ) -> Result<UserPublicProfile, AuthError> {
         let (profile, snapshot) = {
-            let mut guard = self.state.write();
+            let mut guard = self.write_state();
             Self::verify_active_admin_locked(&guard, caller)?;
 
             let active_admin_count = guard
@@ -336,7 +268,7 @@ impl AuthStore {
         let clean_name = validate_repository_name(name)?;
 
         let (repo, snapshot) = {
-            let mut guard = self.state.write();
+            let mut guard = self.write_state();
             let active_caller = Self::verify_active_user_locked(&guard, caller)?;
 
             if active_caller.role != EnterpriseRole::SiteAdmin
@@ -363,13 +295,13 @@ impl AuthStore {
 
     #[must_use]
     pub fn repository_exists(&self, repo_id: RepoId) -> bool {
-        self.state.read().repositories.contains_key(&repo_id)
+        self.read_state().repositories.contains_key(&repo_id)
     }
 
     /// Returns a snapshot of the authoritative [`EnterpriseSecurityPolicy`] stored in [`AuthStore`].
     #[must_use]
     pub fn security_policy(&self) -> EnterpriseSecurityPolicy {
-        self.state.read().policy.clone()
+        self.read_state().policy.clone()
     }
 
     /// Verifies whether `caller` is permitted to access `repo_id`.
@@ -379,7 +311,7 @@ impl AuthStore {
         caller: &AuthenticatedPrincipal,
         repo_id: RepoId,
     ) -> Result<RepositoryRecord, AuthError> {
-        let guard = self.state.read();
+        let guard = self.read_state();
         let active_caller = Self::verify_active_user_locked(&guard, caller)?;
 
         let Some(repo) = guard.repositories.get(&repo_id) else {
@@ -401,7 +333,7 @@ impl AuthStore {
         &self,
         caller: &AuthenticatedPrincipal,
     ) -> Result<AuthenticatedPrincipal, AuthError> {
-        let guard = self.state.read();
+        let guard = self.read_state();
         if guard.users.is_empty() {
             return Ok(caller.clone());
         }
@@ -412,12 +344,75 @@ impl AuthStore {
         &self,
         caller: &AuthenticatedPrincipal,
     ) -> Result<Vec<UserPublicProfile>, AuthError> {
-        let guard = self.state.read();
+        let guard = self.read_state();
         Self::verify_active_admin_locked(&guard, caller)?;
-        Ok(guard
+        let mut users: Vec<UserPublicProfile> = guard
             .users
             .values()
             .map(StoredUser::to_public_profile)
-            .collect())
+            .collect();
+        users.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(users)
+    }
+
+    /// Revokes the active session corresponding to `raw_session_token` for `caller`.
+    pub fn revoke_session(
+        &self,
+        caller: &AuthenticatedPrincipal,
+        raw_session_token: &str,
+    ) -> Result<(), AuthError> {
+        let candidate_hash = hash_token_sha256(raw_session_token);
+        let snapshot = {
+            let mut guard = self.write_state();
+            let active_caller = Self::verify_active_user_locked(&guard, caller)?;
+            let Some(session) = guard.sessions_by_hash.get_mut(&candidate_hash) else {
+                return Err(AuthError::InvalidToken);
+            };
+            if session.token_sha256.ct_eq(&candidate_hash).unwrap_u8() != 1 {
+                return Err(AuthError::InvalidToken);
+            }
+            if session.user_id != active_caller.user_id
+                && active_caller.role != EnterpriseRole::SiteAdmin
+            {
+                return Err(AuthError::ForbiddenResourceOwnership);
+            }
+            session.revoked = true;
+            self.maybe_snapshot(&mut guard)
+        };
+        self.persist_snapshot_unlocked(snapshot)
+    }
+
+    /// Lists Personal Access Tokens owned by `caller` (never exposes token digests or raw tokens).
+    pub fn list_personal_access_tokens(
+        &self,
+        caller: &AuthenticatedPrincipal,
+    ) -> Result<Vec<PersonalAccessTokenView>, AuthError> {
+        let guard = self.read_state();
+        let active_caller = Self::verify_active_user_locked(&guard, caller)?;
+        let mut pats: Vec<PersonalAccessTokenView> = guard
+            .pats_by_id
+            .values()
+            .filter(|pat| pat.owner_id == active_caller.user_id)
+            .map(models::StoredPat::to_public_view)
+            .collect();
+        pats.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(pats)
+    }
+
+    /// Lists SSH public keys owned by `caller`.
+    pub fn list_ssh_public_keys(
+        &self,
+        caller: &AuthenticatedPrincipal,
+    ) -> Result<Vec<SshPublicKeyView>, AuthError> {
+        let guard = self.read_state();
+        let active_caller = Self::verify_active_user_locked(&guard, caller)?;
+        let mut keys: Vec<SshPublicKeyView> = guard
+            .ssh_keys_by_id
+            .values()
+            .filter(|key| key.owner_id == active_caller.user_id)
+            .map(models::StoredSshKey::to_public_view)
+            .collect();
+        keys.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(keys)
     }
 }

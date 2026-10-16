@@ -75,7 +75,15 @@ export {
   EnterpriseAdminView,
   type EnterpriseAdminViewProps,
   type EnterpriseUser,
+  type LiveAuthSessionInfo,
 } from "./patterns/EnterpriseAdminView";
+export {
+  EnterpriseCredentialsPanel,
+  type EnterpriseCredentialsPanelProps,
+  type LiveInviteItem,
+  type LivePatItem,
+  type LiveSshKeyItem,
+} from "./patterns/EnterpriseCredentialsPanel";
 export {
   AgentSwarmView,
   filterAgentSwarmTasks,

@@ -387,3 +387,173 @@ async fn approve_worktree_conflicts_while_exec_lock_held_and_preserves_terminal_
     );
     assert_eq!(state.spawn_quota.lock().in_flight_total, 0);
 }
+
+#[tokio::test]
+async fn test_single_binary_webui_and_end_to_end_dogfood_onboarding_lifecycle() {
+    let (app, admin_token) = test_app();
+
+    // 1. Embedded Web UI & SPA routes serve index.html + assets with strict security headers
+    for route in [
+        "/",
+        "/auth/accept-invite?token=gitust_inv_123",
+        "/auth/reset-password?token=gitust_rst_123",
+    ] {
+        let resp = app
+            .clone()
+            .oneshot(Request::builder().uri(route).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(header::X_CONTENT_TYPE_OPTIONS)
+                .and_then(|v| v.to_str().ok()),
+            Some("nosniff")
+        );
+        assert_eq!(
+            resp.headers()
+                .get(header::X_FRAME_OPTIONS)
+                .and_then(|v| v.to_str().ok()),
+            Some("DENY")
+        );
+        let csp = resp
+            .headers()
+            .get(header::CONTENT_SECURITY_POLICY)
+            .and_then(|v| v.to_str().ok())
+            .unwrap();
+        assert!(csp.contains("default-src 'self'") && !csp.contains("googleapis.com"));
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("/assets/index.js") && !html.contains("fonts.googleapis.com"));
+    }
+
+    for (asset, expected_ct) in [
+        ("/assets/index.js", "application/javascript; charset=utf-8"),
+        ("/assets/index.css", "text/css; charset=utf-8"),
+    ] {
+        let resp = app
+            .clone()
+            .oneshot(Request::builder().uri(asset).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some(expected_ct)
+        );
+    }
+
+    // 2. SiteAdmin issues a single-use invite link; Developer redeems it and signs in
+    let (inv_status, inv_body) = call(
+        &app,
+        "POST",
+        "/api/v1/admin/invites".to_owned(),
+        &admin_token,
+        Some(serde_json::json!({"target_email": "dogfood@company.internal", "assigned_role": "Developer", "team_ids": []})),
+    ).await;
+    assert_eq!(inv_status, StatusCode::CREATED);
+    let issued: IssuedInviteLink = serde_json::from_str(&inv_body).unwrap();
+
+    let (red_status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/auth/invites/redeem".to_owned(),
+        "",
+        Some(serde_json::json!({"raw_token": issued.raw_token, "username": "dogfood_dev", "password": "DogfoodPassword!2026"})),
+    ).await;
+    assert_eq!(red_status, StatusCode::CREATED);
+
+    let (login_status, login_body) = call(
+        &app,
+        "POST",
+        "/api/v1/auth/login".to_owned(),
+        "",
+        Some(serde_json::json!({"identifier": "dogfood_dev", "password": "DogfoodPassword!2026"})),
+    )
+    .await;
+    assert_eq!(login_status, StatusCode::OK);
+    let dev_login: LoginSessionResponse = serde_json::from_str(&login_body).unwrap();
+    let dev_ses = dev_login.raw_session_token;
+
+    // 3. Developer creates a PAT and SSH key and lists them (isolated from SiteAdmin)
+    let (pat_status, pat_body) = call(
+        &app,
+        "POST",
+        "/api/v1/auth/pats".to_owned(),
+        &dev_ses,
+        Some(serde_json::json!({"name": "dogfood-laptop", "ttl_days": 30})),
+    )
+    .await;
+    assert_eq!(pat_status, StatusCode::CREATED);
+    let issued_pat: IssuedPersonalAccessToken = serde_json::from_str(&pat_body).unwrap();
+
+    let (_, list_pat_body) =
+        call(&app, "GET", "/api/v1/auth/pats".to_owned(), &dev_ses, None).await;
+    let dev_pats: Vec<PersonalAccessTokenView> = serde_json::from_str(&list_pat_body).unwrap();
+    assert_eq!(dev_pats.len(), 1);
+    assert_eq!(dev_pats[0].name, "dogfood-laptop");
+
+    let (_, admin_pats_body) = call(
+        &app,
+        "GET",
+        "/api/v1/auth/pats".to_owned(),
+        &admin_token,
+        None,
+    )
+    .await;
+    let admin_pats: Vec<PersonalAccessTokenView> = serde_json::from_str(&admin_pats_body).unwrap();
+    assert!(admin_pats.is_empty());
+
+    let (ssh_status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/auth/ssh-keys".to_owned(),
+        &dev_ses,
+        Some(serde_json::json!({
+            "title": "mac-studio-ed25519",
+            "public_key_openssh": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl dogfood@company.internal"
+        })),
+    ).await;
+    assert_eq!(ssh_status, StatusCode::CREATED);
+
+    let (_, list_ssh_body) = call(
+        &app,
+        "GET",
+        "/api/v1/auth/ssh-keys".to_owned(),
+        &dev_ses,
+        None,
+    )
+    .await;
+    let dev_keys: Vec<SshPublicKeyView> = serde_json::from_str(&list_ssh_body).unwrap();
+    assert_eq!(dev_keys.len(), 1);
+    assert_eq!(dev_keys[0].title, "mac-studio-ed25519");
+
+    // 4. Logout rejects PAT bearer tokens and immediately revokes the active session token
+    let (pat_logout_status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/auth/logout".to_owned(),
+        &issued_pat.raw_token,
+        None,
+    )
+    .await;
+    assert_eq!(pat_logout_status, StatusCode::BAD_REQUEST);
+
+    let (ses_logout_status, _) = call(
+        &app,
+        "POST",
+        "/api/v1/auth/logout".to_owned(),
+        &dev_ses,
+        None,
+    )
+    .await;
+    assert_eq!(ses_logout_status, StatusCode::NO_CONTENT);
+
+    let (after_logout_status, _) =
+        call(&app, "GET", "/api/v1/auth/me".to_owned(), &dev_ses, None).await;
+    assert_eq!(after_logout_status, StatusCode::UNAUTHORIZED);
+}

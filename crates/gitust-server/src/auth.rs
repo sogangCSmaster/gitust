@@ -128,11 +128,37 @@ pub(crate) async fn me_handler(caller: AuthenticatedPrincipal) -> Json<Authentic
     Json(caller)
 }
 
-pub(crate) async fn create_invite_handler(
+pub(crate) async fn logout_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let raw_token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer ").map(str::trim))
+        .ok_or_else(|| map_auth_err(AuthError::Unauthenticated))?
+        .to_owned();
+    if raw_token.starts_with("gitust_pat_") {
+        return Err(map_auth_err(AuthError::InvalidInput(
+            "logout requires a session bearer token (use DELETE /api/v1/auth/pats/{id} to revoke a PAT)".to_owned(),
+        )));
+    }
+    let store = state.auth_store.clone();
+    tokio::task::spawn_blocking(move || store.revoke_session(&caller, &raw_token))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(map_auth_err)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn create_invite_handler(
+    State(state): State<AppState>,
+    _caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
     Json(req): Json<CreateInviteRequest>,
 ) -> Result<(StatusCode, Json<IssuedInviteLink>), (StatusCode, String)> {
+    let caller = extract_principal(&headers, &state.auth_store)?;
     let store = state.auth_store.clone();
     let issued = tokio::task::spawn_blocking(move || {
         store.create_invite_link(
@@ -238,11 +264,24 @@ pub(crate) async fn deactivate_user_handler(
     Ok(Json(profile))
 }
 
-pub(crate) async fn create_pat_handler(
+pub(crate) async fn list_pats_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
+) -> Result<Json<Vec<PersonalAccessTokenView>>, (StatusCode, String)> {
+    let list = state
+        .auth_store
+        .list_personal_access_tokens(&caller)
+        .map_err(map_auth_err)?;
+    Ok(Json(list))
+}
+
+pub(crate) async fn create_pat_handler(
+    State(state): State<AppState>,
+    _caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
     Json(req): Json<CreatePatRequest>,
 ) -> Result<(StatusCode, Json<IssuedPersonalAccessToken>), (StatusCode, String)> {
+    let caller = extract_principal(&headers, &state.auth_store)?;
     let store = state.auth_store.clone();
     let issued = tokio::task::spawn_blocking(move || {
         store.create_personal_access_token(&caller, &req.name, req.ttl_days)
@@ -268,11 +307,24 @@ pub(crate) async fn revoke_pat_handler(
     Ok(Json(view))
 }
 
-pub(crate) async fn register_ssh_key_handler(
+pub(crate) async fn list_ssh_keys_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
+) -> Result<Json<Vec<SshPublicKeyView>>, (StatusCode, String)> {
+    let list = state
+        .auth_store
+        .list_ssh_public_keys(&caller)
+        .map_err(map_auth_err)?;
+    Ok(Json(list))
+}
+
+pub(crate) async fn register_ssh_key_handler(
+    State(state): State<AppState>,
+    _caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
     Json(req): Json<RegisterSshKeyRequest>,
 ) -> Result<(StatusCode, Json<SshPublicKeyView>), (StatusCode, String)> {
+    let caller = extract_principal(&headers, &state.auth_store)?;
     let store = state.auth_store.clone();
     let view = tokio::task::spawn_blocking(move || {
         store.register_ssh_public_key(&caller, &req.title, &req.public_key_openssh)
@@ -300,9 +352,11 @@ pub(crate) async fn revoke_ssh_key_handler(
 
 pub(crate) async fn create_team_repo_handler(
     State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
+    _caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
     Json(req): Json<CreateTeamRepoRequest>,
 ) -> Result<(StatusCode, Json<RepositoryRecord>), (StatusCode, String)> {
+    let caller = extract_principal(&headers, &state.auth_store)?;
     let store = state.auth_store.clone();
     let repo = tokio::task::spawn_blocking(move || {
         store.create_team_repository(&caller, &req.name, req.owner_team_id, req.is_private)

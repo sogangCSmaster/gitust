@@ -34,7 +34,7 @@ impl AuthStore {
         let now = Utc::now();
 
         let (public_view, snapshot) = {
-            let mut guard = self.state.write();
+            let mut guard = self.write_state();
             let admin_id = Self::verify_active_admin_locked(&guard, caller)?;
 
             let clean_email = target_email.trim().to_ascii_lowercase();
@@ -95,7 +95,7 @@ impl AuthStore {
         let now = Utc::now();
 
         let (public_view, snapshot) = {
-            let mut guard = self.state.write();
+            let mut guard = self.write_state();
             let admin_id = Self::verify_active_admin_locked(&guard, caller)?;
 
             let Some(target_user) = guard.users.get(&target_user_id) else {
@@ -141,7 +141,7 @@ impl AuthStore {
         invite_id: InviteId,
     ) -> Result<InvitePublicView, AuthError> {
         let (view, snapshot) = {
-            let mut guard = self.state.write();
+            let mut guard = self.write_state();
             Self::verify_active_admin_locked(&guard, caller)?;
 
             let Some(inv) = guard.invites_by_id.get_mut(&invite_id) else {
@@ -169,7 +169,7 @@ impl AuthStore {
         let now = Utc::now();
 
         {
-            let guard = self.state.read();
+            let guard = self.read_state();
             let Some(&invite_id) = guard.invite_hash_index.get(&candidate_hash) else {
                 return Err(AuthError::InvalidToken);
             };
@@ -204,7 +204,7 @@ impl AuthStore {
         let password_hash = hash_password_argon2(password)?;
 
         let (profile, snapshot) = {
-            let mut guard = self.state.write();
+            let mut guard = self.write_state();
             let check_now = Utc::now();
             let Some(&invite_id) = guard.invite_hash_index.get(&candidate_hash) else {
                 return Err(AuthError::InvalidToken);
@@ -294,7 +294,7 @@ impl AuthStore {
         let now = Utc::now();
 
         {
-            let guard = self.state.read();
+            let guard = self.read_state();
             let Some(&invite_id) = guard.invite_hash_index.get(&candidate_hash) else {
                 return Err(AuthError::InvalidToken);
             };
@@ -321,7 +321,7 @@ impl AuthStore {
         let new_password_hash = hash_password_argon2(new_password)?;
 
         let (profile, snapshot) = {
-            let mut guard = self.state.write();
+            let mut guard = self.write_state();
             let check_now = Utc::now();
             let Some(&invite_id) = guard.invite_hash_index.get(&candidate_hash) else {
                 return Err(AuthError::InvalidToken);
@@ -413,12 +413,14 @@ impl AuthStore {
         &self,
         caller: &AuthenticatedPrincipal,
     ) -> Result<Vec<InvitePublicView>, AuthError> {
-        let guard = self.state.read();
+        let guard = self.read_state();
         Self::verify_active_admin_locked(&guard, caller)?;
-        Ok(guard
+        let mut invites: Vec<InvitePublicView> = guard
             .invites_by_id
             .values()
             .map(StoredInviteToken::to_public_view)
-            .collect())
+            .collect();
+        invites.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(invites)
     }
 }

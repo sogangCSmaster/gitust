@@ -321,12 +321,14 @@ pub(crate) async fn oauth_register_client_handler(
 /// authorization code for an active user.
 pub(crate) async fn oauth_authorize_handler(
     State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
+    _caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
     Json(req): Json<OAuthAuthorizeRequest>,
 ) -> Response {
-    if let Err(err) = state.auth_store.verify_active_principal(&caller) {
-        return map_auth_err(err).into_response();
-    }
+    let caller = match crate::auth::extract_principal(&headers, &state.auth_store) {
+        Ok(c) => c,
+        Err(err) => return err.into_response(),
+    };
     if req.response_type.trim() != "code" {
         return oauth_error_response(
             StatusCode::BAD_REQUEST,

@@ -1,12 +1,19 @@
-import { Component, createSignal, For } from "solid-js";
+import { Component, createSignal, For, Show } from "solid-js";
 import { Badge } from "../primitives/Badge";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { Input } from "../primitives/Input";
 import { Avatar } from "../primitives/TabsAndAvatar";
+import {
+  EnterpriseCredentialsPanel,
+  LiveInviteItem,
+  LivePatItem,
+  LiveSshKeyItem,
+} from "./EnterpriseCredentialsPanel";
 
 export interface EnterpriseUser {
   id: number;
+  liveId?: string;
   username: string;
   email: string;
   department: string;
@@ -15,18 +22,49 @@ export interface EnterpriseUser {
   status: "active" | "suspended";
 }
 
+export interface LiveAuthSessionInfo {
+  user_id: string;
+  username: string;
+  email: string;
+  role: "SiteAdmin" | "Maintainer" | "Developer";
+}
+
 export interface EnterpriseAdminViewProps {
   users: EnterpriseUser[];
   onToggleRole: (userId: number) => void;
   onToggleStatus: (userId: number) => void;
   onPolicyFeedback: (msg: string) => void;
+  liveSession?: LiveAuthSessionInfo | null;
+  onSignIn?: (identifier: string, password: string) => void;
+  onSignOut?: () => void;
+  redeemMode?: "invite" | "reset";
+  onChangeRedeemMode?: (mode: "invite" | "reset") => void;
+  redeemToken?: string;
+  onRedeemTokenInput?: (val: string) => void;
+  onRedeemInvite?: (token: string, username: string, password: string) => void;
+  onRedeemPasswordReset?: (token: string, newPassword: string) => void;
+  liveInvites?: LiveInviteItem[];
+  lastIssuedInviteUrl?: string | null;
+  onIssueInvite?: (
+    targetEmail: string,
+    role: "SiteAdmin" | "Maintainer" | "Developer"
+  ) => void;
+  onRevokeInvite?: (inviteId: string) => void;
+  onIssuePasswordReset?: (userId: string) => void;
+  onDeactivateLiveUser?: (userId: string) => void;
+  livePats?: LivePatItem[];
+  lastIssuedPatToken?: string | null;
+  onCreatePat?: (name: string) => void;
+  onRevokePat?: (patId: string) => void;
+  liveSshKeys?: LiveSshKeyItem[];
+  onRegisterSshKey?: (title: string, publicKeyOpenssh: string) => void;
+  onRevokeSshKey?: (keyId: string) => void;
 }
 
 /**
  * Self-Hosted Enterprise Site Admin & IAM/Auth Control Console.
- * Demonstrates:
- * - On-Premise Sign-In / SSO / Registration Domain Lock
- * - Site Admin User Role & Security Policy Management with 0ms Optimistic UI
+ * Supports both live `gitust serve` backend operations (Sign-In, Sign-Out, Single-Use Invite
+ * Issuance/Redemption, Password Reset, PATs, SSH Keys, User Deactivation) and 0ms Showcase UI.
  */
 export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
   props
@@ -35,6 +73,16 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
   const [require2FA, setRequire2FA] = createSignal(true);
   const [ssoEnforced, setSsoEnforced] = createSignal(false);
   const [allowedDomain, setAllowedDomain] = createSignal("company.internal");
+
+  const [loginIdentifier, setLoginIdentifier] = createSignal("");
+  const [loginPassword, setLoginPassword] = createSignal("");
+  const [localRedeemMode, setLocalRedeemMode] = createSignal<
+    "invite" | "reset"
+  >("invite");
+  const [localRedeemToken, setLocalRedeemToken] = createSignal("");
+
+  const activeRedeemMode = () => props.redeemMode ?? localRedeemMode();
+  const activeRedeemToken = () => props.redeemToken ?? localRedeemToken();
 
   const toggleSwitch = (
     label: string,
@@ -50,7 +98,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
 
   return (
     <div class="ds-admin-grid">
-      {/* Left Column: Enterprise Auth / Sign-In Card & Security Policies */}
+      {/* Left Column: Enterprise Auth Portal, Credentials & Security Policies */}
       <div
         style={{
           display: "flex",
@@ -58,7 +106,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
           gap: "var(--ds-space-4)",
         }}
       >
-        {/* Self-Hosted Auth & SSO Sign-In Preview Card */}
+        {/* Self-Hosted Auth & Session Sign-In Portal Card */}
         <div class="ds-card">
           <div class="ds-card-header">
             <span
@@ -71,7 +119,16 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
               <Icon name="lock" size={13} />
               <span>Enterprise Self-Hosted Auth Portal</span>
             </span>
-            <Badge variant="success">On-Premise</Badge>
+            <Show
+              when={props.liveSession}
+              fallback={<Badge variant="success">On-Premise</Badge>}
+            >
+              {(ses) => (
+                <Badge variant="accent" mono>
+                  @{ses().username} · {ses().role}
+                </Badge>
+              )}
+            </Show>
           </div>
           <div class="ds-card-body">
             <div>
@@ -89,46 +146,84 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   color: "var(--ds-fg-muted)",
                 }}
               >
-                Internal Git & CI/CD Server · Allowed:{" "}
+                Invite-Only On-Premise Git &amp; Sandbox Server · Allowed:{" "}
                 <span class="ds-mono">@{allowedDomain()}</span>
               </div>
             </div>
 
             <Input
               icon={<Icon name="users" size={14} />}
-              placeholder={`username@${allowedDomain()}`}
+              value={loginIdentifier()}
+              onInput={(e) => setLoginIdentifier(e.currentTarget.value)}
+              placeholder={`username or email@${allowedDomain()}`}
             />
             <Input
               type="password"
               icon={<Icon name="key" size={14} />}
-              placeholder="Password or Personal Access Token"
+              value={loginPassword()}
+              onInput={(e) => setLoginPassword(e.currentTarget.value)}
+              placeholder="Password (Argon2id verified)"
             />
 
-            <Button
-              variant="primary"
-              icon={<Icon name="shield-check" size={14} />}
-              onClick={() =>
-                props.onPolicyFeedback(
-                  "Authenticated via Argon2id + Ed25519 Session Token (< 2ms)"
-                )
-              }
-            >
-              Sign In to Private Instance
-            </Button>
-
-            <Button
-              variant="secondary"
-              icon={<Icon name="lock" size={14} />}
-              onClick={() =>
-                props.onPolicyFeedback(
-                  "Redirecting to Corporate OIDC / Okta / Keycloak SSO..."
-                )
-              }
-            >
-              Continue with Corporate SSO (OIDC / LDAP)
-            </Button>
+            <div style={{ display: "flex", gap: "var(--ds-space-2)" }}>
+              <Button
+                variant="primary"
+                icon={<Icon name="shield-check" size={14} />}
+                onClick={() => {
+                  if (props.onSignIn) {
+                    props.onSignIn(loginIdentifier().trim(), loginPassword());
+                    setLoginPassword("");
+                  } else {
+                    props.onPolicyFeedback(
+                      "Authenticated via Argon2id + CSPRNG Session Token (< 2ms)"
+                    );
+                  }
+                }}
+              >
+                Sign In to Private Instance
+              </Button>
+              <Show when={props.liveSession && props.onSignOut}>
+                <Button
+                  variant="danger"
+                  icon={<Icon name="x" size={14} />}
+                  onClick={() => props.onSignOut?.()}
+                >
+                  Sign Out
+                </Button>
+              </Show>
+            </div>
           </div>
         </div>
+
+        <EnterpriseCredentialsPanel
+          allowedDomain={allowedDomain()}
+          redeemMode={activeRedeemMode()}
+          onChangeRedeemMode={(m) =>
+            props.onChangeRedeemMode
+              ? props.onChangeRedeemMode(m)
+              : setLocalRedeemMode(m)
+          }
+          redeemToken={activeRedeemToken()}
+          onRedeemTokenInput={(v) =>
+            props.onRedeemTokenInput
+              ? props.onRedeemTokenInput(v)
+              : setLocalRedeemToken(v)
+          }
+          onRedeemInvite={props.onRedeemInvite}
+          onRedeemPasswordReset={props.onRedeemPasswordReset}
+          liveInvites={props.liveInvites}
+          lastIssuedInviteUrl={props.lastIssuedInviteUrl}
+          onIssueInvite={props.onIssueInvite}
+          onRevokeInvite={props.onRevokeInvite}
+          livePats={props.livePats}
+          lastIssuedPatToken={props.lastIssuedPatToken}
+          onCreatePat={props.onCreatePat}
+          onRevokePat={props.onRevokePat}
+          liveSshKeys={props.liveSshKeys}
+          onRegisterSshKey={props.onRegisterSshKey}
+          onRevokeSshKey={props.onRevokeSshKey}
+          onPolicyFeedback={props.onPolicyFeedback}
+        />
 
         {/* Site Admin Registration & Security Controls */}
         <div class="ds-card">
@@ -141,7 +236,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
               }}
             >
               <Icon name="shield-check" size={13} />
-              <span>Registration & Security Policy</span>
+              <span>Registration &amp; Security Policy</span>
             </span>
             <Badge variant="accent">Site Admin</Badge>
           </div>
@@ -157,7 +252,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                     color: "var(--ds-fg-muted)",
                   }}
                 >
-                  Only Site Admins or Corporate SSO can provision accounts
+                  Accounts are created strictly via Site Admin single-use links
                 </div>
               </div>
               <button
@@ -167,11 +262,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                 data-checked={inviteOnly()}
                 class="ds-switch"
                 onClick={() =>
-                  toggleSwitch(
-                    "Invite-Only Mode",
-                    inviteOnly,
-                    setInviteOnly
-                  )
+                  toggleSwitch("Invite-Only Mode", inviteOnly, setInviteOnly)
                 }
               >
                 <span class="ds-switch-thumb" />
@@ -181,7 +272,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
             <div class="ds-toggle-row">
               <div>
                 <div style={{ "font-weight": 500 }}>
-                  Mandatory 2FA / Passkey & Signed Commits
+                  Mandatory 2FA / Passkey &amp; Signed Commits
                 </div>
                 <div
                   style={{
@@ -221,7 +312,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                     color: "var(--ds-fg-muted)",
                   }}
                 >
-                  Disable password login for non-admin accounts
+                  Phase 4 Enterprise SSO integration toggle
                 </div>
               </div>
               <button
@@ -246,7 +337,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
               <div
                 style={{
                   "font-size": "var(--ds-font-size-xs)",
-                  "margin-bottom": "4px",
+                  "margin-bottom": "var(--ds-space-1)",
                   color: "var(--ds-fg-secondary)",
                 }}
               >
@@ -269,7 +360,6 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
           gap: "var(--ds-space-4)",
         }}
       >
-        {/* System Health & Embedded Services */}
         <div
           style={{
             display: "grid",
@@ -307,7 +397,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   color: "var(--ds-fg-muted)",
                 }}
               >
-                Embedded russh SSH :2222 · HTTP :3000
+                Single Binary · HTTP :3000
               </div>
             </div>
           </div>
@@ -323,7 +413,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   "font-size": "var(--ds-font-size-xs)",
                 }}
               >
-                <span>Gitust Actions Runners</span>
+                <span>Sandbox Isolation</span>
                 <Icon name="play" size={14} />
               </div>
               <div
@@ -333,7 +423,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   "font-weight": 700,
                 }}
               >
-                4 Online / 0 Idle
+                CoW + OS Sandbox
               </div>
               <div
                 style={{
@@ -341,7 +431,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   color: "var(--ds-fg-muted)",
                 }}
               >
-                act_runner compatible · Private Docker Pool
+                Zero Cloud Leakage
               </div>
             </div>
           </div>
@@ -357,7 +447,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   "font-size": "var(--ds-font-size-xs)",
                 }}
               >
-                <span>Security & Audit</span>
+                <span>Auth &amp; Onboarding</span>
                 <Icon name="shield-check" size={14} />
               </div>
               <div
@@ -381,7 +471,6 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
           </div>
         </div>
 
-        {/* User & Permission Matrix Table */}
         <div class="ds-card">
           <div class="ds-card-header">
             <span
@@ -393,7 +482,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
             >
               <Icon name="users" size={14} />
               <span>
-                Organization Users & Access Control ({props.users.length})
+                Organization Users &amp; Access Control ({props.users.length})
               </span>
             </span>
             <span
@@ -402,17 +491,20 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                 color: "var(--ds-fg-muted)",
               }}
             >
-              Click role or status for 0ms Optimistic Admin Mutation
+              Deactivation immediately revokes all sessions, PATs &amp; SSH keys
             </span>
           </div>
 
-          <div class="ds-issue-list" style={{ border: "none", "border-radius": 0 }}>
+          <div
+            class="ds-issue-list"
+            style={{ border: "none", "border-radius": 0 }}
+          >
             <For each={props.users}>
               {(user) => (
                 <div class="ds-issue-row">
                   <div class="ds-issue-left">
                     <Avatar name={user.username} size="sm" />
-                    <div style={{ "min-width": "150px" }}>
+                    <div style={{ flex: "1" }}>
                       <div
                         style={{
                           "font-weight": 600,
@@ -437,26 +529,59 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                       mono
                     >
                       <Icon name="shield-check" size={11} />
-                      <span>{user.twoFactorEnabled ? "2FA+SSH" : "No 2FA"}</span>
+                      <span>
+                        {user.twoFactorEnabled ? "Argon2+SSH" : "No 2FA"}
+                      </span>
                     </Badge>
                   </div>
 
                   <div class="ds-issue-right">
+                    <Show when={user.liveId && props.onIssuePasswordReset}>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() =>
+                          user.liveId &&
+                          props.onIssuePasswordReset?.(user.liveId)
+                        }
+                      >
+                        Reset Link
+                      </Button>
+                    </Show>
                     <Button
                       size="xs"
                       variant={
                         user.role === "Site Admin" ? "primary" : "secondary"
                       }
-                      onClick={() => props.onToggleRole(user.id)}
+                      onClick={() =>
+                        user.liveId
+                          ? props.onPolicyFeedback(
+                              `Role '${user.role}' for @${user.username} is bound at invite creation`
+                            )
+                          : props.onToggleRole(user.id)
+                      }
                     >
                       {user.role}
                     </Button>
                     <Button
                       size="xs"
-                      variant={
-                        user.status === "active" ? "ghost" : "danger"
-                      }
-                      onClick={() => props.onToggleStatus(user.id)}
+                      variant={user.status === "active" ? "ghost" : "danger"}
+                      onClick={() => {
+                        if (user.liveId) {
+                          if (
+                            user.status === "active" &&
+                            props.onDeactivateLiveUser
+                          ) {
+                            props.onDeactivateLiveUser(user.liveId);
+                          } else {
+                            props.onPolicyFeedback(
+                              `Account @${user.username} is deactivated; issue a new single-use invite to onboard`
+                            );
+                          }
+                        } else {
+                          props.onToggleStatus(user.id);
+                        }
+                      }}
                     >
                       {user.status === "active" ? "Active" : "Suspended"}
                     </Button>

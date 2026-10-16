@@ -402,3 +402,66 @@ fn gate_persistent_db_never_writes_raw_tokens_to_disk() {
     assert!(!on_disk_json.contains(&login.raw_session_token));
     assert!(!on_disk_json.contains("Admin1StrongPass!2026"));
 }
+
+#[test]
+fn gate_cross_process_auth_store_sync_and_deactivation_prevents_split_brain() {
+    let temp_dir = tempfile::tempdir().expect("create tempdir");
+    let db_path = temp_dir.path().join("gitust-auth.json");
+
+    // Process A (`gitust serve`) opens persistent store and bootstraps admin + developer.
+    let server_store = AuthStore::open_persistent(&db_path).expect("open server store");
+    server_store
+        .bootstrap_initial_admin_cli("admin1", "admin1@company.internal", "Admin1StrongPass!2026")
+        .expect("bootstrap admin");
+    let admin_login = server_store
+        .login("admin1", "Admin1StrongPass!2026")
+        .expect("login admin");
+    let admin_principal = server_store
+        .authenticate_session(&admin_login.raw_session_token)
+        .expect("auth admin");
+    let inv = server_store
+        .create_invite_link(
+            &admin_principal,
+            "dev1@company.internal",
+            EnterpriseRole::Developer,
+            vec![],
+            None,
+        )
+        .expect("create invite");
+    let dev_user = server_store
+        .redeem_invite_link(&inv.raw_token, "dev1", "Dev1StrongPass!2026")
+        .expect("redeem invite");
+    let dev_session = server_store
+        .login("dev1", "Dev1StrongPass!2026")
+        .expect("login dev1");
+
+    // Process B (`gitust admin invite` / `gitust admin deactivate`) opens the same DB file.
+    let cli_store = AuthStore::open_persistent(&db_path).expect("open cli store");
+    let cli_invite = cli_store
+        .create_invite_link(
+            &admin_principal,
+            "dev2@company.internal",
+            EnterpriseRole::Developer,
+            vec![],
+            None,
+        )
+        .expect("cli create invite");
+
+    // Server store immediately observes the CLI-issued invite on read without restart,
+    // and subsequent server writes do NOT clobber the CLI-issued invite.
+    let redeemed_on_server = server_store
+        .redeem_invite_link(&cli_invite.raw_token, "dev2", "Dev2StrongPass!2026")
+        .expect("server redeems cli-issued invite");
+    assert_eq!(redeemed_on_server.username, "dev2");
+
+    // Process B (`gitust admin deactivate`) deactivates `dev1`.
+    cli_store
+        .deactivate_user(&admin_principal, dev_user.id)
+        .expect("cli deactivate dev1");
+
+    // Server store immediately rejects `dev1`'s pre-existing session token!
+    assert_eq!(
+        server_store.authenticate_session(&dev_session.raw_session_token),
+        Err(AuthError::AccountDeactivated)
+    );
+}

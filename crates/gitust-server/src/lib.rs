@@ -15,6 +15,7 @@ pub mod mcp;
 pub mod oauth;
 pub mod repo;
 pub mod state;
+pub mod webui;
 pub mod worktrees;
 
 pub use auth::{
@@ -92,6 +93,12 @@ async fn health_handler() -> Json<HealthResponse> {
 
 pub fn build_router(state: AppState) -> Router {
     Router::new()
+        // Embedded Single-Binary Web UI & Invite/Reset SPA Routes
+        .route("/", get(webui::web_index_handler))
+        .route("/auth/accept-invite", get(webui::web_index_handler))
+        .route("/auth/reset-password", get(webui::web_index_handler))
+        .route("/assets/index.js", get(webui::web_js_handler))
+        .route("/assets/index.css", get(webui::web_css_handler))
         .route("/api/v1/health", get(health_handler))
         .route("/api/v1/git/head", get(worktrees::git_head_handler))
         // Step 2-4: Blazing-Fast (<30ms) In-Process gix Code, Commit, Tree & Diff Browsing
@@ -123,6 +130,7 @@ pub fn build_router(state: AppState) -> Router {
             post(auth::public_register_disabled_handler),
         )
         .route("/api/v1/auth/login", post(auth::login_handler))
+        .route("/api/v1/auth/logout", post(auth::logout_handler))
         .route("/api/v1/auth/me", get(auth::me_handler))
         .route(
             "/api/v1/auth/invites/redeem",
@@ -132,11 +140,14 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/auth/password-reset/redeem",
             post(auth::redeem_password_reset_handler),
         )
-        .route("/api/v1/auth/pats", post(auth::create_pat_handler))
+        .route(
+            "/api/v1/auth/pats",
+            get(auth::list_pats_handler).post(auth::create_pat_handler),
+        )
         .route("/api/v1/auth/pats/{id}", delete(auth::revoke_pat_handler))
         .route(
             "/api/v1/auth/ssh-keys",
-            post(auth::register_ssh_key_handler),
+            get(auth::list_ssh_keys_handler).post(auth::register_ssh_key_handler),
         )
         .route(
             "/api/v1/auth/ssh-keys/{id}",

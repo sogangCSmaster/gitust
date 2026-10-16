@@ -52,6 +52,7 @@ pub(crate) fn classify_branch_relation(
     const FROM_UPSTREAM: u8 = 0b10;
     const BOTH: u8 = FROM_LOCAL | FROM_UPSTREAM;
 
+    // fail-open-ok: commit-graph is an optional O(1) topological generation accelerator; when absent, falls back to exact 2-color object DAG walk.
     let commit_graph = repo.commit_graph_if_enabled().ok().flatten();
     let mut meta_cache: HashMap<gix::ObjectId, CommitMeta> = HashMap::new();
 

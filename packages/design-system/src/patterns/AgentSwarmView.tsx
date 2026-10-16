@@ -1,5 +1,6 @@
 import {
   Component,
+  createEffect,
   createMemo,
   createSelector,
   createSignal,
@@ -21,6 +22,7 @@ export type AgentProvider =
 
 export interface AgentSandboxTask {
   id: number;
+  liveId?: string;
   agent: AgentProvider;
   branch: string;
   baseBranch: string;
@@ -79,7 +81,14 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
     props.onFilterQueryChange?.(q);
   };
 
+  let listEl: HTMLDivElement | undefined;
   const isRowFocused = createSelector(() => props.focusedIndex);
+
+  createEffect(() => {
+    const idx = props.focusedIndex;
+    const row = listEl?.children[idx] as HTMLElement | undefined;
+    row?.scrollIntoView?.({ block: "nearest" });
+  });
 
   const filteredTasks = createMemo(() =>
     filterAgentSwarmTasks(props.tasks, filter())
@@ -180,6 +189,9 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
 
       {/* High-Density Agent Branch & Sandbox Verification Table */}
       <div
+        ref={(el) => {
+          listEl = el;
+        }}
         class="ds-issue-list"
         role="listbox"
         aria-label="Agent Swarm Sandbox Branches"
@@ -222,9 +234,11 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                 </Badge>
 
                 <Show when={task.sandboxStatus === "merged"}>
-                  <Badge variant="info" mono>
+                  <Badge variant={task.githubSynced ? "info" : "neutral"} mono>
                     <Icon name="rotate-ccw" size={11} />
-                    <span>GitHub Synced</span>
+                    <span>
+                      {task.githubSynced ? "GitHub Synced" : "Local Merged"}
+                    </span>
                   </Badge>
                 </Show>
 

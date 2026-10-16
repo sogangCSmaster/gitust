@@ -494,6 +494,57 @@ fn worktree_service_lock_rejects_second_concurrent_owner() {
         .expect("service lock must succeed after first owner releases it");
 }
 
+#[test]
+fn recover_worktrees_and_mirror_refs_fail_closed_on_corrupt_entries() {
+    let tmp = TempDir::new().expect("tempdir");
+    let upstream = tmp.path().join("upstream");
+    let mirror = tmp.path().join("mirror");
+    init_repo(&upstream);
+    git(&upstream, &["branch", "feature"]);
+
+    let engine = GitEngine::new(&mirror);
+    let initial = engine
+        .sync_inbound_read_only(upstream.to_str().expect("utf8"))
+        .expect("initial sync");
+    assert_eq!(initial.synced_branches_count, 2);
+
+    // 1. Corrupt a managed worktree's `.git` pointer: `recover_agent_worktrees` must fail closed
+    //    instead of silently omitting the worktree from the recovered list.
+    let m = materialize(&engine, "agent/claude/corrupt-pointer").expect("materialize");
+    fs::write(m.worktree_dir.join(".git"), "corrupted-pointer\n").expect("corrupt .git");
+    assert!(
+        engine.recover_agent_worktrees(RepoId::new()).is_err(),
+        "corrupted worktree .git pointer must fail closed during recovery"
+    );
+    fs::remove_dir_all(&m.worktree_dir).expect("remove corrupt worktree dir");
+
+    // 2. Replace local `refs/heads/feature` with a dangling symbolic ref (`ref: refs/heads/missing`)
+    //    and advance upstream `feature`: `apply_inbound_mirror_refs` must record `feature` in
+    //    `skipped_branches` rather than treating it as non-existent (`MustNotExist`).
+    fs::write(
+        upstream.join("src/lib.rs"),
+        "pub fn answer() -> u32 { 99 }\n",
+    )
+    .expect("write");
+    git(&upstream, &["checkout", "-q", "feature"]);
+    git(&upstream, &["add", "."]);
+    git(&upstream, &["commit", "-q", "-m", "advance feature"]);
+    fs::write(
+        mirror.join("refs/heads/feature"),
+        "ref: refs/heads/missing-target\n",
+    )
+    .expect("write dangling symref");
+
+    let second = engine
+        .sync_inbound_read_only(upstream.to_str().expect("utf8"))
+        .expect("second sync");
+    assert!(
+        second.skipped_branches.iter().any(|(b, _)| b == "feature"),
+        "unreadable local ref must be recorded in skipped_branches: {:?}",
+        second.skipped_branches
+    );
+}
+
 #[path = "tests_browse_bench.rs"]
 mod tests_browse_bench;
 #[path = "tests_mirror.rs"]

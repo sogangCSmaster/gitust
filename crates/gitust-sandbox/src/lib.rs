@@ -209,6 +209,8 @@ pub struct SandboxExecutionResult {
     pub duration_ms: u64,
     pub stdout: String,
     pub stderr: String,
+    #[serde(default)]
+    pub output_truncated: bool,
     pub backend: SandboxBackend,
     pub network_isolated: bool,
 }
@@ -227,6 +229,7 @@ impl Drop for SandboxCleanupGuard {
         if let Some(pid) = self.pid.take() {
             kill_process_group(pid);
         }
+        // fail-open-ok: best-effort per-run scratch dir removal in Drop.
         let _ = fs::remove_dir_all(&self.run_dir);
     }
 }
@@ -296,8 +299,11 @@ impl LocalSandboxExecutor {
             let anticipated = spec_owned.scratch_base.join(run_id.0.to_string());
             let res = prepare_run(&spec_owned, run_id, &command_owned, allow_network);
             if res.is_err() || cancelled.load(Ordering::SeqCst) {
+                // fail-open-ok: best-effort cleanup of anticipated scratch dir on prepare failure or cancellation.
                 let _ = fs::remove_dir_all(&anticipated);
+                // fail-open-ok: if `prepare_run` succeeded just as cancellation arrived, clean up the canonical `run_dir` too.
                 if let Ok(ref p) = res {
+                    // fail-open-ok: best-effort cleanup of canonical `run_dir` on cancellation.
                     let _ = fs::remove_dir_all(&p.run_dir);
                 }
             }
@@ -343,8 +349,16 @@ impl LocalSandboxExecutor {
         })?;
         cleanup_guard.pid = child.id();
 
-        let stdout_task = tokio::spawn(read_capped(child.stdout.take()));
-        let stderr_task = tokio::spawn(read_capped(child.stderr.take()));
+        let stdout_partial = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stderr_partial = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stdout_task = tokio::spawn(read_capped(
+            child.stdout.take(),
+            Arc::clone(&stdout_partial),
+        ));
+        let stderr_task = tokio::spawn(read_capped(
+            child.stderr.take(),
+            Arc::clone(&stderr_partial),
+        ));
 
         let timeout_duration = Duration::from_secs(self.timeout_secs.max(1));
         let wait_outcome = tokio::time::timeout(timeout_duration, child.wait()).await;
@@ -373,16 +387,8 @@ impl LocalSandboxExecutor {
             }
         };
 
-        let stdout_bytes = tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, stdout_task)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .unwrap_or_default();
-        let stderr_bytes = tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, stderr_task)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .unwrap_or_default();
+        let (stdout_bytes, stdout_truncated) = await_pipe_drain(stdout_task, &stdout_partial).await;
+        let (stderr_bytes, stderr_truncated) = await_pipe_drain(stderr_task, &stderr_partial).await;
 
         drop(cleanup_guard);
 
@@ -394,32 +400,72 @@ impl LocalSandboxExecutor {
             duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
             stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
             stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
+            output_truncated: stdout_truncated || stderr_truncated,
             backend: prepared.backend,
             network_isolated: !self.allow_network,
         })
     }
 }
 
-async fn read_capped<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> Vec<u8> {
-    let mut buf = Vec::new();
-    if let Some(mut p) = pipe {
-        let _ = (&mut p)
-            .take(MAX_SANDBOX_STREAM_BYTES)
-            .read_to_end(&mut buf)
-            .await;
-        let _ = tokio::io::copy(&mut p, &mut tokio::io::sink()).await;
+async fn await_pipe_drain(
+    task: tokio::task::JoinHandle<(Vec<u8>, bool)>,
+    partial: &Arc<std::sync::Mutex<Vec<u8>>>,
+) -> (Vec<u8>, bool) {
+    match tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, task).await {
+        Ok(Ok(res)) => res,
+        Ok(Err(_)) | Err(_) => {
+            let captured = std::mem::take(&mut *partial.lock().unwrap_or_else(|e| e.into_inner()));
+            (captured, true)
+        }
     }
-    buf
+}
+
+async fn read_capped<R: tokio::io::AsyncRead + Unpin>(
+    pipe: Option<R>,
+    partial: Arc<std::sync::Mutex<Vec<u8>>>,
+) -> (Vec<u8>, bool) {
+    let Some(mut p) = pipe else {
+        return (Vec::new(), false);
+    };
+    let cap = usize::try_from(MAX_SANDBOX_STREAM_BYTES).unwrap_or(1024 * 1024);
+    let mut chunk = [0_u8; 8192];
+    let mut truncated = false;
+    loop {
+        match p.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => {
+                let mut guard = partial.lock().unwrap_or_else(|e| e.into_inner());
+                let remaining = cap.saturating_sub(guard.len());
+                if remaining > 0 {
+                    let take = n.min(remaining);
+                    guard.extend_from_slice(&chunk[..take]);
+                    if take < n {
+                        truncated = true;
+                    }
+                } else {
+                    truncated = true;
+                }
+            }
+            Err(_) => {
+                truncated = true;
+                break;
+            }
+        }
+    }
+    let bytes = std::mem::take(&mut *partial.lock().unwrap_or_else(|e| e.into_inner()));
+    (bytes, truncated)
 }
 
 /// Sends `SIGKILL` to the process group created via `process_group(0)`.
 #[cfg(unix)]
 fn kill_process_group(pid: u32) {
+    // fail-open-ok: OS pid fits in positive `i32` on Unix (`pid_t`); guard against invalid `u32::MAX`.
     if let Ok(pgid) = i32::try_from(pid) {
         if pgid > 1 {
             // SAFETY: `killpg` has no memory-safety preconditions; `pgid` is the group id of the
             // child we spawned as a group leader.
             unsafe {
+                // fail-open-ok: `ESRCH` when the process group already exited naturally is expected.
                 let _ = libc::killpg(pgid, libc::SIGKILL);
             }
         }

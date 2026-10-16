@@ -15,9 +15,11 @@ mod browse;
 mod config_guard;
 mod diff;
 mod mirror;
+mod smart_http;
 #[cfg(test)]
 mod tests;
 mod worktree;
+mod worktree_recovery;
 
 use std::ffi::OsStr;
 use std::fs;
@@ -39,6 +41,10 @@ pub use diff::{
     MAX_DIFF_LINES,
 };
 pub use mirror::InboundMirrorSyncOutcome;
+pub use smart_http::{
+    inspect_receive_pack_updates, ReceivePackRefUpdate, SmartHttpService,
+    MAX_SMART_HTTP_BODY_BYTES, SMART_HTTP_TIMEOUT,
+};
 pub use worktree::{ManagedWorktreeEntry, MaterializedWorktree};
 
 /// Every branch created on behalf of an agent lives under this namespace. The sync engine keeps
@@ -143,6 +149,7 @@ pub(crate) struct WorktreeServiceLockInner(fs::File);
 
 impl Drop for WorktreeServiceLockInner {
     fn drop(&mut self) {
+        // fail-open-ok: best-effort explicit flock release in Drop before OS fd close.
         let _ = self.0.unlock();
     }
 }
@@ -172,7 +179,9 @@ impl GitEngine {
     pub fn new(repo_path: impl AsRef<Path>) -> Self {
         let path = repo_path.as_ref().to_path_buf();
         let lock = OnceLock::new();
+        // fail-open-ok: eager warm-up only; `acquire_repo()` fails closed with `OpenRepo` if the repository is not yet initialized.
         if let Ok(repo) = gix::ThreadSafeRepository::open(&path) {
+            // fail-open-ok: freshly created `OnceLock` has no concurrent writer.
             let _ = lock.set(repo);
         }
         Self {
@@ -218,6 +227,7 @@ impl GitEngine {
             }
         })?;
         let local = opened.to_thread_local();
+        // fail-open-ok: benign `OnceLock::set` race when two threads initialize the cache simultaneously; `local` is already opened.
         let _ = self.shared_repo.set(opened);
         Ok(local)
     }
@@ -394,6 +404,7 @@ impl GitEngine {
 }
 
 pub(crate) fn canonicalize_existing_ancestors(path: &Path) -> PathBuf {
+    // fail-open-ok: when the leaf does not exist yet, walks up ancestors below to canonicalize the deepest existing parent.
     if let Ok(canonical) = fs::canonicalize(path) {
         return canonical;
     }
@@ -401,7 +412,9 @@ pub(crate) fn canonicalize_existing_ancestors(path: &Path) -> PathBuf {
         if ancestor.as_os_str().is_empty() {
             break;
         }
+        // fail-open-ok: probes each ancestor until the first existing directory is found.
         if let Ok(mut canonical_base) = fs::canonicalize(ancestor) {
+            // fail-open-ok: `ancestor` comes from `path.ancestors()`, so `strip_prefix` is guaranteed to succeed.
             if let Ok(suffix) = path.strip_prefix(ancestor) {
                 for comp in suffix.components() {
                     match comp {

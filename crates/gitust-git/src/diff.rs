@@ -131,11 +131,17 @@ impl GitEngine {
         let mut truncated = false;
         if let Some(stdout) = child.stdout.take() {
             let mut limited = stdout.take((MAX_DIFF_BYTES + 1) as u64);
-            let _ = limited.read_to_end(&mut raw_diff);
+            limited
+                .read_to_end(&mut raw_diff)
+                .map_err(|e| GitEngineError::GitCommand {
+                    args: "diff".to_owned(),
+                    message: e.to_string(),
+                })?;
             if raw_diff.len() > MAX_DIFF_BYTES {
                 raw_diff.truncate(MAX_DIFF_BYTES);
                 truncated = true;
                 let mut rest = limited.into_inner();
+                // fail-open-ok: drains remaining `git diff` stdout to sink after 1 MiB cap to avoid SIGPIPE (exit 141); child exit status is verified below.
                 let _ = std::io::copy(&mut rest, &mut std::io::sink());
             }
         }
@@ -356,11 +362,15 @@ fn parse_hunk_header(header: &str) -> (u32, u32, u32, u32) {
     for token in header.split_whitespace() {
         if let Some(rest) = token.strip_prefix('-') {
             let mut parts = rest.split(',');
+            // fail-open-ok: unified diff hunk header display line numbers default to 1 when count is omitted (`@@ -1 +1 @@`).
             old_start = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+            // fail-open-ok: unified diff hunk header omits `,count` when count is 1.
             old_count = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
         } else if let Some(rest) = token.strip_prefix('+') {
             let mut parts = rest.split(',');
+            // fail-open-ok: unified diff hunk header display line numbers default to 1.
             new_start = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+            // fail-open-ok: unified diff hunk header omits `,count` when count is 1.
             new_count = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
             break;
         }

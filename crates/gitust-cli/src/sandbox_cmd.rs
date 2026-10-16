@@ -123,8 +123,10 @@ pub(crate) async fn run_cli_sandbox(
         let mut slot = materialized_slot.lock().unwrap_or_else(|e| e.into_inner());
         if cancelled.load(Ordering::SeqCst) {
             drop(slot);
+            // fail-open-ok: rolls back the newly materialized worktree if Ctrl-C arrived during checkout; `res` is still returned below.
             if let Ok(ref m) = res {
                 if !keep {
+                    // fail-open-ok: best-effort worktree removal on Ctrl-C cancellation.
                     let _ = engine_for_spawn.remove_agent_worktree(
                         &m.worktree_dir,
                         &m.worktree.branch,
@@ -132,6 +134,7 @@ pub(crate) async fn run_cli_sandbox(
                     );
                 }
             }
+        // fail-open-ok: records materialized worktree in `CliWorktreeGuard` slot when `res` is `Ok`; `res??` propagates `Err` on line 143.
         } else if let Ok(ref m) = res {
             *slot = Some(m.clone());
         }

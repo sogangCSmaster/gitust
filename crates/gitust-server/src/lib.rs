@@ -11,9 +11,11 @@ use serde::Serialize;
 use tower_http::cors::CorsLayer;
 
 pub mod auth;
+pub mod git_http;
 pub mod listener;
 pub mod mcp;
 pub mod oauth;
+pub(crate) mod quota;
 pub mod repo;
 pub mod state;
 pub mod webui;
@@ -197,6 +199,19 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/enterprise/policy",
             get(auth::enterprise_policy_handler),
+        )
+        // Phase 3 Step 3-1: Pure-Rust Smart HTTP Git Hosting (PAT / Bearer / Basic + Team BOLA + Agent Branch Policy)
+        .route(
+            "/git/{repo}/info/refs",
+            get(git_http::git_info_refs_handler),
+        )
+        .route(
+            "/git/{repo}/git-upload-pack",
+            post(git_http::git_upload_pack_handler),
+        )
+        .route(
+            "/git/{repo}/git-receive-pack",
+            post(git_http::git_receive_pack_handler),
         )
         .layer(axum::middleware::map_request(listener::apply_body_deadline))
         .layer(CorsLayer::permissive())

@@ -19,7 +19,7 @@ step "fail-open audit (security crates)"
 scripts/audit-fail-open.sh
 
 step "fail-open baseline may only shrink"
-count_entries() { grep -v -E '^[[:space:]]*(#|$)' | wc -l | tr -d ' '; }
+count_entries() { { grep -v -E '^[[:space:]]*(#|$)' || true; } | wc -l | tr -d ' '; }
 now_count="$(count_entries <scripts/fail-open-baseline.txt)"
 if git cat-file -e HEAD:scripts/fail-open-baseline.txt 2>/dev/null; then
   head_count="$(git show HEAD:scripts/fail-open-baseline.txt | count_entries)"
@@ -36,12 +36,6 @@ fi
 step "cargo fmt --check"
 cargo fmt --all -- --check
 
-step "cargo clippy -D warnings"
-cargo clippy --workspace --all-targets -- -D warnings
-
-step "cargo test"
-cargo test --workspace
-
 if ! command -v pnpm >/dev/null 2>&1 || [[ ! -d node_modules ]]; then
   echo "FAIL: pnpm or node_modules missing; run 'pnpm install' (typecheck + bundle gates required)" >&2
   exit 1
@@ -51,12 +45,14 @@ step "pnpm typecheck"
 pnpm -r typecheck
 
 # gitust-server embeds packages/design-system/dist via include_str!, so a stale bundle silently
-# ships an old UI in the binary. Compare the bundle on disk before vs after a fresh build
-# (works both before commit — dist may be uncommitted — and at pre-push, where the hook
-# additionally requires a clean tree so the committed bundle is what gets checked).
+# ships an old UI in the binary. Preserve original mtimes when the bundle is byte-identical so
+# Cargo's incremental cache for gitust-server and gitust-cli stays warm across verify.sh runs.
 step "embedded web UI bundle is fresh"
 DIST=packages/design-system/dist
 dist_hash() { [[ -d "$DIST" ]] && find "$DIST" -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum | shasum; }
+TMP_DIST="$(mktemp -d "${TMPDIR:-/tmp}/gitust-dist-check.XXXXXX")"
+trap 'rm -rf "$TMP_DIST"' EXIT
+[[ -d "$DIST" ]] && cp -pR "$DIST"/. "$TMP_DIST"/
 before="$(dist_hash || true)"
 pnpm --filter @gitust/design-system build >/dev/null
 after="$(dist_hash)"
@@ -64,5 +60,12 @@ if [[ "$before" != "$after" ]]; then
   echo "$DIST was stale and has just been rebuilt: review and include the rebuilt bundle." >&2
   exit 1
 fi
+cp -pR "$TMP_DIST"/. "$DIST"/
+
+step "cargo clippy -D warnings"
+cargo clippy --workspace --all-targets -- -D warnings
+
+step "cargo test"
+cargo test --workspace --all-targets
 
 printf '\nverify: all mechanical gates passed\n'

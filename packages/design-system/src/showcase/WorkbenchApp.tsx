@@ -9,7 +9,6 @@ import {
 import {
   ActionJobStep,
   ActiveChordHUD,
-  AgentProvider,
   AgentSandboxTask,
   CommandPalette,
   EnterpriseUser,
@@ -26,7 +25,12 @@ import {
   Tabs,
 } from "../index";
 import { createLiveAuthClient } from "./live-auth-client";
-import { createLiveRepoClient, LiveCommitSummary } from "./live-repo-client";
+import {
+  createLiveRepoClient,
+  getLiveToken,
+  LiveCommitSummary,
+} from "./live-repo-client";
+import { createLiveSwarmClient } from "./live-swarm-client";
 import {
   generateActionLogs,
   generateLargeDiff,
@@ -37,6 +41,7 @@ import {
   INITIAL_ISSUES,
 } from "./mock-data";
 import { registerWorkbenchShortcuts } from "./register-workbench-shortcuts";
+import { createShowcaseDemoActions } from "./showcase-demo-actions";
 import { ShortcutsReferenceModal, WorkbenchHeader } from "./WorkbenchHeader";
 import { WorkbenchTabViews } from "./WorkbenchTabViews";
 
@@ -165,6 +170,14 @@ export const WorkbenchApp: Component = () => {
     showQuickFeedback,
   });
 
+  // Dedicated Live Agent Swarm Client (`/api/v1/swarm/worktrees/*`)
+  const liveSwarmClient = createLiveSwarmClient({
+    getSwarmTasks: swarmTasks,
+    setSwarmTasks,
+    onRepoMutated: () => void liveClient.hydrateFromLiveBackend(),
+    showQuickFeedback,
+  });
+
   // Dedicated Live Auth & Credential Client (`/api/v1/auth/*` & `/api/v1/admin/*`)
   const liveAuthClient = createLiveAuthClient({
     setLiveSession,
@@ -176,158 +189,53 @@ export const WorkbenchApp: Component = () => {
     setLiveSshKeys,
     setRedeemToken,
     fallbackUsers: INITIAL_ENTERPRISE_USERS,
-    onTokenAuthenticated: () => void liveClient.hydrateFromLiveBackend(),
+    onTokenAuthenticated: () => {
+      void liveClient.hydrateFromLiveBackend();
+      void liveSwarmClient.hydrateSwarmWorktrees();
+    },
     onTokenCleared: () => {
+      liveSwarmClient.resetSwarmEpoch();
       setLiveDiffLines(null);
       setLiveFileTreeNodes(null);
+      setSwarmTasks(INITIAL_AGENT_SWARM_TASKS);
     },
     showQuickFeedback,
   });
 
-  // Showcase Optimistic Demo Actions (0ms Local-First)
+  const demoActions = createShowcaseDemoActions({
+    getSwarmTasks: swarmTasks,
+    setSwarmTasks,
+    getIssues: issues,
+    setIssues,
+    setActiveTab,
+    setFocusedIssueIdx,
+    setActionJobs,
+    setEnterpriseUsers,
+    showQuickFeedback,
+  });
+
   const approveAndMergeSwarmTask = (id: number) => {
-    const t0 = performance.now();
-    setSwarmTasks((prev) =>
-      prev.map((t) => {
-        if (t.id !== id) return t;
-        const dt = (performance.now() - t0).toFixed(2);
-        showQuickFeedback(
-          `Merged ${t.branch} (${t.agent}) into main & synced to GitHub in ${dt}ms (0 Cloud VM Leakage)`
-        );
-        return {
-          ...t,
-          sandboxStatus: "merged",
-          githubSynced: true,
-          updatedAt: "just now",
-        };
-      })
-    );
+    if (getLiveToken()) {
+      void liveSwarmClient.approveLiveWorktree(id);
+    } else {
+      demoActions.approveDemoSwarmTask(id);
+    }
   };
 
   const discardSwarmTask = (id: number) => {
-    setSwarmTasks((prev) =>
-      prev.map((t) => {
-        if (t.id !== id) return t;
-        showQuickFeedback(
-          `Discarded CoW Worktree ${t.branch} & freed sandbox in 0.1ms`
-        );
-        return { ...t, sandboxStatus: "discarded", updatedAt: "just now" };
-      })
-    );
+    if (getLiveToken()) {
+      void liveSwarmClient.discardLiveWorktree(id);
+    } else {
+      demoActions.discardDemoSwarmTask(id);
+    }
   };
 
   const spawnBatchAgentSwarm = () => {
-    const t0 = performance.now();
-    const providers: AgentProvider[] = [
-      "Claude Code",
-      "Cursor Agent",
-      "Codex Swarm",
-    ];
-    const current = swarmTasks();
-    const baseId =
-      current.reduce((maxId, t) => (t.id > maxId ? t.id : maxId), 0) + 1;
-    const batch: AgentSandboxTask[] = Array.from({ length: 10 }, (_, idx) => {
-      const id = baseId + idx;
-      const agent = providers[idx % providers.length]!;
-      return {
-        id,
-        agent,
-        branch: `agent/${agent.toLowerCase().split(" ")[0]}/parallel-task-${id}`,
-        baseBranch: "main",
-        forkLatencyMs: Number((0.25 + (idx % 4) * 0.04).toFixed(2)),
-        promptSummary: `Parallel sandbox task #${id}: zero-copy refactor & unit test verification`,
-        sandboxStatus: "verified",
-        compileTimeMs: 68 + ((idx * 7) % 35),
-        testsPassed: 24,
-        testsTotal: 24,
-        filesChanged: 2 + (idx % 3),
-        additions: 48 + idx * 9,
-        deletions: 12 + idx * 2,
-        updatedAt: "just now",
-      };
-    });
-
-    setSwarmTasks((prev) => [...batch, ...prev]);
-    const dt = (performance.now() - t0).toFixed(2);
-    showQuickFeedback(
-      `Spawned +10 Zero-Copy Agent Branches & Verified Sandboxes in ${dt}ms`
-    );
-  };
-
-  const toggleIssueStatus = (id: number) => {
-    const t0 = performance.now();
-    setIssues((prev) =>
-      prev.map((item) => {
-        if (item.id !== id) return item;
-        const nextStatus = item.status === "open" ? "closed" : "open";
-        const dt = (performance.now() - t0).toFixed(2);
-        showQuickFeedback(
-          `Optimistic UI: #${item.id} → ${nextStatus.toUpperCase()} (${dt}ms, 0 network wait)`
-        );
-        return { ...item, status: nextStatus, updatedAt: "just now" };
-      })
-    );
-  };
-
-  const createOptimisticIssue = () => {
-    const current = issues();
-    const newId =
-      current.reduce((maxId, i) => (i.id > maxId ? i.id : maxId), 0) + 1;
-    const newItem: IssueItem = {
-      id: newId,
-      kind: "issue",
-      title: `feat: instant optimistic issue #${newId} created via 'c' shortcut`,
-      status: "open",
-      author: "yuseungjae",
-      labels: [{ name: "optimistic-ui", variant: "accent" }],
-      commentsCount: 0,
-      updatedAt: "just now",
-    };
-    setIssues((prev) => [newItem, ...prev]);
-    setActiveTab("issues");
-    setFocusedIssueIdx(0);
-    showQuickFeedback(`Created Issue #${newId} instantaneously (< 1ms)`);
-  };
-
-  const rerunAllActionJobs = () => {
-    setActionJobs((prev) =>
-      prev.map((j) => ({ ...j, status: "success", duration: "12s (cached)" }))
-    );
-    showQuickFeedback(
-      "Gitust Actions: Dispatched workflow re-run to corp-runner-linux-01 (0ms Optimistic)"
-    );
-  };
-
-  const toggleEnterpriseUserRole = (userId: number) => {
-    const roles: EnterpriseUser["role"][] = [
-      "Developer",
-      "Maintainer",
-      "Site Admin",
-    ];
-    setEnterpriseUsers((prev) =>
-      prev.map((u) => {
-        if (u.id !== userId) return u;
-        const nextRole =
-          roles[(roles.indexOf(u.role) + 1) % roles.length] ?? "Developer";
-        showQuickFeedback(
-          `IAM Role Updated: @${u.username} → ${nextRole} (0ms Optimistic)`
-        );
-        return { ...u, role: nextRole };
-      })
-    );
-  };
-
-  const toggleEnterpriseUserStatus = (userId: number) => {
-    setEnterpriseUsers((prev) =>
-      prev.map((u) => {
-        if (u.id !== userId) return u;
-        const nextStatus = u.status === "active" ? "suspended" : "active";
-        showQuickFeedback(
-          `Account Status Updated: @${u.username} → ${nextStatus.toUpperCase()} (0ms Optimistic)`
-        );
-        return { ...u, status: nextStatus };
-      })
-    );
+    if (getLiveToken()) {
+      void liveSwarmClient.spawnLiveWorktree();
+    } else {
+      demoActions.spawnDemoBatchSwarm();
+    }
   };
 
   onMount(() => {
@@ -355,6 +263,7 @@ export const WorkbenchApp: Component = () => {
     }
     void liveAuthClient.hydrateAuthData();
     void liveClient.hydrateFromLiveBackend();
+    void liveSwarmClient.hydrateSwarmWorktrees();
     const cleanups = registerWorkbenchShortcuts({
       getActiveTab: activeTab,
       setActiveTab,
@@ -369,9 +278,9 @@ export const WorkbenchApp: Component = () => {
       approveAndMergeSwarmTask,
       discardSwarmTask,
       spawnBatchAgentSwarm,
-      toggleIssueStatus,
-      createOptimisticIssue,
-      rerunAllActionJobs,
+      toggleIssueStatus: demoActions.toggleIssueStatus,
+      createOptimisticIssue: demoActions.createOptimisticIssue,
+      rerunAllActionJobs: demoActions.rerunAllActionJobs,
       focusFilterInput: () => queueMicrotask(() => filterInputRef?.focus()),
       showQuickFeedback,
     });
@@ -517,8 +426,8 @@ export const WorkbenchApp: Component = () => {
           issues={issues()}
           focusedIssueIdx={focusedIssueIdx()}
           onFocusedIssueIdxChange={setFocusedIssueIdx}
-          onToggleIssueStatus={toggleIssueStatus}
-          onCreateOptimisticIssue={createOptimisticIssue}
+          onToggleIssueStatus={demoActions.toggleIssueStatus}
+          onCreateOptimisticIssue={demoActions.createOptimisticIssue}
           filterRef={(el) => (filterInputRef = el)}
           issueFilter={issueFilter()}
           onIssueFilterChange={setIssueFilter}
@@ -531,11 +440,11 @@ export const WorkbenchApp: Component = () => {
           actionJobs={actionJobs()}
           activeJobId={activeJobId()}
           onSelectJob={setActiveJobId}
-          onRerunAllActionJobs={rerunAllActionJobs}
+          onRerunAllActionJobs={demoActions.rerunAllActionJobs}
           actionLogs={actionLogs()}
           enterpriseUsers={enterpriseUsers()}
-          onToggleEnterpriseUserRole={toggleEnterpriseUserRole}
-          onToggleEnterpriseUserStatus={toggleEnterpriseUserStatus}
+          onToggleEnterpriseUserRole={demoActions.toggleEnterpriseUserRole}
+          onToggleEnterpriseUserStatus={demoActions.toggleEnterpriseUserStatus}
           onPolicyFeedback={showQuickFeedback}
           adminAuthProps={{
             liveSession: liveSession(),

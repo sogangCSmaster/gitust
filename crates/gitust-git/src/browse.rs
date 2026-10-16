@@ -160,6 +160,7 @@ impl GitEngine {
             anchor.to_owned(),
         ]
         .into_iter()
+        // fail-open-ok: probes candidate ref namespaces (`refs/heads/`, `refs/tags/`, raw); falls through to OID hex lookup or `RevisionNotFound` below.
         .find_map(|cand| repo.try_find_reference(&cand).ok().flatten())
         {
             r.peel_to_commit()
@@ -172,6 +173,7 @@ impl GitEngine {
             } else {
                 let prefix = gix::hash::Prefix::from_hex(anchor)
                     .map_err(|_| GitEngineError::RevisionNotFound(clean_rev.clone()))?;
+                // fail-open-ok: maps non-existent or ambiguous short OID prefix to `RevisionNotFound` via `.ok_or_else(...)` below.
                 repo.objects
                     .lookup_prefix(prefix, None)
                     .ok()
@@ -179,6 +181,7 @@ impl GitEngine {
                     .and_then(Result::ok)
                     .ok_or_else(|| GitEngineError::RevisionNotFound(clean_rev.clone()))?
             };
+            // fail-open-ok: maps missing or non-commit object OID to `RevisionNotFound` via `.ok_or_else(...)` below.
             repo.find_object(oid)
                 .ok()
                 .and_then(|o| o.peel_to_commit().ok())
@@ -212,6 +215,7 @@ impl GitEngine {
                             .parent_ids()
                             .next()
                             .ok_or_else(|| GitEngineError::RevisionNotFound(clean_rev.clone()))?;
+                        // fail-open-ok: maps missing parent commit object to `RevisionNotFound` via `.ok_or_else(...)`.
                         commit = parent_id
                             .object()
                             .ok()
@@ -225,6 +229,7 @@ impl GitEngine {
                             .parent_ids()
                             .nth(count - 1)
                             .ok_or_else(|| GitEngineError::RevisionNotFound(clean_rev.clone()))?;
+                        // fail-open-ok: maps missing nth-parent commit object to `RevisionNotFound` via `.ok_or_else(...)`.
                         commit = parent_id
                             .object()
                             .ok()
@@ -265,6 +270,7 @@ impl GitEngine {
                 .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?;
             let full_sha = commit.id.to_string();
             let short_sha = full_sha.chars().take(7).collect();
+            // fail-open-ok: display message fallback for commits with empty/unparseable message body.
             let raw_msg = commit
                 .message_raw()
                 .map(|m| String::from_utf8_lossy(m.as_ref()).trim().to_owned())

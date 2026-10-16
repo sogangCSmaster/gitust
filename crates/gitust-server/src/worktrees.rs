@@ -115,6 +115,7 @@ pub(crate) async fn spawn_worktree_core(
         match (&*life, &res) {
             (SpawnLifecycle::Cancelled, Ok(m)) => {
                 drop(life);
+                // fail-open-ok: best-effort rollback of materialized worktree when request future was cancelled mid-checkout.
                 let _ = engine.remove_agent_worktree(
                     &m.worktree_dir,
                     &m.worktree.branch,

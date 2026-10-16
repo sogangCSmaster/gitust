@@ -10,7 +10,66 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::{io_err, GitEngineError};
+use crate::{io_err, GitEngine, GitEngineError};
+
+impl GitEngine {
+    /// Validates and normalizes an upstream Git remote URL or local repository path.
+    ///
+    /// - Rejects empty strings, strings > 2048 bytes, leading `-` (flag injection), whitespace/control
+    ///   characters, `::` remote helper syntax (`ext::`), and embedded HTTP credentials.
+    /// - Allows `https://`, `ssh://`, `git@`, `file://`, or an existing local directory.
+    pub fn validate_mirror_remote_url(raw: &str) -> Result<String, GitEngineError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty()
+            || trimmed.len() > 2048
+            || trimmed.starts_with('-')
+            || trimmed.contains("::")
+            || trimmed.chars().any(|c| c.is_control() || c.is_whitespace())
+        {
+            return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
+        }
+
+        let lower = trimmed.to_ascii_lowercase();
+        if let Some(after_scheme) = lower.strip_prefix("https://") {
+            if after_scheme.is_empty()
+                || after_scheme.starts_with('/')
+                || contains_http_userinfo(&lower)
+            {
+                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
+            }
+            return Ok(trimmed.to_owned());
+        }
+        if let Some(after_scheme) = lower.strip_prefix("ssh://") {
+            if after_scheme.is_empty() || after_scheme.starts_with('/') {
+                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
+            }
+            return Ok(trimmed.to_owned());
+        }
+        if let Some(after_git) = trimmed.strip_prefix("git@") {
+            if !after_git.contains(':') || after_git.starts_with(':') {
+                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
+            }
+            return Ok(trimmed.to_owned());
+        }
+        if let Some(file_path) = trimmed.strip_prefix("file://") {
+            let p = Path::new(file_path);
+            let canon = fs::canonicalize(p)
+                .map_err(|_| GitEngineError::InvalidRemoteUrl(raw.to_owned()))?;
+            if !canon.is_dir() {
+                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
+            }
+            return Ok(canon.display().to_string());
+        }
+
+        let local_path = Path::new(trimmed);
+        let canon = fs::canonicalize(local_path)
+            .map_err(|_| GitEngineError::InvalidRemoteUrl(raw.to_owned()))?;
+        if !canon.is_dir() {
+            return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
+        }
+        Ok(canon.display().to_string())
+    }
+}
 
 /// Executes a hardened `git fetch` into `refs/remotes/upstream/*` and `refs/remotes/upstream-tags/*`:
 /// - Excludes `^refs/heads/agent/*` at protocol negotiation time so upstream `agent/*` objects and
@@ -85,6 +144,7 @@ pub(crate) fn run_git_fetch_with_timeout(
     let stderr_handle = child.stderr.take().map(|stderr| {
         std::thread::spawn(move || {
             let mut buf = Vec::new();
+            // fail-open-ok: diagnostic stderr capture for `git fetch`; exit status is checked below.
             let _ = stderr.take(8192).read_to_end(&mut buf);
             buf
         })
@@ -99,6 +159,7 @@ pub(crate) fn run_git_fetch_with_timeout(
                     #[cfg(unix)]
                     {
                         let pgid = format!("-{}", child.id());
+                        // fail-open-ok: best-effort process-group SIGKILL before returning timeout Err.
                         let _ = Command::new("kill")
                             .args(["-KILL", "--", &pgid])
                             .stdin(Stdio::null())
@@ -106,9 +167,12 @@ pub(crate) fn run_git_fetch_with_timeout(
                             .stderr(Stdio::null())
                             .status();
                     }
+                    // fail-open-ok: best-effort child process kill on timeout.
                     let _ = child.kill();
+                    // fail-open-ok: best-effort child wait to reap zombie after kill.
                     let _ = child.wait();
                     if let Some(h) = stderr_handle {
+                        // fail-open-ok: best-effort stderr reader thread join on timeout.
                         let _ = h.join();
                     }
                     return Err(GitEngineError::GitCommand {
@@ -119,9 +183,12 @@ pub(crate) fn run_git_fetch_with_timeout(
                 std::thread::sleep(Duration::from_millis(10));
             }
             Err(e) => {
+                // fail-open-ok: best-effort child process kill on wait error.
                 let _ = child.kill();
+                // fail-open-ok: best-effort child wait to reap zombie on wait error.
                 let _ = child.wait();
                 if let Some(h) = stderr_handle {
+                    // fail-open-ok: best-effort stderr reader thread join on wait error.
                     let _ = h.join();
                 }
                 return Err(GitEngineError::GitCommand {
@@ -132,6 +199,7 @@ pub(crate) fn run_git_fetch_with_timeout(
         }
     };
 
+    // fail-open-ok: diagnostic stderr text only; `!status.success()` below still fails closed.
     let stderr_bytes = stderr_handle
         .and_then(|h| h.join().ok())
         .unwrap_or_default();
@@ -185,6 +253,7 @@ pub(crate) fn config_contains_credentials(text: &str) -> bool {
     // 1. Formal RFC-compliant `git-config` AST inspection via `gix::config::File`.
     // Fails closed if the config cannot be parsed by `gitoxide`, and inspects all unquoted
     // section names, subsection headers, keys, and escape-decoded values.
+    // fail-open-ok: returning `true` ("contains credentials") on parse failure is strictly fail-closed.
     let Ok(cfg) = gix::config::File::try_from(text) else {
         return true;
     };

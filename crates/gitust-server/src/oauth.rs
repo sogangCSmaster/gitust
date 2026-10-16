@@ -109,7 +109,7 @@ fn oauth_error_response(status: StatusCode, error: &'static str, description: &s
 fn resolve_base_url(headers: &HeaderMap) -> String {
     let host = headers
         .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.to_str().ok()) // fail-open-ok: invalid Host header falls back to strict loopback `127.0.0.1:3000`.
         .map(str::trim)
         .filter(|s| {
             !s.is_empty()
@@ -438,7 +438,7 @@ fn percent_decode(input: &str) -> Option<String> {
             }
         }
     }
-    String::from_utf8(out).ok()
+    String::from_utf8(out).ok() // fail-open-ok: invalid UTF-8 returns `None` and fails closed via `.ok_or(...)` in `parse_token_request`.
 }
 
 fn parse_token_request(
@@ -450,7 +450,7 @@ fn parse_token_request(
     }
     let content_type = headers
         .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.to_str().ok()) // fail-open-ok: non-ASCII Content-Type falls through to strict JSON parser below, which rejects invalid payloads.
         .unwrap_or("");
     if content_type.starts_with("application/x-www-form-urlencoded") {
         let text = std::str::from_utf8(body).map_err(|_| "invalid UTF-8 form body")?;
@@ -484,6 +484,7 @@ pub(crate) async fn oauth_token_handler(
     http_req: Request,
 ) -> Response {
     let headers = http_req.headers().clone();
+    // fail-open-ok: oversized token body immediately fails closed with 400 `invalid_request`.
     let Ok(body) = axum::body::to_bytes(http_req.into_body(), MAX_OAUTH_FORM_BYTES).await else {
         return oauth_error_response(
             StatusCode::BAD_REQUEST,

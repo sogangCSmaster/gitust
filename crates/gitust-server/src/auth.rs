@@ -74,6 +74,7 @@ pub(crate) fn extract_principal(
     let Some(raw_header) = headers.get(header::AUTHORIZATION) else {
         return Err(map_auth_err(AuthError::Unauthenticated));
     };
+    // fail-open-ok: non-ASCII Authorization header immediately fails closed with `AuthError::Unauthenticated`.
     let Ok(header_str) = raw_header.to_str() else {
         return Err(map_auth_err(AuthError::Unauthenticated));
     };
@@ -154,6 +155,7 @@ pub(crate) async fn logout_handler(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let raw_token = headers
         .get(header::AUTHORIZATION)
+        // fail-open-ok: invalid header immediately fails closed via `.ok_or_else(|| map_auth_err(AuthError::Unauthenticated))?`.
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer ").map(str::trim))
         .ok_or_else(|| map_auth_err(AuthError::Unauthenticated))?

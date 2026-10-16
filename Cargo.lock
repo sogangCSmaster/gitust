@@ -608,6 +608,7 @@ dependencies = [
  "gitust-server",
  "gitust-sync",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

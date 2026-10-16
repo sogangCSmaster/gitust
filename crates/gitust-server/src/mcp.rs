@@ -144,6 +144,7 @@ pub(crate) async fn mcp_http_post_handler(State(state): State<AppState>, req: Re
         Err((status, msg)) => return (status, msg).into_response(),
     }
 
+    // fail-open-ok: oversized body immediately fails closed with 413 PAYLOAD_TOO_LARGE.
     let Ok(body) = axum::body::to_bytes(request_body, MAX_MCP_LINE_BYTES).await else {
         return json_response(
             StatusCode::PAYLOAD_TOO_LARGE,
@@ -160,6 +161,7 @@ pub(crate) async fn mcp_http_post_handler(State(state): State<AppState>, req: Re
         Err((status, msg)) => return (status, msg).into_response(),
     };
 
+    // fail-open-ok: invalid UTF-8 immediately fails closed with 400 BAD_REQUEST.
     let Ok(line) = std::str::from_utf8(&body) else {
         return json_response(
             StatusCode::BAD_REQUEST,
@@ -198,7 +200,7 @@ pub async fn handle_mcp_json_line_with_options(
 ) -> Option<String> {
     let parsed: serde_json::Value = match serde_json::from_str(line) {
         Ok(v) => v,
-        Err(_) => return Some(jsonrpc_err(serde_json::Value::Null, -32700, "Parse error")),
+        Err(_) => return Some(jsonrpc_err(serde_json::Value::Null, -32700, "Parse error")), // fail-open-ok: malformed JSON immediately fails closed with JSON-RPC -32700 Parse error.
     };
     let Some(obj) = parsed.as_object() else {
         return Some(jsonrpc_err(
@@ -226,7 +228,7 @@ pub async fn handle_mcp_json_line_with_options(
     if jsonrpc_ver != Some("2.0") || method.is_none_or(str::is_empty) {
         return Some(jsonrpc_err(id, -32600, "Invalid Request"));
     }
-    let method = method.unwrap_or_default();
+    let method = method.unwrap_or_default(); // fail-open-ok: `method.is_none_or(str::is_empty)` above already returned `-32600 Invalid Request`.
 
     // Per JSON-RPC 2.0 spec, notifications (no `id` member) must not receive a response.
     if !has_id {

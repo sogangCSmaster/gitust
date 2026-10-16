@@ -365,6 +365,10 @@ async fn read_capped_drains_beyond_1mib_without_sigpipe() {
         res.stdout.len(),
         usize::try_from(MAX_SANDBOX_STREAM_BYTES).expect("usize")
     );
+    assert!(
+        res.output_truncated,
+        "2MiB stdout must set output_truncated = true"
+    );
 }
 
 /// Gate A P1 (2026-10-16): a Hidden rule whose only existing ancestor is `/` (non-existent

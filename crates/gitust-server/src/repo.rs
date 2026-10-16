@@ -82,6 +82,7 @@ pub(crate) async fn repo_tree_handler(
     let engine = state.git_engine.clone();
     let rev = query.rev;
     let path = query.path;
+    // fail-open-ok: optional query parameter default (`recursive=false` lists single directory level).
     let recursive = query.recursive.unwrap_or(false);
 
     let tree = tokio::task::spawn_blocking(move || {

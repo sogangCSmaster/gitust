@@ -179,6 +179,7 @@ pub(crate) fn resolve_rules(rules: Vec<PathRule>) -> Result<Vec<PathRule>, Sandb
 }
 
 fn canonicalize_rule_path(path: &Path, access: PathAccess) -> Option<PathBuf> {
+    // fail-open-ok: non-existent Hidden rules fall back to ancestor canonicalization below; non-existent ReadOnly/ReadWrite rules return `None` (`resolve_rules` fails closed for Hidden).
     if let Ok(canonical) = fs::canonicalize(path) {
         return Some(canonical);
     }
@@ -195,7 +196,9 @@ fn canonicalize_rule_path(path: &Path, access: PathAccess) -> Option<PathBuf> {
             // failing every sandbox spawn on hosts without `/mnt`, `/media`, or a real HOME.
             return lexical_absolute_path(path);
         }
+        // fail-open-ok: probes each ancestor until the deepest existing directory is found.
         if let Ok(mut canonical_base) = fs::canonicalize(ancestor) {
+            // fail-open-ok: `ancestor` is produced by `path.ancestors()`.
             let suffix = path.strip_prefix(ancestor).ok()?;
             for comp in suffix.components() {
                 match comp {
@@ -334,6 +337,7 @@ pub(crate) fn build_sanitized_path() -> String {
         "/usr/sbin".to_owned(),
         "/sbin".to_owned(),
     ];
+    // fail-open-ok: optional host `~/.cargo/bin` addition when `HOME` is set; standard system `PATH` is always preserved.
     if let Ok(host_home) = std::env::var("HOME") {
         let cargo_bin = Path::new(&host_home).join(".cargo").join("bin");
         if cargo_bin.is_dir() {

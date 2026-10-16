@@ -18,9 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::ancestry::{
     classify_branch_relation, is_agent_branch_short, list_checked_out_branches, BranchRelation,
 };
-use crate::config_guard::{
-    contains_http_userinfo, reject_credentials_in_config, run_git_fetch_with_timeout,
-};
+use crate::config_guard::{reject_credentials_in_config, run_git_fetch_with_timeout};
 use crate::{
     ensure_reflog_identity, io_err, run_git, GitEngine, GitEngineError, INITIAL_FETCH_TIMEOUT,
 };
@@ -45,63 +43,6 @@ pub struct InboundMirrorSyncOutcome {
 }
 
 impl GitEngine {
-    /// Validates and normalizes an upstream Git remote URL or local repository path.
-    ///
-    /// - Rejects empty strings, strings > 2048 bytes, leading `-` (flag injection), whitespace/control
-    ///   characters, `::` remote helper syntax (`ext::`), and embedded HTTP credentials.
-    /// - Allows `https://`, `ssh://`, `git@`, `file://`, or an existing local directory.
-    pub fn validate_mirror_remote_url(raw: &str) -> Result<String, GitEngineError> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty()
-            || trimmed.len() > 2048
-            || trimmed.starts_with('-')
-            || trimmed.contains("::")
-            || trimmed.chars().any(|c| c.is_control() || c.is_whitespace())
-        {
-            return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
-        }
-
-        let lower = trimmed.to_ascii_lowercase();
-        if let Some(after_scheme) = lower.strip_prefix("https://") {
-            if after_scheme.is_empty()
-                || after_scheme.starts_with('/')
-                || contains_http_userinfo(&lower)
-            {
-                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
-            }
-            return Ok(trimmed.to_owned());
-        }
-        if let Some(after_scheme) = lower.strip_prefix("ssh://") {
-            if after_scheme.is_empty() || after_scheme.starts_with('/') {
-                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
-            }
-            return Ok(trimmed.to_owned());
-        }
-        if let Some(after_git) = trimmed.strip_prefix("git@") {
-            if !after_git.contains(':') || after_git.starts_with(':') {
-                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
-            }
-            return Ok(trimmed.to_owned());
-        }
-        if let Some(file_path) = trimmed.strip_prefix("file://") {
-            let p = Path::new(file_path);
-            let canon = fs::canonicalize(p)
-                .map_err(|_| GitEngineError::InvalidRemoteUrl(raw.to_owned()))?;
-            if !canon.is_dir() {
-                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
-            }
-            return Ok(canon.display().to_string());
-        }
-
-        let local_path = Path::new(trimmed);
-        let canon = fs::canonicalize(local_path)
-            .map_err(|_| GitEngineError::InvalidRemoteUrl(raw.to_owned()))?;
-        if !canon.is_dir() {
-            return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
-        }
-        Ok(canon.display().to_string())
-    }
-
     /// Phase 1 of inbound mirror sync: validates `upstream_url`, initializes a bare repository only
     /// if `self.repo_path` does not exist or is an empty directory, and fetches upstream heads/tags
     /// into staging namespaces (`refs/remotes/upstream/*` and `refs/remotes/upstream-tags/*`)
@@ -141,6 +82,7 @@ impl GitEngine {
         let common_git_dir = Self::common_git_dir(&repo);
         reject_credentials_in_config(&common_git_dir)?;
 
+        // fail-open-ok: timeout selection heuristic only; defaults to the safer 30-minute initial timeout if reference probing fails.
         let has_existing_upstream = repo.references().ok().is_some_and(|p| {
             p.prefixed(UPSTREAM_REMOTE_PREFIX)
                 .is_ok_and(|mut it| it.next().is_some())
@@ -185,8 +127,12 @@ impl GitEngine {
         let mut upstream_tags: BTreeMap<String, gix::ObjectId> = BTreeMap::new();
         let mut filtered_upstream_agent_refs: Vec<String> = Vec::new();
         let mut local_non_agent_branches: BTreeMap<String, gix::ObjectId> = BTreeMap::new();
+        let mut unreadable_local_branches: BTreeMap<String, String> = BTreeMap::new();
         let mut local_agent_branches_count: usize = 0;
         let mut local_tags: BTreeMap<String, gix::ObjectId> = BTreeMap::new();
+        let mut unreadable_local_tags: BTreeMap<String, String> = BTreeMap::new();
+        let mut skipped_branches: Vec<(String, String)> = Vec::new();
+        let mut skipped_tags: Vec<(String, String)> = Vec::new();
 
         {
             let refs_platform = repo
@@ -197,13 +143,10 @@ impl GitEngine {
                 .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
 
             for reference_res in all_refs {
-                let Ok(mut r) = reference_res else {
-                    continue;
-                };
+                let mut r =
+                    reference_res.map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
                 let full_name = r.name().as_bstr().to_string();
-                let Ok(oid) = r.follow_to_object().map(|id| id.detach()) else {
-                    continue;
-                };
+                let resolved = r.follow_to_object().map(|id| id.detach());
                 if let Some(short) = full_name.strip_prefix(UPSTREAM_REMOTE_PREFIX) {
                     if short == "HEAD" {
                         continue;
@@ -212,23 +155,60 @@ impl GitEngine {
                         filtered_upstream_agent_refs.push(full_name);
                         continue;
                     }
-                    upstream_branches.insert(short.to_owned(), oid);
+                    match resolved {
+                        Ok(oid) => {
+                            upstream_branches.insert(short.to_owned(), oid);
+                        }
+                        Err(e) => skipped_branches.push((
+                            short.to_owned(),
+                            format!("failed to resolve upstream staging ref: {e}"),
+                        )),
+                    }
                 } else if let Some(tag) = full_name.strip_prefix(UPSTREAM_TAGS_PREFIX) {
-                    upstream_tags.insert(tag.to_owned(), oid);
+                    match resolved {
+                        Ok(oid) => {
+                            upstream_tags.insert(tag.to_owned(), oid);
+                        }
+                        Err(e) => skipped_tags.push((
+                            tag.to_owned(),
+                            format!("failed to resolve upstream staging tag: {e}"),
+                        )),
+                    }
                 } else if let Some(short) = full_name.strip_prefix("refs/heads/") {
                     if is_agent_branch_short(short) {
                         local_agent_branches_count = local_agent_branches_count.saturating_add(1);
                     } else {
-                        local_non_agent_branches.insert(short.to_owned(), oid);
+                        match resolved {
+                            Ok(oid) => {
+                                local_non_agent_branches.insert(short.to_owned(), oid);
+                            }
+                            Err(e) => {
+                                unreadable_local_branches.insert(
+                                    short.to_owned(),
+                                    format!("failed to resolve local branch ref: {e}"),
+                                );
+                            }
+                        }
                     }
                 } else if let Some(tag) = full_name.strip_prefix("refs/tags/") {
-                    local_tags.insert(tag.to_owned(), oid);
+                    match resolved {
+                        Ok(oid) => {
+                            local_tags.insert(tag.to_owned(), oid);
+                        }
+                        Err(e) => {
+                            unreadable_local_tags.insert(
+                                tag.to_owned(),
+                                format!("failed to resolve local tag ref: {e}"),
+                            );
+                        }
+                    }
                 }
             }
         }
 
         let local_only_branches: Vec<String> = local_non_agent_branches
             .keys()
+            .chain(unreadable_local_branches.keys())
             .filter(|b| !upstream_branches.contains_key(*b))
             .cloned()
             .collect();
@@ -241,7 +221,9 @@ impl GitEngine {
         // Cleanup any legacy or case-variant `refs/remotes/upstream/agent/*` staging refs left on disk
         // (protocol-level `^refs/heads/agent/*` already excludes lowercase `agent/*` during `git fetch`).
         for staging_ref in &filtered_upstream_agent_refs {
+            // fail-open-ok: best-effort cleanup of filtered `refs/remotes/upstream/agent/*` staging refs; never touches `refs/heads/*`.
             if let Ok(name) = FullName::try_from(staging_ref.as_str()) {
+                // fail-open-ok: best-effort deletion of filtered staging ref.
                 let _ = repo.edit_reference(RefEdit {
                     change: Change::Delete {
                         expected: PreviousValue::Any,
@@ -254,10 +236,12 @@ impl GitEngine {
         }
 
         let mut synced_branches_count: u32 = 0;
-        let mut skipped_branches: Vec<(String, String)> = Vec::new();
-        let mut skipped_tags: Vec<(String, String)> = Vec::new();
 
         for (branch, upstream_oid) in &upstream_branches {
+            if let Some(reason) = unreadable_local_branches.get(branch) {
+                skipped_branches.push((branch.clone(), reason.clone()));
+                continue;
+            }
             let full_head_ref = format!("refs/heads/{branch}");
             if let Some(local_oid) = local_non_agent_branches.get(branch).copied() {
                 if local_oid == *upstream_oid {
@@ -309,6 +293,7 @@ impl GitEngine {
                         PreviousValue::MustExistAndMatch(Target::Object(local_oid)),
                         *upstream_oid,
                         "gitust sync: fast-forward inbound mirror branch",
+                        &mut skipped_branches,
                     );
                 }
             } else if main_checked_out.as_deref() == Some(branch.as_str())
@@ -327,12 +312,17 @@ impl GitEngine {
                     PreviousValue::MustNotExist,
                     *upstream_oid,
                     "gitust sync: create inbound mirror branch",
+                    &mut skipped_branches,
                 );
             }
         }
 
         let mut synced_tags_count: u32 = 0;
         for (tag, upstream_tag_oid) in &upstream_tags {
+            if let Some(reason) = unreadable_local_tags.get(tag) {
+                skipped_tags.push((tag.clone(), reason.clone()));
+                continue;
+            }
             if let Some(local_tag_oid) = local_tags.get(tag).copied() {
                 if local_tag_oid != *upstream_tag_oid {
                     skipped_tags.push((
@@ -350,6 +340,7 @@ impl GitEngine {
                     PreviousValue::MustNotExist,
                     *upstream_tag_oid,
                     "gitust sync: create inbound mirror tag",
+                    &mut skipped_tags,
                 );
             }
         }
@@ -370,6 +361,7 @@ impl GitEngine {
         };
         if let Some(target_branch) = preferred_branch {
             if repo.work_dir().is_none() {
+                // fail-open-ok: checks whether bare repo `HEAD` already resolves to a valid commit before pointing unborn `HEAD` at `target_branch`.
                 let head_valid = repo
                     .head()
                     .ok()
@@ -377,6 +369,7 @@ impl GitEngine {
                     .is_some();
                 if !head_valid {
                     let target_ref = format!("refs/heads/{target_branch}");
+                    // fail-open-ok: best-effort bare `HEAD` symbolic-ref update when `main` does not exist upstream.
                     let _ = run_git(
                         &self.repo_path,
                         [
@@ -438,9 +431,7 @@ impl GitEngine {
 
         let mut map = BTreeMap::new();
         for reference_res in all_refs {
-            let Ok(mut r) = reference_res else {
-                continue;
-            };
+            let mut r = reference_res.map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
             let full_name = r.name().as_bstr().to_string();
             if let Some(short) = full_name.strip_prefix("refs/heads/") {
                 if is_agent_branch_short(short) {
@@ -449,9 +440,10 @@ impl GitEngine {
             } else if !full_name.starts_with("refs/tags/") {
                 continue;
             }
-            if let Ok(id) = r.follow_to_object() {
-                map.insert(full_name, id.detach().to_string());
-            }
+            let id = r
+                .follow_to_object()
+                .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
+            map.insert(full_name, id.detach().to_string());
         }
         Ok(map)
     }
@@ -463,6 +455,7 @@ fn try_fast_forward_main_worktree(
     upstream_oid: gix::ObjectId,
     skipped_branches: &mut Vec<(String, String)>,
 ) -> bool {
+    // fail-open-ok: failing to inspect main worktree status skips fast-forwarding the checked-out branch (`return false`), which is fail-closed.
     let Ok(status_out) = run_git(repo_path, ["status", "--porcelain", "--untracked-files=no"])
     else {
         skipped_branches.push((
@@ -496,6 +489,7 @@ fn try_fast_forward_main_worktree(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_cas_edit(
     batched_edits: &mut Vec<(bool, String, RefEdit)>,
     is_branch: bool,
@@ -504,9 +498,10 @@ fn push_cas_edit(
     expected: PreviousValue,
     target_oid: gix::ObjectId,
     message: &str,
+    skipped: &mut Vec<(String, String)>,
 ) {
-    if let Ok(name) = FullName::try_from(full_ref) {
-        batched_edits.push((
+    match FullName::try_from(full_ref) {
+        Ok(name) => batched_edits.push((
             is_branch,
             short_name.to_owned(),
             RefEdit {
@@ -522,7 +517,11 @@ fn push_cas_edit(
                 name,
                 deref: false,
             },
-        ));
+        )),
+        Err(e) => skipped.push((
+            short_name.to_owned(),
+            format!("invalid reference name '{full_ref}': {e}"),
+        )),
     }
 }
 

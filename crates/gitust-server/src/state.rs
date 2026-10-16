@@ -120,25 +120,8 @@ pub struct WorktreeRuntime {
     pub exec_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
-/// Tracks in-flight worktree materializations so global and per-user limits are enforced
-/// atomically without holding a lock across blocking `git worktree add` checkouts.
-#[derive(Default)]
-pub struct SpawnQuotaTracker {
-    pub(crate) in_flight_total: usize,
-    pub(crate) in_flight_by_user: HashMap<UserId, usize>,
-}
-
-impl SpawnQuotaTracker {
-    pub(crate) fn release(&mut self, user_id: UserId) {
-        self.in_flight_total = self.in_flight_total.saturating_sub(1);
-        if let Some(count) = self.in_flight_by_user.get_mut(&user_id) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                self.in_flight_by_user.remove(&user_id);
-            }
-        }
-    }
-}
+pub use crate::quota::SpawnQuotaTracker;
+pub(crate) use crate::quota::{RunStatusGuard, SpawnLifecycle, SpawnReservation};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -186,23 +169,32 @@ impl AppState {
         let repo_id = RepoId::new();
         let mut worktrees = VecDeque::new();
         let mut worktree_runtime = HashMap::new();
-        if let Ok(recovered) = git_engine.recover_agent_worktrees(repo_id) {
-            for m in recovered.into_iter().take(MAX_TRACKED_WORKTREES) {
-                let runtime = WorktreeRuntime {
-                    created_by: None,
-                    sandbox_spec: SandboxSpec::for_linked_worktree(
-                        &m.worktree_dir,
-                        &m.worktree_admin_dir,
-                        &m.common_git_dir,
-                        m.main_workdir.as_deref(),
-                        &m.worktrees_base,
-                        &m.sandbox_scratch_base,
-                    ),
-                    worktree_dir: m.worktree_dir,
-                    exec_lock: Arc::new(tokio::sync::Mutex::new(())),
-                };
-                worktree_runtime.insert(m.worktree.id, runtime);
-                worktrees.push_back(m.worktree);
+        match git_engine.recover_agent_worktrees(repo_id) {
+            Ok(recovered) => {
+                for m in recovered.into_iter().take(MAX_TRACKED_WORKTREES) {
+                    let runtime = WorktreeRuntime {
+                        created_by: None,
+                        sandbox_spec: SandboxSpec::for_linked_worktree(
+                            &m.worktree_dir,
+                            &m.worktree_admin_dir,
+                            &m.common_git_dir,
+                            m.main_workdir.as_deref(),
+                            &m.worktrees_base,
+                            &m.sandbox_scratch_base,
+                        ),
+                        worktree_dir: m.worktree_dir,
+                        exec_lock: Arc::new(tokio::sync::Mutex::new(())),
+                    };
+                    worktree_runtime.insert(m.worktree.id, runtime);
+                    worktrees.push_back(m.worktree);
+                }
+            }
+            Err(GitEngineError::OpenRepo { .. }) => {}
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "failed to recover existing agent worktrees on startup"
+                );
             }
         }
         let mut oauth_store = OAuthMcpStore::default();
@@ -302,117 +294,6 @@ impl AppState {
             StatusCode::NOT_FOUND,
             format!("worktree {} not found", wt_id.0),
         ))
-    }
-}
-
-pub(crate) enum SpawnLifecycle {
-    InFlight,
-    Materialized {
-        engine: GitEngine,
-        worktree_dir: PathBuf,
-        branch: String,
-        base_commit: gitust_core::CommitSha,
-    },
-    Committed,
-    Failed,
-    Cancelled,
-}
-
-/// RAII reservation of one global and one per-user worktree slot. Automatically releases the
-/// in-flight slot and rolls back any uncommitted checkout on drop if the checkout fails or the
-/// request future is cancelled.
-pub(crate) struct SpawnReservation {
-    pub(crate) state: AppState,
-    pub(crate) user_id: UserId,
-    pub(crate) lifecycle: Arc<Mutex<SpawnLifecycle>>,
-}
-
-impl SpawnReservation {
-    pub(crate) fn reserve(state: &AppState, user_id: UserId) -> Result<Self, (StatusCode, String)> {
-        let mut quota = state.spawn_quota.lock();
-        let tracked = state.worktrees.read().len();
-        if tracked.saturating_add(quota.in_flight_total) >= MAX_TRACKED_WORKTREES {
-            return Err((
-                StatusCode::TOO_MANY_REQUESTS,
-                format!(
-                    "worktree limit ({MAX_TRACKED_WORKTREES}) reached; discard worktrees first"
-                ),
-            ));
-        }
-        let owned = state
-            .worktree_runtime
-            .read()
-            .values()
-            .filter(|r| r.created_by == Some(user_id))
-            .count();
-        let user_in_flight = quota.in_flight_by_user.get(&user_id).copied().unwrap_or(0);
-        if owned.saturating_add(user_in_flight) >= MAX_WORKTREES_PER_USER {
-            return Err((
-                StatusCode::TOO_MANY_REQUESTS,
-                format!(
-                    "per-user worktree limit ({MAX_WORKTREES_PER_USER}) reached; discard worktrees first"
-                ),
-            ));
-        }
-        quota.in_flight_total += 1;
-        *quota.in_flight_by_user.entry(user_id).or_insert(0) += 1;
-        Ok(Self {
-            state: state.clone(),
-            user_id,
-            lifecycle: Arc::new(Mutex::new(SpawnLifecycle::InFlight)),
-        })
-    }
-
-    pub(crate) fn commit(self, wt: AgentWorktree, runtime: WorktreeRuntime) {
-        *self.lifecycle.lock() = SpawnLifecycle::Committed;
-        let mut quota = self.state.spawn_quota.lock();
-        self.state.worktree_runtime.write().insert(wt.id, runtime);
-        self.state.worktrees.write().push_front(wt);
-        quota.release(self.user_id);
-    }
-}
-
-impl Drop for SpawnReservation {
-    fn drop(&mut self) {
-        let prev = std::mem::replace(&mut *self.lifecycle.lock(), SpawnLifecycle::Cancelled);
-        match prev {
-            SpawnLifecycle::Committed => {}
-            SpawnLifecycle::Failed => {
-                self.state.spawn_quota.lock().release(self.user_id);
-            }
-            SpawnLifecycle::InFlight | SpawnLifecycle::Cancelled => {
-                // `spawn_blocking` is still running and will roll back the worktree + release quota.
-            }
-            SpawnLifecycle::Materialized {
-                engine,
-                worktree_dir,
-                branch,
-                base_commit,
-            } => {
-                let state = self.state.clone();
-                let user_id = self.user_id;
-                tokio::task::spawn_blocking(move || {
-                    let _ = engine.remove_agent_worktree(&worktree_dir, &branch, &base_commit);
-                    state.spawn_quota.lock().release(user_id);
-                });
-            }
-        }
-    }
-}
-
-/// Marks a run as failed if the handler future is dropped mid-run (e.g. client disconnect), so
-/// the worktree never stays `Compiling` forever.
-pub(crate) struct RunStatusGuard {
-    pub(crate) state: AppState,
-    pub(crate) id: WorktreeId,
-    pub(crate) armed: bool,
-}
-
-impl Drop for RunStatusGuard {
-    fn drop(&mut self) {
-        if self.armed {
-            set_worktree_status(&self.state, self.id, |w| w.status = WorktreeStatus::Failed);
-        }
     }
 }
 

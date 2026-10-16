@@ -68,12 +68,25 @@ impl SpawnReservation {
                 ),
             ));
         }
-        let owned = state
-            .worktree_runtime
-            .read()
-            .values()
-            .filter(|r| r.created_by == Some(user_id))
+        let runtimes = state.worktree_runtime.read();
+        let worktrees = state.worktrees.read();
+        let owned = worktrees
+            .iter()
+            .filter(|wt| {
+                !matches!(
+                    wt.status,
+                    WorktreeStatus::Merged | WorktreeStatus::Discarded
+                )
+            })
+            .filter(|wt| {
+                runtimes
+                    .get(&wt.id)
+                    .is_some_and(|r| r.created_by == Some(user_id))
+            })
             .count();
+        drop(worktrees);
+        drop(runtimes);
+        // fail-open-ok: an absent in-flight bucket means zero reservations; owned worktrees are counted separately.
         let user_in_flight = quota.in_flight_by_user.get(&user_id).copied().unwrap_or(0);
         if owned.saturating_add(user_in_flight) >= MAX_WORKTREES_PER_USER {
             return Err((

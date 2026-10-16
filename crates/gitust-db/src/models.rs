@@ -209,9 +209,11 @@ impl AuthState {
         }
 
         for key in snap.ssh_keys {
-            state
-                .ssh_fingerprint_index
-                .insert(key.fingerprint_sha256.clone(), key.id);
+            if !key.revoked {
+                state
+                    .ssh_fingerprint_index
+                    .insert(key.fingerprint_sha256.clone(), key.id);
+            }
             state.ssh_keys_by_id.insert(key.id, key);
         }
 

@@ -89,6 +89,7 @@ pub(crate) fn classify_branch_relation(
         let commit = repo.find_commit(oid).map_err(|e| {
             format!("unable to read commit object {oid} during ancestry check: {e}")
         })?;
+        // fail-open-ok: timestamp is only a heap priority, never an ancestry cutoff; object parent traversal remains exact.
         let secs = commit.time().map(|t| t.seconds).unwrap_or(0);
         let parents: Vec<gix::ObjectId> = commit.parent_ids().map(|id| id.detach()).collect();
         let meta = CommitMeta {
@@ -145,10 +146,12 @@ pub(crate) fn classify_branch_relation(
 
     let mut steps = 0usize;
     while let Some((_, _, oid)) = heap.pop() {
+        // fail-open-ok: absent traversal metadata means no color/expansion yet; ancestry is still proven through object parents.
         let color = flags.get(&oid).copied().unwrap_or(0);
         if color != BOTH {
             in_heap_single.remove(&oid);
         }
+        // fail-open-ok: absent traversal metadata means no color/expansion yet; ancestry is still proven through object parents.
         let prev_expanded = expanded_mask.get(&oid).copied().unwrap_or(0);
         if (color & !prev_expanded) == 0 {
             if in_heap_single.is_empty() {
@@ -207,6 +210,7 @@ pub(crate) fn classify_branch_relation(
                 continue;
             }
 
+            // fail-open-ok: absent traversal metadata means no color/expansion yet; ancestry is still proven through object parents.
             let old_p = flags.get(&p_oid).copied().unwrap_or(0);
             let new_p = old_p | propagate_color;
             if new_p != old_p {

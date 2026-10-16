@@ -47,6 +47,7 @@ pub struct RegisteredOAuthClient {
 #[derive(Debug, Clone)]
 pub struct PendingOAuthCode {
     pub code_sha256: [u8; 32],
+    pub authorizing_credential: [u8; 32],
     pub user_id: UserId,
     pub client_id: String,
     pub redirect_uri: String,
@@ -60,24 +61,18 @@ pub struct PendingOAuthCode {
 #[derive(Default)]
 pub struct OAuthMcpStore {
     clients: HashMap<String, RegisteredOAuthClient>,
-    client_order: VecDeque<String>,
     codes_by_hash: HashMap<[u8; 32], PendingOAuthCode>,
     code_order: VecDeque<[u8; 32]>,
 }
 
 impl OAuthMcpStore {
-    pub fn insert_client(&mut self, client: RegisteredOAuthClient) {
-        while self.clients.len() >= MAX_OAUTH_CLIENTS {
-            if let Some(oldest_id) = self.client_order.pop_front() {
-                self.clients.remove(&oldest_id);
-            } else {
-                break;
-            }
-        }
-        if client.client_id != "gitust-mcp-cli" {
-            self.client_order.push_back(client.client_id.clone());
+    pub fn insert_client(&mut self, client: RegisteredOAuthClient) -> bool {
+        if self.clients.len() >= MAX_OAUTH_CLIENTS && !self.clients.contains_key(&client.client_id)
+        {
+            return false;
         }
         self.clients.insert(client.client_id.clone(), client);
+        true
     }
 
     pub fn get_client(&self, client_id: &str) -> Option<&RegisteredOAuthClient> {
@@ -182,15 +177,8 @@ impl AppState {
                         m.worktree.github_synced = approval.published_to(&destination);
                     }
                     let runtime = WorktreeRuntime {
-                        created_by: None,
-                        sandbox_spec: SandboxSpec::for_linked_worktree(
-                            &m.worktree_dir,
-                            &m.worktree_admin_dir,
-                            &m.common_git_dir,
-                            m.main_workdir.as_deref(),
-                            &m.worktrees_base,
-                            &m.sandbox_scratch_base,
-                        ),
+                        created_by: crate::worktree_owners::read(&m)?,
+                        sandbox_spec: sandbox_spec_for(&m, &auth_store)?,
                         worktree_dir: m.worktree_dir,
                         exec_lock: Arc::new(tokio::sync::Mutex::new(())),
                     };
@@ -485,4 +473,38 @@ pub(crate) fn set_worktree_status(
             }
         }
     }
+}
+
+/// Hide the configured auth DB and its lock even when it is outside the default .gitust directory.
+pub(crate) fn sandbox_spec_for(
+    m: &gitust_git::MaterializedWorktree,
+    store: &AuthStore,
+) -> Result<SandboxSpec, GitEngineError> {
+    use gitust_sandbox::{PathAccess, PathRule};
+    let mut spec = SandboxSpec::for_linked_worktree(
+        &m.worktree_dir,
+        &m.worktree_admin_dir,
+        &m.common_git_dir,
+        m.main_workdir.as_deref(),
+        &m.worktrees_base,
+        &m.sandbox_scratch_base,
+    );
+    if let Some(path) = store.persistence_path() {
+        spec.rules.push(PathRule::new(path, PathAccess::Hidden));
+        let mut lock = path.as_os_str().to_os_string();
+        lock.push(".lock");
+        spec.rules
+            .push(PathRule::new(PathBuf::from(lock), PathAccess::Hidden));
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            // Hide a dedicated auth directory too (including atomic-write temporary files).
+            // Do not hide a configured shared repo/worktree ancestor in its entirety.
+            let parent = std::fs::canonicalize(parent).map_err(|e| {
+                GitEngineError::ApprovalState(format!("cannot resolve auth directory: {e}"))
+            })?;
+            if !m.worktree_dir.starts_with(&parent) && !m.common_git_dir.starts_with(&parent) {
+                spec.rules.push(PathRule::new(parent, PathAccess::Hidden));
+            }
+        }
+    }
+    Ok(spec)
 }

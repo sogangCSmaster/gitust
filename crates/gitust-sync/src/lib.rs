@@ -36,11 +36,19 @@ impl BiDirectionalSyncConfig {
         let trimmed = branch_name.trim();
         let normalized = trimmed
             .strip_prefix("refs/heads/")
+            // fail-open-ok: optional prefix normalization precedes full branch validation and private namespace checks.
             .unwrap_or(trimmed)
             .trim_matches('/');
 
         // Reject empty, traversal, or malformed Git ref names (fail-closed)
         if normalized.is_empty()
+            || normalized == "@"
+            || normalized == "HEAD"
+            || normalized.starts_with('-')
+            || normalized.ends_with('.')
+            || normalized
+                .split('/')
+                .any(|seg| seg.is_empty() || seg.starts_with('.') || seg.ends_with(".lock"))
             || normalized.starts_with("refs/")
             || normalized.contains("..")
             || normalized.contains("//")
@@ -109,6 +117,19 @@ mod tests {
         assert!(!cfg.should_sync_branch_outbound("Agent/Claude/Task-101", true));
         assert!(!cfg.should_sync_branch_outbound("main/../agent/secret", true));
         assert!(!cfg.should_sync_branch_outbound("", true));
+        for invalid in [
+            "-main",
+            "@",
+            "HEAD",
+            "a.lock/nested",
+            ".hidden/main",
+            "main.",
+        ] {
+            assert!(
+                !cfg.should_sync_branch_outbound(invalid, true),
+                "accepted {invalid}"
+            );
+        }
 
         // Approved main branch syncs to GitHub
         assert!(cfg.should_sync_branch_outbound("main", true));

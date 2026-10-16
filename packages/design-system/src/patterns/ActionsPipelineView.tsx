@@ -32,7 +32,7 @@ export interface ActionsPipelineViewProps {
 }
 
 /**
- * GitHub Actions / Gitea Actions compatible CI/CD Pipeline & 120fps Virtualized Log Streamer.
+ * CI/CD pipeline interface and viewport-sliced log viewer.
  * Built for Self-Hosted Enterprise runners with instant log filtering across 10,000+ lines.
  */
 export const ActionsPipelineView: Component<ActionsPipelineViewProps> = (

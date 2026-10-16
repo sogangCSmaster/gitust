@@ -177,9 +177,9 @@ pub(crate) async fn me_handler(caller: AuthenticatedPrincipal) -> Json<Authentic
 
 pub(crate) async fn logout_handler(
     State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
     headers: HeaderMap,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    let caller = extract_mcp_principal_async(&headers, &state.auth_store).await?;
     let raw_token = headers
         .get(header::AUTHORIZATION)
         // fail-open-ok: invalid header immediately fails closed via `.ok_or_else(|| map_auth_err(AuthError::Unauthenticated))?`.

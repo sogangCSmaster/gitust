@@ -28,6 +28,8 @@ mod policy;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_policy_failclosed;
+#[cfg(test)]
 mod tests_required_commands;
 
 use std::fs;
@@ -183,6 +185,7 @@ impl SandboxSpec {
             "worktrees",
             "gitust-worktree-service.lock",
             "gitust-approvals",
+            ".gitust",
         ] {
             rules.push(PathRule::new(
                 common_git_dir.join(private),
@@ -223,7 +226,7 @@ pub struct SandboxExecutionResult {
 /// future is cancelled. The shared scratch base is never removed (concurrent runs use it).
 struct SandboxCleanupGuard {
     pid: Option<u32>,
-    run_dir: PathBuf,
+    run_dir: Option<PathBuf>,
     cancelled: Arc<AtomicBool>,
 }
 
@@ -233,8 +236,23 @@ impl Drop for SandboxCleanupGuard {
         if let Some(pid) = self.pid.take() {
             kill_process_group(pid);
         }
-        // fail-open-ok: best-effort per-run scratch dir removal in Drop.
-        let _ = fs::remove_dir_all(&self.run_dir);
+        if let Some(run_dir) = self.run_dir.take() {
+            cleanup_scratch(run_dir);
+        }
+    }
+}
+
+/// Drop may run on a Tokio worker after cancellation; directory walks belong off that worker.
+fn cleanup_scratch(run_dir: PathBuf) {
+    // fail-open-ok: a missing runtime uses synchronous cleanup as a last-resort fallback.
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn_blocking(move || {
+            // fail-open-ok: best-effort cleanup of a cancelled or failed run.
+            let _ = fs::remove_dir_all(run_dir);
+        });
+    } else {
+        // fail-open-ok: best-effort cleanup when no async runtime is available.
+        let _ = fs::remove_dir_all(run_dir);
     }
 }
 
@@ -308,7 +326,7 @@ impl LocalSandboxExecutor {
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut cleanup_guard = SandboxCleanupGuard {
             pid: None,
-            run_dir: spec.scratch_base.join(run_id.0.to_string()),
+            run_dir: Some(spec.scratch_base.join(run_id.0.to_string())),
             cancelled: Arc::clone(&cancelled),
         };
         let spec_owned = spec.clone();
@@ -340,7 +358,7 @@ impl LocalSandboxExecutor {
             message: e.to_string(),
         })??;
 
-        cleanup_guard.run_dir = prepared.run_dir.clone();
+        cleanup_guard.run_dir = Some(prepared.run_dir.clone());
 
         let mut cmd = Command::new(&prepared.program);
         cmd.args(&prepared.args)
@@ -415,13 +433,19 @@ impl LocalSandboxExecutor {
         let (stdout_bytes, stdout_truncated) = await_pipe_drain(stdout_task, &stdout_partial).await;
         let (stderr_bytes, stderr_truncated) = await_pipe_drain(stderr_task, &stderr_partial).await;
 
+        if let Some(run_dir) = cleanup_guard.run_dir.take() {
+            // fail-open-ok: scratch cleanup failure does not expand the finished sandbox.
+            let _ = tokio::task::spawn_blocking(move || fs::remove_dir_all(run_dir)).await;
+        }
         drop(cleanup_guard);
 
         Ok(SandboxExecutionResult {
             run_id,
             worktree_id,
             command: command_str.to_owned(),
+            // fail-open-ok: signal termination is an explicit failed exit status, never success.
             exit_code: status.code().unwrap_or(-1),
+            // fail-open-ok: duration is display-only and saturates instead of wrapping on overflow.
             duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
             stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
             stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
@@ -433,12 +457,14 @@ impl LocalSandboxExecutor {
 }
 
 async fn await_pipe_drain(
-    task: tokio::task::JoinHandle<(Vec<u8>, bool)>,
+    mut task: tokio::task::JoinHandle<(Vec<u8>, bool)>,
     partial: &Arc<std::sync::Mutex<Vec<u8>>>,
 ) -> (Vec<u8>, bool) {
-    match tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, task).await {
+    match tokio::time::timeout(OUTPUT_DRAIN_TIMEOUT, &mut task).await {
         Ok(Ok(res)) => res,
         Ok(Err(_)) | Err(_) => {
+            task.abort();
+            // fail-open-ok: poisoned output buffers hold diagnostic bytes only; truncated remains true.
             let captured = std::mem::take(&mut *partial.lock().unwrap_or_else(|e| e.into_inner()));
             (captured, true)
         }
@@ -452,6 +478,7 @@ async fn read_capped<R: tokio::io::AsyncRead + Unpin>(
     let Some(mut p) = pipe else {
         return (Vec::new(), false);
     };
+    // fail-open-ok: conversion fallback preserves the same fixed 1MiB output cap.
     let cap = usize::try_from(MAX_SANDBOX_STREAM_BYTES).unwrap_or(1024 * 1024);
     let mut chunk = [0_u8; 8192];
     let mut truncated = false;
@@ -459,6 +486,7 @@ async fn read_capped<R: tokio::io::AsyncRead + Unpin>(
         match p.read(&mut chunk).await {
             Ok(0) => break,
             Ok(n) => {
+                // fail-open-ok: output buffer poison recovery cannot authorize or change sandbox policy.
                 let mut guard = partial.lock().unwrap_or_else(|e| e.into_inner());
                 let remaining = cap.saturating_sub(guard.len());
                 if remaining > 0 {
@@ -477,6 +505,7 @@ async fn read_capped<R: tokio::io::AsyncRead + Unpin>(
             }
         }
     }
+    // fail-open-ok: output buffer poison recovery returns captured diagnostics only.
     let bytes = std::mem::take(&mut *partial.lock().unwrap_or_else(|e| e.into_inner()));
     (bytes, truncated)
 }

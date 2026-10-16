@@ -216,6 +216,7 @@ impl GitEngine {
         let private_agent_branches_filtered = u32::try_from(
             local_agent_branches_count.saturating_add(filtered_upstream_agent_refs.len()),
         )
+        // fail-open-ok: saturating report count only; source iteration and mutation decisions have already completed.
         .unwrap_or(u32::MAX);
         let mut batched_edits: Vec<(bool, String, RefEdit)> = Vec::new();
         // Cleanup any legacy or case-variant `refs/remotes/upstream/agent/*` staging refs left on disk
@@ -386,6 +387,7 @@ impl GitEngine {
             .and_then(|b| upstream_branches.get(b))
             .map(|oid| CommitSha(oid.to_string()));
 
+        // fail-open-ok: saturating telemetry conversion; does not authorize access or alter Git state.
         let sync_latency_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         Ok(InboundMirrorSyncOutcome {
@@ -416,12 +418,7 @@ impl GitEngine {
     /// (preserving annotated `Tag` object OIDs rather than peeling to commits).
     /// Used by Verification Gate 7.4 to verify that a mirror matches its upstream repository 1:1.
     pub fn list_non_agent_refs(&self) -> Result<BTreeMap<String, String>, GitEngineError> {
-        let repo = gix::ThreadSafeRepository::open(&self.repo_path)
-            .map_err(|e| GitEngineError::OpenRepo {
-                path: self.repo_path.display().to_string(),
-                message: e.to_string(),
-            })?
-            .to_thread_local();
+        let repo = self.acquire_repo()?;
         let refs_platform = repo
             .references()
             .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
@@ -455,6 +452,10 @@ fn try_fast_forward_main_worktree(
     upstream_oid: gix::ObjectId,
     skipped_branches: &mut Vec<(String, String)>,
 ) -> bool {
+    if let Err(error) = crate::verification::inspect_index_flags(repo_path) {
+        skipped_branches.push((branch.to_owned(), error.to_string()));
+        return false;
+    }
     // fail-open-ok: failing to inspect main worktree status skips fast-forwarding the checked-out branch (`return false`), which is fail-closed.
     let Ok(status_out) = run_git(repo_path, ["status", "--porcelain", "--untracked-files=no"])
     else {

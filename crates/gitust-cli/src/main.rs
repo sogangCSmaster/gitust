@@ -2,6 +2,8 @@
 
 mod admin_cmd;
 mod sandbox_cmd;
+#[cfg(test)]
+mod tests_cli_review;
 mod triage_cmd;
 
 use std::net::SocketAddr;
@@ -169,6 +171,7 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
+                // fail-open-ok: invalid logging filter only changes log verbosity; no authorization or execution policy is relaxed.
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();

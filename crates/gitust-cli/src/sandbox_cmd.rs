@@ -4,11 +4,12 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use gitust_core::{AgentKind, RepoId, WorktreeId};
-use gitust_git::{GitEngine, MaterializedWorktree};
+use gitust_git::{GitEngine, MaterializedWorktree, WorktreeServiceLock};
 use gitust_sandbox::{LocalSandboxExecutor, SandboxSpec};
 
 struct CliWorktreeGuard {
     engine: GitEngine,
+    _service_lock: WorktreeServiceLock,
     materialized: Arc<Mutex<Option<MaterializedWorktree>>>,
     keep: bool,
     cancelled: Arc<AtomicBool>,
@@ -20,6 +21,7 @@ impl CliWorktreeGuard {
         let taken = self
             .materialized
             .lock()
+            // fail-open-ok: recover the cleanup-only worktree slot after poisoning so an existing checkout is still removed.
             .unwrap_or_else(|e| e.into_inner())
             .take();
         let Some(m) = taken else {
@@ -34,7 +36,9 @@ impl CliWorktreeGuard {
             return;
         }
         let engine = self.engine.clone();
+        let service_lock = self._service_lock.clone();
         match tokio::task::spawn_blocking(move || {
+            let _held_service = service_lock;
             engine.remove_agent_worktree(
                 &m.worktree_dir,
                 &m.worktree.branch,
@@ -56,6 +60,7 @@ impl Drop for CliWorktreeGuard {
         let taken = self
             .materialized
             .lock()
+            // fail-open-ok: recover the cleanup-only worktree slot after poisoning so an existing checkout is still removed.
             .unwrap_or_else(|e| e.into_inner())
             .take();
         let Some(m) = taken else {
@@ -86,7 +91,13 @@ pub(crate) async fn run_cli_sandbox(
     timeout_secs: u64,
 ) -> Result<i32> {
     let engine = GitEngine::new(repo);
-    let head = engine.inspect_head_zero_copy()?;
+    let setup_engine = engine.clone();
+    let (head, service_lock) = tokio::task::spawn_blocking(move || {
+        let lock = setup_engine.lock_worktree_service()?;
+        setup_engine.ensure_config_has_no_credentials()?;
+        Ok::<_, gitust_git::GitEngineError>((setup_engine.inspect_head_zero_copy()?, lock))
+    })
+    .await??;
     if head.branch_name == "detached" {
         anyhow::bail!("HEAD is detached; check out a branch first");
     }
@@ -100,6 +111,7 @@ pub(crate) async fn run_cli_sandbox(
     let materialized_slot = Arc::new(Mutex::new(None));
     let guard = CliWorktreeGuard {
         engine: engine.clone(),
+        _service_lock: service_lock.clone(),
         materialized: Arc::clone(&materialized_slot),
         keep,
         cancelled: Arc::clone(&cancelled),
@@ -111,7 +123,9 @@ pub(crate) async fn run_cli_sandbox(
     let engine_for_spawn = engine.clone();
     let base_branch = head.branch_name.clone();
     let cmd_summary = cmd.to_owned();
+    let spawn_service_lock = service_lock.clone();
     let m = tokio::task::spawn_blocking(move || {
+        let _held_service = spawn_service_lock;
         let res = engine_for_spawn.materialize_agent_worktree(
             worktree_id,
             RepoId::new(),
@@ -120,6 +134,7 @@ pub(crate) async fn run_cli_sandbox(
             &base_branch,
             cmd_summary,
         );
+        // fail-open-ok: poison recovery retains the cleanup slot; materialization errors are still returned to the caller.
         let mut slot = materialized_slot.lock().unwrap_or_else(|e| e.into_inner());
         if cancelled.load(Ordering::SeqCst) {
             drop(slot);
@@ -157,12 +172,14 @@ pub(crate) async fn run_cli_sandbox(
     #[cfg(unix)]
     let outcome = tokio::select! {
         biased;
+        // fail-open-ok: an interrupt always cancels execution and enters checkout cleanup; no success is inferred.
         _ = sigint.recv() => None,
         res = executor.execute(m.worktree.id, &spec, cmd) => Some(res),
     };
     #[cfg(not(unix))]
     let outcome = tokio::select! {
         res = executor.execute(m.worktree.id, &spec, cmd) => Some(res),
+        // fail-open-ok: signal completion cancels execution and cleans up instead of authorizing the worktree.
         _ = tokio::signal::ctrl_c() => None,
     };
 

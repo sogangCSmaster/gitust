@@ -63,7 +63,7 @@ export function registerWorkbenchShortcuts(
       title: "Go to 10,000-Line Virtualized Diff Viewer",
       category: "Navigation",
       keys: "g d",
-      description: "120fps O(1) DOM sliced PR diff engine",
+      description: "Viewport-sliced PR diff viewer",
       handler: () => cb.setActiveTab("diff"),
     }),
     shortcutManager.register({

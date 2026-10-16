@@ -55,13 +55,14 @@ export type WorkbenchTab =
   | "primitives";
 
 export const WorkbenchApp: Component = () => {
+  const [liveMode, setLiveMode] = createSignal(Boolean(getLiveToken()));
   const [activeTab, setActiveTab] = createSignal<WorkbenchTab>("swarm");
   const [cmdOpen, setCmdOpen] = createSignal(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = createSignal(false);
 
   // Showcase Local-First Agent Swarm & Sandbox Fleet Store
   const [swarmTasks, setSwarmTasks] = createSignal<AgentSandboxTask[]>(
-    INITIAL_AGENT_SWARM_TASKS
+    liveMode() ? [] : INITIAL_AGENT_SWARM_TASKS
   );
   const [swarmFilter, setSwarmFilter] = createSignal("");
   const [focusedSwarmIdx, setFocusedSwarmIdx] = createSignal(0);
@@ -90,7 +91,7 @@ export const WorkbenchApp: Component = () => {
 
   // Showcase & Live Enterprise Self-Hosted Admin & IAM State
   const [enterpriseUsers, setEnterpriseUsers] = createSignal<EnterpriseUser[]>(
-    INITIAL_ENTERPRISE_USERS
+    liveMode() ? [] : INITIAL_ENTERPRISE_USERS
   );
   const [liveSession, setLiveSession] =
     createSignal<LiveAuthSessionInfo | null>(null);
@@ -110,10 +111,10 @@ export const WorkbenchApp: Component = () => {
 
   let filterInputRef: HTMLInputElement | undefined;
 
-  // Live Repository State (with 10,000 diff lines & 5,000 file tree paths as 0ms fallback)
-  const fallbackDiffLines = createMemo(() => generateLargeDiff(10000));
+  // Demo data is only available in the explicitly labelled showcase mode.
+  const fallbackDiffLines = createMemo(() => liveMode() ? [] : generateLargeDiff(10000));
   const fallbackFileTreeNodes = createMemo(() =>
-    generateMonorepoFileTree(5000)
+    liveMode() ? [] : generateMonorepoFileTree(5000)
   );
   const [liveDiffLines, setLiveDiffLines] = createSignal<
     ReturnType<typeof generateLargeDiff> | null
@@ -121,7 +122,7 @@ export const WorkbenchApp: Component = () => {
   const [liveFileTreeNodes, setLiveFileTreeNodes] = createSignal<
     ReturnType<typeof generateMonorepoFileTree> | null
   >(null);
-  const [liveCommits, setLiveCommits] = createSignal<LiveCommitSummary[]>([
+  const [liveCommits, setLiveCommits] = createSignal<LiveCommitSummary[]>(liveMode() ? [] : [
     {
       sha: "554fb6c",
       short_sha: "554fb6c",
@@ -137,9 +138,9 @@ export const WorkbenchApp: Component = () => {
     },
   ]);
   const [activeCommitRev, setActiveCommitRev] = createSignal("HEAD");
-  const [lookupMicros, setLookupMicros] = createSignal<number>(180);
+  const [lookupMicros, setLookupMicros] = createSignal<number | null>(null);
   const [selectedFilePath, setSelectedFilePath] = createSignal(
-    "crates/gitust-git/src/browse.rs"
+    liveMode() ? "Repository preview" : "crates/gitust-git/src/browse.rs"
   );
 
   const diffLines = createMemo(() => liveDiffLines() ?? fallbackDiffLines());
@@ -190,12 +191,21 @@ export const WorkbenchApp: Component = () => {
     setRedeemToken,
     fallbackUsers: INITIAL_ENTERPRISE_USERS,
     onTokenAuthenticated: () => {
+      setLiveMode(true);
+      setEnterpriseUsers([]);
+      setLiveCommits([]);
+      setLiveDiffLines([]);
+      setLiveFileTreeNodes([]);
+      setLookupMicros(null);
       liveSwarmClient.resetSwarmEpoch();
       setSwarmTasks([]);
       void liveClient.hydrateFromLiveBackend();
       void liveSwarmClient.hydrateSwarmWorktrees();
     },
     onTokenCleared: () => {
+      setLiveMode(false);
+      setLiveCommits([]);
+      setLookupMicros(null);
       liveSwarmClient.resetSwarmEpoch();
       setLiveDiffLines(null);
       setLiveFileTreeNodes(null);
@@ -307,20 +317,20 @@ export const WorkbenchApp: Component = () => {
     },
     {
       id: "issues",
-      label: "Issues & PRs",
+      label: "Issues & PRs (demo)",
       count: issues().length,
       shortcut: "g i",
       icon: <Icon name="git-pull-request" size={14} />,
     },
     {
       id: "diff",
-      label: "Diff (10k)",
+      label: liveMode() ? "Diff" : "Diff (demo)",
       shortcut: "g d",
       icon: <Icon name="diff" size={14} />,
     },
     {
       id: "actions",
-      label: "CI/CD Actions",
+      label: "CI/CD Actions (demo)",
       count: actionJobs().length,
       shortcut: "g a",
       icon: <Icon name="play" size={14} />,
@@ -333,7 +343,7 @@ export const WorkbenchApp: Component = () => {
     },
     {
       id: "tree",
-      label: "File Tree (5k)",
+      label: liveMode() ? "File Tree" : "File Tree (demo)",
       shortcut: "g t",
       icon: <Icon name="folder" size={14} />,
     },
@@ -385,6 +395,9 @@ export const WorkbenchApp: Component = () => {
           gap: "var(--ds-space-4)",
         }}
       >
+        <p class="ds-mono" style={{ color: "var(--ds-fg-secondary)", "font-size": "var(--ds-font-size-xs)" }}>
+          {liveMode() ? "Live server · Issues and CI/CD tabs are interface demos" : "Design showcase · Sample data and simulated actions · Sign in for live server data"}
+        </p>
         {/* Optimistic Feedback Banner (Zero Spinner) */}
         <Show when={optimisticToast()}>
           {(msg) => (
@@ -420,6 +433,7 @@ export const WorkbenchApp: Component = () => {
 
         <WorkbenchTabViews
           activeTab={activeTab()}
+          liveMode={liveMode()}
           swarmTasks={swarmTasks()}
           focusedSwarmIdx={focusedSwarmIdx()}
           onFocusedSwarmIdxChange={setFocusedSwarmIdx}
@@ -456,6 +470,7 @@ export const WorkbenchApp: Component = () => {
           onToggleEnterpriseUserStatus={demoActions.toggleEnterpriseUserStatus}
           onPolicyFeedback={showQuickFeedback}
           adminAuthProps={{
+            liveMode: liveMode(),
             liveSession: liveSession(),
             onSignIn: (id, pwd) => void liveAuthClient.signIn(id, pwd),
             onSignOut: () => void liveAuthClient.signOut(),

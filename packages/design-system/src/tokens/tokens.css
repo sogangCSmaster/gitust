@@ -179,6 +179,12 @@
   --ds-leading-code: 1.45;
 
   /* Spacing Scale (2px / 4px high-density grid) */
+  --ds-workbench-header-height: 48px;
+  --ds-workbench-logo-size: 22px;
+  --ds-switch-width: 34px;
+  --ds-switch-height: 18px;
+  --ds-switch-thumb-size: 12px;
+  --ds-switch-thumb-travel: 16px;
   --ds-space-0: 0px;
   --ds-space-0-5: 2px;
   --ds-space-1: 4px;

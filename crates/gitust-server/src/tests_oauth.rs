@@ -3,7 +3,6 @@ use crate::oauth::{
     pkce_s256_challenge, OAuthAuthorizationServerMetadata, OAuthAuthorizeResponse,
     OAuthClientRegistrationResponse, OAuthProtectedResourceMetadata, OAuthTokenResponse,
 };
-use crate::state::MAX_OAUTH_CLIENTS;
 
 pub(super) async fn create_and_login_dev(
     app: &Router,
@@ -211,27 +210,6 @@ async fn oauth_pkce_s256_mcp_http_lifecycle_and_deactivation_gate() {
             StatusCode::BAD_REQUEST,
             "bad redirect_uri must be rejected: {bad_uri}"
         );
-    }
-
-    for i in 0..(MAX_OAUTH_CLIENTS + 4) {
-        let _ = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/oauth/register")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "client_name": format!("Temp Client {i}"),
-                            "redirect_uris": ["http://127.0.0.1:54321/oauth/callback"]
-                        })
-                        .to_string(),
-                    ))
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
     }
 
     let reg_resp = app

@@ -22,6 +22,7 @@ impl AuthStore {
         team_ids: Vec<TeamId>,
         ttl_hours: Option<i64>,
     ) -> Result<IssuedInviteLink, AuthError> {
+        // fail-open-ok: omitted TTL uses the documented bounded default; supplied values are validated below.
         let hours = ttl_hours.unwrap_or(DEFAULT_INVITE_EXPIRY_HOURS);
         if !(1..=720).contains(&hours) {
             return Err(AuthError::InvalidInput(
@@ -64,11 +65,11 @@ impl AuthStore {
             let public_view = record.to_public_view();
             guard.invite_hash_index.insert(token_sha256, record.id);
             guard.invites_by_id.insert(record.id, record);
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (public_view, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(IssuedInviteLink {
             invite: public_view,
             invite_url_path: format!("/auth/accept-invite?token={raw_token}"),
@@ -83,6 +84,7 @@ impl AuthStore {
         target_user_id: UserId,
         ttl_hours: Option<i64>,
     ) -> Result<IssuedInviteLink, AuthError> {
+        // fail-open-ok: omitted TTL uses the documented bounded default; supplied values are validated below.
         let hours = ttl_hours.unwrap_or(DEFAULT_INVITE_EXPIRY_HOURS);
         if !(1..=72).contains(&hours) {
             return Err(AuthError::InvalidInput(
@@ -122,11 +124,11 @@ impl AuthStore {
             let public_view = record.to_public_view();
             guard.invite_hash_index.insert(token_sha256, record.id);
             guard.invites_by_id.insert(record.id, record);
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (public_view, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(IssuedInviteLink {
             invite: public_view,
             invite_url_path: format!("/auth/reset-password?token={raw_token}"),
@@ -149,11 +151,11 @@ impl AuthStore {
             };
             inv.revoked_at = Some(Utc::now());
             let view = inv.to_public_view();
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (view, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(view)
     }
 
@@ -275,11 +277,11 @@ impl AuthStore {
                 .insert(clean_username.to_ascii_lowercase(), user.id);
             guard.email_index.insert(target_email, user.id);
             guard.users.insert(user.id, user);
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (profile, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(profile)
     }
 
@@ -401,11 +403,11 @@ impl AuthStore {
                     && !k.ends_with(&uid_suffix)
             });
 
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (profile, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(profile)
     }
 

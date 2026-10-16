@@ -20,6 +20,7 @@ pub(crate) mod quota;
 pub mod repo;
 pub mod state;
 pub mod webui;
+mod worktree_owners;
 pub mod worktrees;
 
 pub use auth::{

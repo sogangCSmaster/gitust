@@ -1,8 +1,6 @@
 //! Step 2-4: Unified Diff Engine (`gitoxide` OID resolution + bounded `SIGPIPE`-safe `git diff`).
 
-use std::io::Read;
-use std::process::{Command, Stdio};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gitust_core::CommitSha;
 use serde::{Deserialize, Serialize};
@@ -82,84 +80,36 @@ impl GitEngine {
                 .parent_ids()
                 .next()
                 .map(|pid| pid.to_string())
+                // fail-open-ok: a root commit has no parent; compare it with Git's canonical empty tree.
                 .unwrap_or_else(|| EMPTY_TREE_SHA1.to_owned()),
         };
 
-        let mut cmd = Command::new("git");
-        cmd.arg("--literal-pathspecs")
-            .arg("-C")
-            .arg(&self.repo_path)
-            .args([
-                "-c",
-                "core.hooksPath=/dev/null",
-                "-c",
-                "core.fsmonitor=false",
-                "-c",
-                "core.quotePath=false",
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--no-color",
-                "--unified=3",
-                base_sha.as_str(),
-                head_sha.as_str(),
-                "--",
-            ])
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_COMMON_DIR")
-            .env_remove("GIT_INDEX_FILE")
-            .env_remove("GIT_OBJECT_DIRECTORY")
-            .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-
+        let mut cmd = crate::git_command(&self.repo_path);
+        cmd.args([
+            "--literal-pathspecs",
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--unified=3",
+            &base_sha,
+            &head_sha,
+            "--",
+        ]);
         if let Some(ref p) = clean_path {
-            cmd.arg(p.as_str());
+            cmd.arg(p);
         }
-
-        let mut child = cmd.spawn().map_err(|e| GitEngineError::GitCommand {
-            args: "diff".to_owned(),
-            message: e.to_string(),
-        })?;
-
-        let mut raw_diff = Vec::new();
-        let mut truncated = false;
-        if let Some(stdout) = child.stdout.take() {
-            let mut limited = stdout.take((MAX_DIFF_BYTES + 1) as u64);
-            limited
-                .read_to_end(&mut raw_diff)
-                .map_err(|e| GitEngineError::GitCommand {
-                    args: "diff".to_owned(),
-                    message: e.to_string(),
-                })?;
-            if raw_diff.len() > MAX_DIFF_BYTES {
-                raw_diff.truncate(MAX_DIFF_BYTES);
-                truncated = true;
-                let mut rest = limited.into_inner();
-                // fail-open-ok: drains remaining `git diff` stdout to sink after 1 MiB cap to avoid SIGPIPE (exit 141); child exit status is verified below.
-                let _ = std::io::copy(&mut rest, &mut std::io::sink());
-            }
-        }
-        let status = child.wait().map_err(|e| GitEngineError::GitCommand {
-            args: "diff".to_owned(),
-            message: e.to_string(),
-        })?;
-        if !status.success() {
-            return Err(GitEngineError::GitCommand {
-                args: format!("diff {base_sha} {head_sha}"),
-                message: format!("exit status {status}"),
-            });
-        }
+        let (raw_diff, truncated) =
+            crate::process::run_capped(cmd, Duration::from_secs(10), MAX_DIFF_BYTES)?;
 
         let diff_text = String::from_utf8_lossy(&raw_diff);
         let (files, lines, additions, deletions, line_truncated) =
             parse_unified_diff(&diff_text, truncated);
+        // fail-open-ok: saturating report count only; source iteration and mutation decisions have already completed.
         let files_changed = u32::try_from(files.len()).unwrap_or(u32::MAX);
+        // fail-open-ok: saturating telemetry conversion; does not authorize access or alter Git state.
         let lookup_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
 
         Ok(RepoDiffSnapshot {
@@ -258,8 +208,18 @@ fn parse_unified_diff(
                     last_file.path = b_path;
                 }
             }
-        } else if raw_line.starts_with("--- ")
-            || raw_line.starts_with("index ")
+        } else if let Some(old_path) = raw_line.strip_prefix("--- ") {
+            let old_path = unquote_git_c_path(old_path.trim_end_matches('\t'));
+            if let Some(old_path) = old_path.strip_prefix("a/") {
+                if let Some(last_file) = files.last_mut() {
+                    last_file.path = old_path.to_owned();
+                }
+            }
+        } else if let Some(renamed) = raw_line.strip_prefix("rename to ") {
+            if let Some(last_file) = files.last_mut() {
+                last_file.path = unquote_git_c_path(renamed);
+            }
+        } else if raw_line.starts_with("index ")
             || raw_line.starts_with("new file mode ")
             || raw_line.starts_with("deleted file mode ")
         {
@@ -288,8 +248,19 @@ fn parse_diff_git_b_path(rest: &str) -> String {
                 }
                 if backslashes.is_multiple_of(2) {
                     let unquoted = unquote_git_c_path(&trimmed[idx..]);
+                    // fail-open-ok: diff path display fallback only; no filesystem access or ref mutation uses this label.
                     return unquoted.strip_prefix("b/").unwrap_or(&unquoted).to_owned();
                 }
+            }
+        }
+    }
+    // For ordinary modifications/additions/deletions Git repeats the exact path, which
+    // disambiguates embedded " b/" sequences even when binary diffs omit ---/+++ headers.
+    if let Some(old) = trimmed.strip_prefix("a/") {
+        for (index, _) in old.match_indices(" b/") {
+            let (source, target) = old.split_at(index);
+            if target.strip_prefix(" b/") == Some(source) {
+                return source.to_owned();
             }
         }
     }
@@ -302,6 +273,7 @@ fn parse_diff_git_b_path(rest: &str) -> String {
                 .last()
                 .and_then(|b| b.strip_prefix("b/").or(Some(b)))
         })
+        // fail-open-ok: diff path display fallback only; no filesystem access or ref mutation uses this label.
         .unwrap_or(trimmed)
         .to_owned()
 }

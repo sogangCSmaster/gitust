@@ -1,6 +1,6 @@
 //! `gitust-db`: High-speed, thread-safe Auth, Invite-Link, Session, PAT, SSH Key,
 //! and Team Repository Store with Argon2id hashing, SHA-256 token digests,
-//! constant-time verification, sliding-window login rate limiting, and lock-free `0600` persistence.
+//! constant-time verification, sliding-window login rate limiting, and lock-protected `0600` persistence.
 //!
 //! Strictly enforces `AGENTS.md` Phase 2~3 authentication & authorization rules:
 //! - Zero public registration or "first web user = admin" routes.
@@ -15,11 +15,14 @@ mod crypto;
 mod disk_lock;
 mod invites;
 mod models;
+mod oauth_session;
 mod persistence;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_persistence;
+#[cfg(test)]
+mod tests_review_regressions;
 #[cfg(test)]
 mod tests_session_scope;
 
@@ -55,7 +58,7 @@ pub(crate) const MIN_PASSWORD_LEN: usize = 10;
 
 /// High-concurrency, O(1) indexed Authentication & Authorization Store.
 /// Disk persistence is synchronized via cross-process advisory file locking (`<auth-db>.lock`)
-/// and `DiskStamp` metadata checks OUTSIDE the in-memory `RwLock`.
+/// and `DiskStamp` metadata checks; a pending durable mutation keeps its in-memory write lock.
 #[derive(Debug, Clone)]
 pub struct AuthStore {
     pub(crate) state: Arc<RwLock<AuthState>>,
@@ -90,6 +93,12 @@ impl AuthStore {
             last_disk_stamp: Arc::new(Mutex::new(initial_stamp)),
             persistence_path: Some(path_buf),
         })
+    }
+
+    /// Path of the persistent snapshot, so sandbox callers can hide the DB and lockfile.
+    #[must_use]
+    pub fn persistence_path(&self) -> Option<&Path> {
+        self.persistence_path.as_deref()
     }
 
     /// Exclusively invoked by the `gitust admin create` CLI command.
@@ -145,11 +154,11 @@ impl AuthStore {
                 .insert(clean_username.to_ascii_lowercase(), user.id);
             guard.email_index.insert(clean_email, user.id);
             guard.users.insert(user.id, user);
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (profile, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(profile)
     }
 
@@ -245,11 +254,11 @@ impl AuthStore {
                 }
             }
 
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (profile, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(profile)
     }
 
@@ -281,11 +290,11 @@ impl AuthStore {
                 created_at: Utc::now(),
             };
             guard.repositories.insert(repo.id, repo.clone());
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (repo, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(repo)
     }
 
@@ -371,9 +380,9 @@ impl AuthStore {
                 return Err(AuthError::ForbiddenResourceOwnership);
             }
             session.revoked = true;
-            self.maybe_snapshot(&mut guard)
+            self.maybe_snapshot(guard)
         };
-        self.persist_snapshot_unlocked(snapshot)
+        self.persist_snapshot(snapshot)
     }
 
     /// Lists Personal Access Tokens owned by `caller` (never exposes token digests or raw tokens).

@@ -77,14 +77,15 @@ impl GitEngine {
         // Validate storage before touching Git; a later I/O error still leaves the local merge
         // intact and requires explicit operator recovery. Never claim an unrecorded approval.
         self.approval_directory(true)?;
+        let clean_commit = self.clean_worktree_commit(id, &branch)?;
         if let Some(expected) = expected {
-            if self.clean_worktree_commit(id, &branch)? != *expected {
+            if clean_commit != *expected {
                 return Err(GitEngineError::VerificationInvalid(
                     "checkout changed since verification; run verification again".into(),
                 ));
             }
         }
-        let approved_commit = self.merge_agent_branch_at(&branch, &base, expected)?;
+        let approved_commit = self.merge_agent_branch_at(&branch, &base, Some(&clean_commit))?;
         let approval = WorktreeApproval {
             version: 1,
             worktree_id: id,

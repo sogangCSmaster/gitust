@@ -1,7 +1,7 @@
 use chrono::{DateTime, Duration, Utc};
 use gitust_core::{
     AccountStatus, AuthError, AuthenticatedPrincipal, EnterpriseRole, PatId,
-    PersonalAccessTokenView, SessionId, SshKeyId, SshPublicKeyView, UserId,
+    PersonalAccessTokenView, SessionId, SshKeyId, SshPublicKeyView,
 };
 use subtle::ConstantTimeEq;
 
@@ -92,12 +92,14 @@ impl AuthStore {
         let scope = client_scope
             .map(str::trim)
             .filter(|s| !s.is_empty() && s.len() <= 128)
+            // fail-open-ok: absent or invalid caller scope shares a fixed restrictive rate-limit bucket.
             .unwrap_or("default");
         let id_key = scoped_id_rate_limit_key(scope, &norm_id);
 
         let now = Utc::now();
         let (maybe_user_id, phc_to_verify) = {
-            let mut guard = self.write_state()?;
+            self.sync_from_disk_if_changed()?;
+            let mut guard = self.state.write();
             let uid = guard
                 .username_index
                 .get(&norm_id)
@@ -128,7 +130,8 @@ impl AuthStore {
         let password_valid = verify_password_argon2(password, &phc_to_verify);
 
         let (response, snapshot) = {
-            let mut guard = self.write_state()?;
+            self.sync_from_disk_if_changed()?;
+            let mut guard = self.state.write();
             let check_now = Utc::now();
             let acct_key = maybe_user_id.map(|u| scoped_account_rate_limit_key(scope, u));
 
@@ -163,6 +166,19 @@ impl AuthStore {
                 return Err(AuthError::AccountDeactivated);
             }
 
+            drop(guard);
+            // Reacquire the persistence transaction only for the successful session mutation.
+            let mut guard = self.write_state()?;
+            let user = guard
+                .users
+                .get(&user_id)
+                .ok_or(AuthError::InvalidCredentials)?;
+            if user.password_hash != phc_to_verify {
+                return Err(AuthError::InvalidCredentials);
+            }
+            if user.status != AccountStatus::Active {
+                return Err(AuthError::AccountDeactivated);
+            }
             let profile = user.to_public_profile();
             let lower_username = user.username.to_ascii_lowercase();
             let lower_email = user.email.to_ascii_lowercase();
@@ -195,7 +211,7 @@ impl AuthStore {
                     purpose: Some(SessionPurpose::Login),
                 },
             );
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (
                 LoginSessionResponse {
                     session_id,
@@ -207,57 +223,7 @@ impl AuthStore {
             )
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
-        Ok(response)
-    }
-
-    /// Issues a session bearer token (`gitust_ses_...`) for an active user after a verified
-    /// OAuth 2.0 Authorization Code + PKCE (`S256`) exchange.
-    ///
-    /// Using the unified `sessions_by_hash` store avoids split-brain token tables and guarantees
-    /// that account deactivation immediately invalidates OAuth-issued MCP tokens.
-    pub fn issue_oauth_session(&self, user_id: UserId) -> Result<LoginSessionResponse, AuthError> {
-        let now = Utc::now();
-        let (response, snapshot) = {
-            let mut guard = self.write_state()?;
-            let user = guard
-                .users
-                .get(&user_id)
-                .ok_or(AuthError::Unauthenticated)?;
-            if user.status != AccountStatus::Active {
-                return Err(AuthError::AccountDeactivated);
-            }
-            let profile = user.to_public_profile();
-            let raw_session_token = generate_csprng_token("gitust_ses");
-            let token_sha256 = hash_token_sha256(&raw_session_token);
-            let expires_at = now + Duration::hours(DEFAULT_SESSION_TTL_HOURS);
-            let session_id = SessionId::new();
-
-            guard.sessions_by_hash.insert(
-                token_sha256,
-                StoredSession {
-                    id: session_id,
-                    user_id,
-                    token_sha256,
-                    created_at: now,
-                    expires_at,
-                    revoked: false,
-                    purpose: Some(SessionPurpose::Mcp),
-                },
-            );
-            let snap = self.maybe_snapshot(&mut guard);
-            (
-                LoginSessionResponse {
-                    session_id,
-                    raw_session_token,
-                    user: profile,
-                    expires_at,
-                },
-                snap,
-            )
-        };
-
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(response)
     }
 
@@ -358,11 +324,11 @@ impl AuthStore {
 
             guard.pat_hash_index.insert(token_sha256, pat.id);
             guard.pats_by_id.insert(pat.id, pat);
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (metadata, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(IssuedPersonalAccessToken {
             metadata,
             raw_token,
@@ -424,11 +390,11 @@ impl AuthStore {
 
             pat.revoked = true;
             let view = pat.to_public_view();
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (view, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(view)
     }
 
@@ -454,7 +420,9 @@ impl AuthStore {
 
             if guard
                 .ssh_fingerprint_index
-                .contains_key(&fingerprint_sha256)
+                .get(&fingerprint_sha256)
+                .and_then(|id| guard.ssh_keys_by_id.get(id))
+                .is_some_and(|key| !key.revoked)
             {
                 return Err(AuthError::InvalidInput(
                     "SSH public key already registered".to_owned(),
@@ -476,11 +444,11 @@ impl AuthStore {
                 .ssh_fingerprint_index
                 .insert(fingerprint_sha256, record.id);
             guard.ssh_keys_by_id.insert(record.id, record);
-            let snap = self.maybe_snapshot(&mut guard);
+            let snap = self.maybe_snapshot(guard);
             (view, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(view)
     }
 
@@ -535,11 +503,15 @@ impl AuthStore {
 
             key_rec.revoked = true;
             let view = key_rec.to_public_view();
-            let snap = self.maybe_snapshot(&mut guard);
+            let fingerprint = key_rec.fingerprint_sha256.clone();
+            if guard.ssh_fingerprint_index.get(&fingerprint) == Some(&ssh_key_id) {
+                guard.ssh_fingerprint_index.remove(&fingerprint);
+            }
+            let snap = self.maybe_snapshot(guard);
             (view, snap)
         };
 
-        self.persist_snapshot_unlocked(snapshot)?;
+        self.persist_snapshot(snapshot)?;
         Ok(view)
     }
 }

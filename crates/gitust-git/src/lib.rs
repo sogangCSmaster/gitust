@@ -18,6 +18,7 @@ mod config_guard;
 mod diff;
 mod mirror;
 mod outbound;
+mod process;
 mod smart_http;
 #[cfg(test)]
 mod tests;
@@ -25,12 +26,12 @@ mod tests;
 mod tests_outbound;
 mod verification;
 mod worktree;
+mod worktree_metadata;
 mod worktree_recovery;
 
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
@@ -49,6 +50,7 @@ pub use diff::{
     MAX_DIFF_LINES,
 };
 pub use mirror::InboundMirrorSyncOutcome;
+pub(crate) use process::{git_command, run_git};
 pub use smart_http::{
     inspect_receive_pack_updates, ReceivePackRefUpdate, SmartHttpService,
     MAX_SMART_HTTP_BODY_BYTES, SMART_HTTP_TIMEOUT,
@@ -112,8 +114,8 @@ pub enum GitEngineError {
     RefTransaction(String),
 
     #[error(
-        "repository config contains embedded credentials (URL userinfo or http.extraHeader); \
-         agent worktrees share this config, so refusing to expose it"
+        "repository config contains credentials, external includes, URL rewrites, or execution/credential-file settings; \
+         refusing to expose or execute unsafe shared config"
     )]
     CredentialsInRepoConfig,
 
@@ -250,6 +252,7 @@ impl GitEngine {
         let trimmed = branch.trim();
         let normalized = trimmed
             .strip_prefix("refs/heads/")
+            // fail-open-ok: an optional refs/heads/ prefix is normalized before the full branch validation below.
             .unwrap_or(trimmed)
             .trim_matches('/');
 
@@ -298,6 +301,7 @@ impl GitEngine {
         let branch_name = head
             .referent_name()
             .map(|r| r.shorten().to_string())
+            // fail-open-ok: display label for a detached HEAD only; no approval or write permission is inferred.
             .unwrap_or_else(|| "detached".to_owned());
 
         let commit = head
@@ -319,6 +323,7 @@ impl GitEngine {
             });
         }
 
+        // fail-open-ok: saturating telemetry conversion; does not authorize access or alter Git state.
         let lookup_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
 
         Ok(RepoHeadSnapshot {
@@ -331,6 +336,7 @@ impl GitEngine {
 
     pub(crate) fn common_git_dir(repo: &gix::Repository) -> PathBuf {
         let common = repo.common_dir();
+        // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
         fs::canonicalize(common).unwrap_or_else(|_| common.to_path_buf())
     }
 
@@ -339,11 +345,13 @@ impl GitEngine {
             return custom.clone();
         }
         repo.work_dir()
+            // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
             .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()))
             .and_then(|w| {
                 let name = w.file_name()?.to_string_lossy().into_owned();
                 Some(w.parent()?.join(format!(".{name}.gitust-worktrees")))
             })
+            // fail-open-ok: bare repositories intentionally store managed checkouts beneath their common Git directory.
             .unwrap_or_else(|| common_git_dir.join(WORKTREES_DIR_NAME))
     }
 
@@ -353,6 +361,7 @@ impl GitEngine {
     /// Re-entrant across clones of the same `GitEngine` instance (e.g. inside a single `AppState`),
     /// while strictly rejecting any second `GitEngine` instance or external OS process.
     pub fn lock_worktree_service(&self) -> Result<WorktreeServiceLock, GitEngineError> {
+        // fail-open-ok: this mutex only caches a Weak OS-lock handle; poisoned cache recovery still requires a live handle or a new exclusive OS lock.
         let mut slot = self.service_lock.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = slot.upgrade() {
             return Ok(WorktreeServiceLock(existing));
@@ -446,62 +455,6 @@ pub(crate) fn io_err(path: &Path, e: &std::io::Error) -> GitEngineError {
         path: path.display().to_string(),
         message: e.to_string(),
     }
-}
-
-/// Runs the host `git` binary with a hardened, deterministic environment:
-/// no system/global config, no hooks, no fsmonitor, no prompts, and no inherited `GIT_*` overrides.
-pub(crate) fn run_git<I, S>(dir: &Path, args: I) -> Result<Vec<u8>, GitEngineError>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    let args: Vec<_> = args.into_iter().map(|a| a.as_ref().to_owned()).collect();
-    let output = git_command(dir)
-        .args(&args)
-        .output()
-        .map_err(|e| GitEngineError::GitCommand {
-            args: display_args(&args),
-            message: e.to_string(),
-        })?;
-
-    if !output.status.success() {
-        return Err(GitEngineError::GitCommand {
-            args: display_args(&args),
-            message: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        });
-    }
-    Ok(output.stdout)
-}
-
-pub(crate) fn git_command(dir: &Path) -> Command {
-    let mut command = Command::new("git");
-    command
-        .arg("-C")
-        .arg(dir)
-        .args([
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "core.fsmonitor=false",
-        ])
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_COMMON_DIR")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_OBJECT_DIRECTORY")
-        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-        .stdin(Stdio::null());
-    command
-}
-
-fn display_args(args: &[std::ffi::OsString]) -> String {
-    args.iter()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Ensures a committer identity exists for reflog entries, without touching any config on disk.

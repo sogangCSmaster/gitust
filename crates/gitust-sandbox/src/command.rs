@@ -18,7 +18,7 @@ impl ShellCommand {
         let commands = std::iter::once(requested).chain(required.iter().map(String::as_str));
         let display = commands
             .clone()
-            .map(|command| format!("/bin/sh -c '{}'", command.replace('\'', "'\\''")))
+            .map(|command| format!("/bin/sh -c -- '{}'", command.replace('\'', "'\\''")))
             .collect::<Vec<_>>()
             .join(" && ");
         // Pass each original command as an argument: shell escaping can quadruple its
@@ -28,7 +28,7 @@ impl ShellCommand {
             .map(str::to_owned)
             .collect();
         Self {
-            script: "for command do /bin/sh -c \"$command\" || exit $?; done".into(),
+            script: "for command do /bin/sh -c -- \"$command\" || exit $?; done".into(),
             args,
             display,
         }

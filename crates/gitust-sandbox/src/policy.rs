@@ -63,6 +63,7 @@ pub(crate) fn prepare_run(
                 OsString::from(profile),
                 OsString::from("/bin/sh"),
                 OsString::from("-c"),
+                OsString::from("--"),
                 OsString::from(command_str),
             ]
         }
@@ -94,7 +95,9 @@ fn prepare_toolchain_env(run_dir: &Path) -> Result<Vec<(&'static str, OsString)>
     };
     let rustup_home = host_home.join(".rustup");
     if rustup_home.is_dir() {
-        env.push(("RUSTUP_HOME", rustup_home.into_os_string()));
+        let canonical =
+            fs::canonicalize(&rustup_home).map_err(|e| prepare_err(&rustup_home, &e))?;
+        env.push(("RUSTUP_HOME", canonical.into_os_string()));
     }
     let cargo_home = run_dir.join("cargo");
     fs::create_dir_all(&cargo_home).map_err(|e| prepare_err(&cargo_home, &e))?;
@@ -103,7 +106,8 @@ fn prepare_toolchain_env(run_dir: &Path) -> Result<Vec<(&'static str, OsString)>
         let host_dir = host_home.join(".cargo").join(sub);
         if host_dir.is_dir() {
             let link = cargo_home.join(sub);
-            std::os::unix::fs::symlink(&host_dir, &link).map_err(|e| prepare_err(&link, &e))?;
+            let canonical = fs::canonicalize(&host_dir).map_err(|e| prepare_err(&host_dir, &e))?;
+            std::os::unix::fs::symlink(&canonical, &link).map_err(|e| prepare_err(&link, &e))?;
         }
     }
     env.push(("CARGO_HOME", cargo_home.into_os_string()));
@@ -142,7 +146,10 @@ fn host_rules() -> Vec<PathRule> {
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         rules.push(PathRule::new(&home, PathAccess::Hidden));
         for sub in [".rustup", ".cargo/bin", ".cargo/registry", ".cargo/git"] {
-            rules.push(PathRule::new(home.join(sub), PathAccess::ReadOnly));
+            let path = home.join(sub);
+            if path.is_dir() {
+                rules.push(PathRule::new(path, PathAccess::ReadOnly));
+            }
         }
     }
     rules
@@ -160,13 +167,11 @@ pub(crate) fn resolve_rules(rules: Vec<PathRule>) -> Result<Vec<PathRule>, Sandb
     let mut resolved = Vec::with_capacity(rules.len());
     for rule in rules {
         let Some(path) = canonicalize_rule_path(&rule.path, rule.access) else {
-            // Dropping a deny rule would silently widen the sandbox: fail closed.
-            if rule.access == PathAccess::Hidden {
-                return Err(SandboxError::UnsupportedPath(
-                    rule.path.to_string_lossy().into_owned(),
-                ));
-            }
-            continue;
+            // Dropping a rule can inherit a broader writable parent. Required paths must
+            // resolve; optional host-toolchain paths are filtered before adding their rules.
+            return Err(SandboxError::UnsupportedPath(
+                rule.path.to_string_lossy().into_owned(),
+            ));
         };
         let lossy = path.to_string_lossy();
         if path.to_str().is_none() || lossy.chars().any(char::is_control) {
@@ -179,7 +184,7 @@ pub(crate) fn resolve_rules(rules: Vec<PathRule>) -> Result<Vec<PathRule>, Sandb
 }
 
 fn canonicalize_rule_path(path: &Path, access: PathAccess) -> Option<PathBuf> {
-    // fail-open-ok: non-existent Hidden rules fall back to ancestor canonicalization below; non-existent ReadOnly/ReadWrite rules return `None` (`resolve_rules` fails closed for Hidden).
+    // fail-open-ok: missing Hidden paths fall back to ancestor resolution; missing grants return None and resolve_rules rejects the run.
     if let Ok(canonical) = fs::canonicalize(path) {
         return Some(canonical);
     }
@@ -323,6 +328,7 @@ pub(crate) fn bwrap_args(
         workdir.as_os_str().to_owned(),
         "/bin/sh".into(),
         "-c".into(),
+        "--".into(),
         command_str.into(),
     ]);
     args
@@ -341,7 +347,10 @@ pub(crate) fn build_sanitized_path() -> String {
     if let Ok(host_home) = std::env::var("HOME") {
         let cargo_bin = Path::new(&host_home).join(".cargo").join("bin");
         if cargo_bin.is_dir() {
-            dirs.insert(0, cargo_bin.display().to_string());
+            // fail-open-ok: an unavailable optional cargo bin is omitted from PATH.
+            if let Ok(canonical) = fs::canonicalize(cargo_bin) {
+                dirs.insert(0, canonical.display().to_string());
+            }
         }
     }
     dirs.join(":")

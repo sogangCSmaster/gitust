@@ -32,7 +32,10 @@ pub(crate) struct DiskStamp {
 
 impl DiskStamp {
     pub(crate) fn of_path(path: &Path) -> Result<Option<Self>, AuthError> {
-        match fs::metadata(path) {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if !meta.is_file() => Err(AuthError::StorageError(
+                "auth db is not a regular file".into(),
+            )),
             Ok(meta) => Ok(Self::of_metadata(&meta)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(AuthError::StorageError(format!(
@@ -64,15 +67,14 @@ impl DiskStamp {
     }
 }
 
-pub(crate) struct PendingDiskWrite {
-    pub(crate) snapshot: PersistedSnapshot,
-    pub(crate) rollback_state: Option<AuthState>,
-    pub(crate) _lock_file: Option<File>,
+pub(crate) struct PendingDiskWrite<'a> {
+    snapshot: PersistedSnapshot,
+    guard: AuthWriteGuard<'a>,
 }
 
 pub(crate) struct AuthWriteGuard<'a> {
     pub(crate) guard: RwLockWriteGuard<'a, AuthState>,
-    pub(crate) lock_file: Option<File>,
+    pub(crate) _lock_file: Option<File>,
     pub(crate) rollback_state: Option<AuthState>,
 }
 
@@ -98,7 +100,14 @@ impl DerefMut for AuthWriteGuard<'_> {
 fn read_snapshot_with_stamp(
     db_path: &Path,
 ) -> Result<(Option<PersistedSnapshot>, Option<DiskStamp>), AuthError> {
-    let mut file = match File::open(db_path) {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let mut file = match options.open(db_path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((None, None)),
         Err(e) => {
@@ -110,6 +119,19 @@ fn read_snapshot_with_stamp(
     let meta = file
         .metadata()
         .map_err(|e| AuthError::StorageError(format!("failed to stat auth db: {e}")))?;
+    if !meta.is_file() {
+        return Err(AuthError::StorageError(
+            "auth db is not a regular file".into(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o777 != 0o600 {
+            file.set_permissions(fs::Permissions::from_mode(0o600))
+                .map_err(|e| AuthError::StorageError(format!("failed to restrict auth db: {e}")))?;
+        }
+    }
     let stamp = DiskStamp::of_metadata(&meta);
     // Bound allocation + read time while holding the lock (sparse / oversized DB files).
     if meta.len() > MAX_AUTH_DB_BYTES {
@@ -118,7 +140,9 @@ fn read_snapshot_with_stamp(
             meta.len()
         )));
     }
-    let mut bytes = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
+    let capacity = usize::try_from(meta.len())
+        .map_err(|_| AuthError::StorageError("auth db size exceeds addressable memory".into()))?;
+    let mut bytes = Vec::with_capacity(capacity);
     (&mut file)
         .take(MAX_AUTH_DB_BYTES + 1)
         .read_to_end(&mut bytes)
@@ -223,7 +247,7 @@ impl AuthStore {
         let Some(ref db_path) = self.persistence_path else {
             return Ok(AuthWriteGuard {
                 guard: self.state.write(),
-                lock_file: None,
+                _lock_file: None,
                 rollback_state: None,
             });
         };
@@ -235,21 +259,20 @@ impl AuthStore {
         let rollback_state = Some(guard.clone());
         Ok(AuthWriteGuard {
             guard,
-            lock_file: Some(lock_file),
+            _lock_file: Some(lock_file),
             rollback_state,
         })
     }
 
-    pub(crate) fn maybe_snapshot(
+    pub(crate) fn maybe_snapshot<'a>(
         &self,
-        guard: &mut AuthWriteGuard<'_>,
-    ) -> Option<PendingDiskWrite> {
+        mut guard: AuthWriteGuard<'a>,
+    ) -> Option<PendingDiskWrite<'a>> {
         guard.revision = guard.revision.saturating_add(1);
         if self.persistence_path.is_some() {
             Some(PendingDiskWrite {
                 snapshot: guard.snapshot_current(),
-                rollback_state: guard.rollback_state.take(),
-                _lock_file: guard.lock_file.take(),
+                guard,
             })
         } else {
             if guard.revision.is_multiple_of(64) || guard.sessions_by_hash.len() >= 1024 {
@@ -259,35 +282,27 @@ impl AuthStore {
         }
     }
 
-    /// Persists a point-in-time snapshot to disk OUTSIDE the in-memory `RwLock` while holding
-    /// the cross-process advisory file lock (`<auth-db>.lock`).
-    ///
-    /// On failure the pre-mutation `AuthState` captured under the lock in `write_state()` is
-    /// restored directly in memory (without doing disk I/O that could also fail), so a mutation
-    /// that reported an error is never applied in memory or persisted later.
-    pub(crate) fn persist_snapshot_unlocked(
+    /// Keep both memory and advisory locks until the disk write and stamp publication finish.
+    /// Readers must never authorize against a mutation that can still fail persistence.
+    pub(crate) fn persist_snapshot(
         &self,
-        pending: Option<PendingDiskWrite>,
+        pending: Option<PendingDiskWrite<'_>>,
     ) -> Result<(), AuthError> {
         let (Some(ref target_path), Some(mut pending_write)) = (&self.persistence_path, pending)
         else {
             return Ok(());
         };
-        let result = write_snapshot_atomically(target_path, &pending_write.snapshot);
-        match result {
+        match write_snapshot_atomically(target_path, &pending_write.snapshot) {
             Ok(new_stamp) => {
                 *self.last_disk_stamp.lock() = new_stamp;
-                drop(pending_write);
                 Ok(())
             }
             Err(err) => {
-                if let Some(mut prev) = pending_write.rollback_state.take() {
-                    let mut guard = self.state.write();
-                    prev.failed_logins = std::mem::take(&mut guard.failed_logins);
-                    prev.revision = guard.revision.max(prev.revision);
-                    *guard = prev;
+                if let Some(mut prev) = pending_write.guard.rollback_state.take() {
+                    prev.failed_logins = std::mem::take(&mut pending_write.guard.failed_logins);
+                    prev.revision = pending_write.guard.revision.max(prev.revision);
+                    *pending_write.guard = prev;
                 }
-                drop(pending_write);
                 Err(err)
             }
         }

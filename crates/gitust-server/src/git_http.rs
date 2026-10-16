@@ -197,6 +197,7 @@ async fn resolve_and_authorize_repo(
     raw_repo: &str,
 ) -> Result<RepoId, Response> {
     let trimmed = raw_repo.trim();
+    // fail-open-ok: an optional URL suffix changes only spelling; repository lookup and BOLA checks follow.
     let clean = trimmed.strip_suffix(".git").unwrap_or(trimmed);
     let target_repo_id =
         if clean.eq_ignore_ascii_case("default") || clean.eq_ignore_ascii_case("gitust") {

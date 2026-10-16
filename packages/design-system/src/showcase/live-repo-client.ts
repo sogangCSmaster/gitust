@@ -68,17 +68,17 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         `/api/v1/repo/diff?head=${encodeURIComponent(rev)}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (reqId !== latestViewReqId) return;
+      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (reqId !== latestViewReqId) return;
+        if (reqId !== latestViewReqId || token !== getLiveToken()) return;
         const msg = `Diff lookup failed for ${rev} (HTTP ${res.status}${errText ? `: ${errText}` : ""})`;
         cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
         cb.showQuickFeedback(msg);
         return;
       }
       const data = await res.json();
-      if (reqId !== latestViewReqId) return;
+      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       cb.setLookupMicros(Number(data.lookup_micros ?? 0));
       if (Array.isArray(data.files) && data.files[0]?.path) {
         cb.setSelectedFilePath(String(data.files[0].path));
@@ -111,7 +111,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         );
       }
     } catch (err) {
-      if (reqId !== latestViewReqId) return;
+      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       const msg = `Diff lookup failed for ${rev}: ${formatErr(err)}`;
       cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
       cb.showQuickFeedback(msg);
@@ -134,17 +134,17 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         `/api/v1/repo/blob?rev=${encodeURIComponent(rev)}&path=${encodeURIComponent(node.path)}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (reqId !== latestViewReqId) return;
+      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (reqId !== latestViewReqId) return;
+        if (reqId !== latestViewReqId || token !== getLiveToken()) return;
         const msg = `Blob lookup failed for ${node.path} (HTTP ${res.status}${errText ? `: ${errText}` : ""})`;
         cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
         cb.showQuickFeedback(msg);
         return;
       }
       const blob = await res.json();
-      if (reqId !== latestViewReqId) return;
+      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       cb.setSelectedFilePath(node.path);
       cb.setLookupMicros(Number(blob.lookup_micros ?? 0));
       if (blob.is_binary) {
@@ -181,7 +181,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         );
       }
     } catch (err) {
-      if (reqId !== latestViewReqId) return;
+      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       const msg = `Blob lookup failed for ${node.path}: ${formatErr(err)}`;
       cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
       cb.showQuickFeedback(msg);
@@ -198,7 +198,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         fetch("/api/v1/repo/commits?rev=HEAD&limit=8", { headers }),
         fetch("/api/v1/repo/tree?rev=HEAD&recursive=true", { headers }),
       ]);
-      if (reqId !== latestViewReqId || !getLiveToken()) return;
+      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       if (!commitsRes.ok || !treeRes.ok) {
         cb.setLiveCommits([]);
         cb.setLiveFileTreeNodes([]);
@@ -212,7 +212,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         commitsRes.json(),
         treeRes.json(),
       ]);
-      if (reqId !== latestViewReqId || !getLiveToken()) return;
+      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       if (Array.isArray(cData.commits)) {
         cb.setLiveCommits(cData.commits);
         cb.setLookupMicros(Number(cData.lookup_micros ?? 0));
@@ -227,7 +227,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       }
       await loadLiveCommitDiff("HEAD");
     } catch (err) {
-      if (reqId !== latestViewReqId || !getLiveToken()) return;
+      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       cb.setLiveCommits([]);
       cb.setLiveFileTreeNodes([]);
       cb.setLiveDiffLines([]);
@@ -238,12 +238,15 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   };
 
   const triggerGithubSync = () => {
+    const token = getLiveToken();
+    if (!token) {
+      cb.showQuickFeedback("Sign in to fetch from the configured GitHub mirror");
+      return;
+    }
     const t0 = performance.now();
     cb.showQuickFeedback(
       "GitHub Read-Only Mirror Sync: Synchronizing upstream refs (Agent branches kept private)..."
     );
-    const token = getLiveToken();
-    if (!token) return;
     void (async () => {
       try {
         const res = await fetch("/api/v1/sync/github", {
@@ -254,9 +257,11 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
           },
           body: "{}",
         });
+        if (token !== getLiveToken()) return;
         const dt = (performance.now() - t0).toFixed(1);
         if (res.ok) {
           const report = await res.json();
+          if (token !== getLiveToken()) return;
           const sha = String(report.last_synced_commit ?? "").slice(0, 7);
           const priv = Number(report.private_agent_branches_filtered ?? 0);
           const skippedCount = Array.isArray(report.skipped_branches)
@@ -268,11 +273,13 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
           await hydrateFromLiveBackend();
         } else {
           const errText = (await res.text().catch(() => "")).trim();
+          if (token !== getLiveToken()) return;
           cb.showQuickFeedback(
             `GitHub Mirror Sync rejected (HTTP ${res.status} in ${dt}ms${errText ? `: ${errText}` : ""})`
           );
         }
       } catch (err) {
+        if (token !== getLiveToken()) return;
         cb.showQuickFeedback(`GitHub Mirror Sync failed: ${formatErr(err)}`);
       }
     })();

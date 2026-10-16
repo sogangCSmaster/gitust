@@ -146,7 +146,6 @@ async fn gate_7_4_sandbox_isolation() {
         format!("git --git-dir='{common}' show stash@{{0}}^3:.env"),
         format!("cat '{common}/refs/stash'"),
         format!("cat '{common}/logs/HEAD'"),
-        format!("ls '{common}/worktrees'"),
         format!("cat '{}/index'", sibling.worktree_admin_dir.display()),
     ] {
         let res = run(probe.clone()).await;
@@ -157,6 +156,20 @@ async fn gate_7_4_sandbox_isolation() {
         );
         assert!(!res.stdout.contains("SECRET"), "{probe} leaked a secret");
     }
+
+    let admin_listing = run(format!("ls '{common}/worktrees'")).await;
+    assert!(
+        !admin_listing.stdout.contains(
+            sibling
+                .worktree_admin_dir
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+        ),
+        "sibling admin directory must be hidden: {}",
+        admin_listing.stdout
+    );
 
     git(&repo_dir, &["pack-refs", "--all"]);
     let packed = run(format!(
@@ -266,7 +279,6 @@ fn rules_are_ordered_shallow_to_deep() {
     let rules = resolve_rules(vec![
         PathRule::new(&deep, PathAccess::ReadWrite),
         PathRule::new(tmp.path().join("a"), PathAccess::Hidden),
-        PathRule::new(tmp.path().join("missing-ro"), PathAccess::ReadOnly),
         PathRule::new(
             tmp.path().join("a/not-yet-created-secret"),
             PathAccess::Hidden,
@@ -276,7 +288,7 @@ fn rules_are_ordered_shallow_to_deep() {
     assert_eq!(
         rules.len(),
         3,
-        "missing ReadOnly paths are dropped, but missing Hidden leaves under an existing ancestor are preserved"
+        "missing Hidden leaves under an existing ancestor are preserved"
     );
     assert_eq!(rules[0].access, PathAccess::Hidden);
     assert_eq!(rules[1].access, PathAccess::Hidden);

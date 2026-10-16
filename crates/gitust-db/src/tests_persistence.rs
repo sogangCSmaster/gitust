@@ -319,3 +319,28 @@ fn gate_double_io_failure_rolls_back_in_memory_and_fails_closed() {
         "uncommitted PAT remained in memory after double I/O failure: {pats:?}"
     );
 }
+
+#[test]
+fn pending_write_is_not_visible_to_auth_readers_before_persistence() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (store, admin) = bootstrap_admin(&tmp.path().join("auth.json"));
+    let mut guard = store.write_state().unwrap();
+    guard.users.get_mut(&admin.user_id).unwrap().username = "pending-admin".into();
+    let pending = store.maybe_snapshot(guard);
+    let reader = store.clone();
+    let (tx, rx) = mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        tx.send(reader.list_users(&admin)).unwrap();
+    });
+    let premature = rx.recv_timeout(Duration::from_millis(100));
+    store.persist_snapshot(pending).unwrap();
+    handle.join().unwrap();
+    assert!(
+        premature.is_err(),
+        "uncommitted auth state was visible before persistence"
+    );
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap()[0].username,
+        "pending-admin"
+    );
+}

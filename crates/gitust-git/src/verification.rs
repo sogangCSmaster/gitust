@@ -27,6 +27,12 @@ impl GitEngine {
                 "checkout is detached or belongs to a different branch",
             ));
         }
+        let repo = self.acquire_repo()?;
+        crate::worktree_metadata::read_worktree_admin_dir(
+            &entry.worktree_dir,
+            &Self::common_git_dir(&repo),
+        )?;
+        inspect_local_ignore_files(&entry.worktree_dir)?;
         // Index flags may hide actual tracked modifications from status. Reject those flags
         // before checking status, without collecting filenames.
         inspect_checkout(&entry.worktree_dir, true)?;
@@ -151,6 +157,83 @@ fn inspect_checkout(dir: &Path, flags: bool) -> Result<(), GitEngineError> {
         } else {
             "checkout has changes or cannot be inspected; commit or remove changes and retry"
         }));
+    }
+    Ok(())
+}
+
+/// Reused before updating a checked-out base, where index flags can hide valuable local work.
+pub(crate) fn inspect_index_flags(dir: &Path) -> Result<(), GitEngineError> {
+    inspect_checkout(dir, true)
+}
+
+fn inspect_local_ignore_files(dir: &Path) -> Result<(), GitEngineError> {
+    // Ignored build directories remain allowed. Only active untracked ignore files can
+    // change which candidate sources status sees; tracked ignore edits are already dirty.
+    let mut list = git_command(dir);
+    list.args([
+        "--glob-pathspecs",
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "-z",
+        "--",
+        ".gitignore",
+        "**/.gitignore",
+    ]);
+    let (paths, truncated) =
+        crate::process::run_capped(list, Duration::from_secs(10), 1024 * 1024)?;
+    if truncated {
+        return Err(invalid("too many local ignore files to verify"));
+    }
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let mut input = Vec::new();
+    let mut count = 0;
+    for path in paths.split(|b| *b == 0).filter(|p| !p.is_empty()) {
+        input.extend_from_slice(path);
+        input.push(0);
+        match path.iter().rposition(|b| *b == b'/') {
+            Some(index) => input.extend_from_slice(&path[..index]),
+            None => input.extend_from_slice(b"./"),
+        }
+        input.push(0);
+        count += 1;
+    }
+    let mut check = git_command(dir);
+    check.args([
+        "check-ignore",
+        "--verbose",
+        "-z",
+        "--no-index",
+        "--non-matching",
+        "--stdin",
+    ]);
+    let (output, truncated) = crate::process::run_capped_with_input(
+        check,
+        Duration::from_secs(10),
+        4 * 1024 * 1024,
+        Some(input),
+    )?;
+    if truncated {
+        return Err(invalid("too many local ignore rules to verify"));
+    }
+    let output = output
+        .strip_suffix(&[0])
+        .ok_or_else(|| invalid("incomplete ignore inspection"))?;
+    let fields: Vec<_> = output.split(|b| *b == 0).collect();
+    if fields.len() != count * 8 {
+        return Err(invalid("cannot inspect local ignore files"));
+    }
+    for pair in fields.chunks_exact(8) {
+        // An ignored parent directory makes the local .gitignore inert. Otherwise the
+        // untracked file can change source visibility even when another rule hides it.
+        if pair[4].is_empty() {
+            return Err(invalid(
+                "an active untracked .gitignore is hidden; commit or remove it before verification",
+            ));
+        }
     }
     Ok(())
 }

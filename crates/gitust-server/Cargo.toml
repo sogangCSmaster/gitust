@@ -28,6 +28,7 @@ bytes.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 tower.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

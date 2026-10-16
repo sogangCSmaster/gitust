@@ -24,7 +24,7 @@ use axum::body::Body;
 use axum::extract::{ConnectInfo, Request};
 use axum::Router;
 use bytes::Bytes;
-use http_body::{Frame, SizeHint};
+use http_body::{Body as _, Frame, SizeHint};
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
@@ -124,6 +124,9 @@ impl Drop for IpSlot {
 
 /// Router middleware: applies [`BODY_READ_DEADLINE`] to every request body.
 pub(crate) async fn apply_body_deadline(req: Request) -> Request {
+    if req.body().is_end_stream() {
+        return req;
+    }
     req.map(|body| Body::new(DeadlineBody::new(body, BODY_READ_DEADLINE)))
 }
 
@@ -178,6 +181,7 @@ pub async fn serve_hardened_with(
                 continue;
             }
         };
+        stream.set_nodelay(true)?;
         let Some(ip_slot) = IpSlot::try_acquire(&per_ip, addr.ip(), limits.max_connections_per_ip)
         else {
             tracing::debug!("per-IP connection limit reached for {}", addr.ip());

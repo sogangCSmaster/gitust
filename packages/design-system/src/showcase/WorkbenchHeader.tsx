@@ -22,7 +22,7 @@ export const WorkbenchHeader: Component<WorkbenchHeaderProps> = (props) => {
         display: "flex",
         "align-items": "center",
         "justify-content": "space-between",
-        height: "48px",
+        height: "var(--ds-workbench-header-height)",
         padding: "0 var(--ds-space-4)",
         "background-color": "var(--ds-bg-primary)",
         "border-bottom": "1px solid var(--ds-border-default)",
@@ -52,11 +52,11 @@ export const WorkbenchHeader: Component<WorkbenchHeaderProps> = (props) => {
               display: "inline-flex",
               "align-items": "center",
               "justify-content": "center",
-              width: "22px",
-              height: "22px",
+              width: "var(--ds-workbench-logo-size)",
+              height: "var(--ds-workbench-logo-size)",
               "border-radius": "var(--ds-radius-xs)",
               "background-color": "var(--ds-accent-primary)",
-              color: "#fff",
+              color: "var(--ds-fg-on-accent)",
             }}
           >
             <Icon name="repo" size={13} />
@@ -78,7 +78,7 @@ export const WorkbenchHeader: Component<WorkbenchHeaderProps> = (props) => {
         </Badge>
         <Badge variant="success" mono>
           <Icon name="zap" size={11} />
-          <span>&lt;16ms Frame</span>
+          <span>Keyboard first</span>
         </Badge>
       </div>
 
@@ -98,7 +98,7 @@ export const WorkbenchHeader: Component<WorkbenchHeaderProps> = (props) => {
                 display: "inline-flex",
                 "align-items": "center",
                 gap: "var(--ds-space-1-5)",
-                padding: "2px 8px",
+                padding: "var(--ds-space-0-5) var(--ds-space-2)",
                 "border-radius": "var(--ds-radius-sm)",
                 "background-color": "var(--ds-bg-secondary)",
                 border: "1px solid var(--ds-border-subtle)",

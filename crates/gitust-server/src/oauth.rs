@@ -19,6 +19,10 @@ use crate::state::{
     OAUTH_CODE_TTL_SECS,
 };
 
+#[path = "oauth_validation.rs"]
+mod validation;
+use validation::{is_valid_pkce_token, is_valid_redirect_uri, parse_token_request};
+
 const MAX_OAUTH_FORM_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -118,67 +122,9 @@ fn resolve_base_url(headers: &HeaderMap) -> String {
                     b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':' | b'[' | b']')
                 })
         })
+        // fail-open-ok: invalid Host is replaced with loopback metadata, never a caller-supplied destination.
         .unwrap_or("127.0.0.1:3000");
     format!("http://{host}")
-}
-
-fn is_valid_redirect_uri(uri: &str) -> bool {
-    let trimmed = uri.trim();
-    if trimmed.is_empty()
-        || trimmed.len() > 512
-        || trimmed.contains('#')
-        || trimmed.chars().any(|c| c.is_control() || c.is_whitespace())
-    {
-        return false;
-    }
-    let Some((scheme, after_scheme)) = trimmed.split_once("://") else {
-        return false;
-    };
-    if after_scheme.is_empty() {
-        return false;
-    }
-    let authority_end = after_scheme.find(['/', '?']).unwrap_or(after_scheme.len());
-    let authority = &after_scheme[..authority_end];
-    if authority.is_empty() || authority.contains('@') {
-        return false;
-    }
-    let lower = scheme.to_ascii_lowercase();
-    match lower.as_str() {
-        "http" => {
-            let (host, port_opt) = if let Some(rest) = authority.strip_prefix("[::1]") {
-                if rest.is_empty() {
-                    ("[::1]", None)
-                } else if let Some(p) = rest.strip_prefix(':') {
-                    ("[::1]", Some(p))
-                } else {
-                    return false;
-                }
-            } else if let Some((h, p)) = authority.rsplit_once(':') {
-                (h, Some(p))
-            } else {
-                (authority, None)
-            };
-            if let Some(p) = port_opt {
-                if !matches!(p.parse::<u16>(), Ok(1..=u16::MAX)) {
-                    return false;
-                }
-            }
-            matches!(host, "127.0.0.1" | "localhost" | "[::1]")
-        }
-        "https" => authority
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':' | b'[' | b']')),
-        "javascript" | "data" | "file" | "vbscript" => false,
-        _ => lower.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.')
-        }),
-    }
-}
-
-fn is_valid_pkce_token(s: &str) -> bool {
-    (43..=128).contains(&s.len())
-        && s.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~'))
 }
 
 /// Encodes a 32-byte SHA-256 digest as RFC 4648 base64url without padding (43 ASCII chars).
@@ -285,6 +231,7 @@ pub(crate) async fn oauth_register_client_handler(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
+        // fail-open-ok: optional client display name is presentation only; redirect and capacity checks still run.
         .unwrap_or("MCP OAuth Client");
     if client_name.len() > 256 {
         return oauth_error_response(
@@ -301,7 +248,13 @@ pub(crate) async fn oauth_register_client_handler(
         redirect_uris: clean_uris.clone(),
         created_at: Utc::now(),
     };
-    state.oauth_mcp.lock().insert_client(record);
+    if !state.oauth_mcp.lock().insert_client(record) {
+        return oauth_error_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            "temporarily_unavailable",
+            "client registration capacity reached",
+        );
+    }
 
     (
         StatusCode::CREATED,
@@ -329,6 +282,27 @@ pub(crate) async fn oauth_authorize_handler(
         Ok(c) => c,
         Err(err) => return err.into_response(),
     };
+    // fail-open-ok: an invalid bearer header is rejected immediately below; it never authorizes an exchange.
+    let Some(credential) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .map(str::trim)
+    else {
+        return oauth_error_response(
+            StatusCode::UNAUTHORIZED,
+            "invalid_request",
+            "missing bearer credential",
+        );
+    };
+    let authorizing_credential = gitust_db::hash_token_sha256(credential);
+    if req.scope.as_deref().is_some_and(|scope| scope != "mcp") {
+        return oauth_error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_scope",
+            "only scope=mcp is supported",
+        );
+    }
     if req.response_type.trim() != "code" {
         return oauth_error_response(
             StatusCode::BAD_REQUEST,
@@ -394,6 +368,7 @@ pub(crate) async fn oauth_authorize_handler(
         oauth.insert_code(PendingOAuthCode {
             code_sha256,
             user_id: caller.user_id,
+            authorizing_credential,
             client_id: client_id.to_owned(),
             redirect_uri: redirect_uri.to_owned(),
             code_challenge_s256: challenge.to_owned(),
@@ -411,70 +386,6 @@ pub(crate) async fn oauth_authorize_handler(
         }),
     )
         .into_response()
-}
-
-fn percent_decode(input: &str) -> Option<String> {
-    let bytes = input.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => {
-                out.push(b' ');
-                i += 1;
-            }
-            b'%' => {
-                if i + 2 >= bytes.len() {
-                    return None;
-                }
-                let hi = (bytes[i + 1] as char).to_digit(16)?;
-                let lo = (bytes[i + 2] as char).to_digit(16)?;
-                out.push(((hi << 4) | lo) as u8);
-                i += 3;
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8(out).ok() // fail-open-ok: invalid UTF-8 returns `None` and fails closed via `.ok_or(...)` in `parse_token_request`.
-}
-
-fn parse_token_request(
-    headers: &HeaderMap,
-    body: &[u8],
-) -> Result<OAuthTokenRequest, &'static str> {
-    if body.is_empty() || body.len() > MAX_OAUTH_FORM_BYTES {
-        return Err("request body must be between 1 and 16384 bytes");
-    }
-    let content_type = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok()) // fail-open-ok: non-ASCII Content-Type falls through to strict JSON parser below, which rejects invalid payloads.
-        .unwrap_or("");
-    if content_type.starts_with("application/x-www-form-urlencoded") {
-        let text = std::str::from_utf8(body).map_err(|_| "invalid UTF-8 form body")?;
-        let mut req = OAuthTokenRequest::default();
-        for pair in text.split('&') {
-            if pair.is_empty() {
-                continue;
-            }
-            let (k_raw, v_raw) = pair.split_once('=').unwrap_or((pair, ""));
-            let k = percent_decode(k_raw).ok_or("invalid percent-encoding in form key")?;
-            let v = percent_decode(v_raw).ok_or("invalid percent-encoding in form value")?;
-            match k.as_str() {
-                "grant_type" => req.grant_type = v,
-                "code" => req.code = v,
-                "client_id" => req.client_id = v,
-                "redirect_uri" => req.redirect_uri = v,
-                "code_verifier" => req.code_verifier = v,
-                _ => {}
-            }
-        }
-        Ok(req)
-    } else {
-        serde_json::from_slice(body).map_err(|_| "invalid token request payload")
-    }
 }
 
 /// `POST /oauth/token` — Exchanges a single-use authorization code + PKCE `code_verifier`
@@ -497,6 +408,28 @@ pub(crate) async fn oauth_token_handler(
         Err(msg) => return oauth_error_response(StatusCode::BAD_REQUEST, "invalid_request", msg),
     };
 
+    let code = req.code.trim();
+    let client_id = req.client_id.trim();
+    let redirect_uri = req.redirect_uri.trim();
+    let code_verifier = req.code_verifier.trim();
+
+    if code.is_empty() || code.len() > 256 {
+        return oauth_error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "invalid authorization code",
+        );
+    }
+    // Atomically consume the single-use authorization code before any `.await`.
+    let code_hash = hash_oauth_code_sha256(code);
+    let Some(pending) = state.oauth_mcp.lock().take_code(&code_hash) else {
+        return oauth_error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid_grant",
+            "authorization code is invalid or already used",
+        );
+    };
+
     if req.grant_type.trim() != "authorization_code" {
         return oauth_error_response(
             StatusCode::BAD_REQUEST,
@@ -504,11 +437,6 @@ pub(crate) async fn oauth_token_handler(
             "only grant_type=authorization_code is supported",
         );
     }
-    let code = req.code.trim();
-    let client_id = req.client_id.trim();
-    let redirect_uri = req.redirect_uri.trim();
-    let code_verifier = req.code_verifier.trim();
-
     if code.is_empty()
         || code.len() > 256
         || client_id.is_empty()
@@ -523,16 +451,6 @@ pub(crate) async fn oauth_token_handler(
             "invalid or missing code, client_id, redirect_uri, or PKCE code_verifier",
         );
     }
-
-    // Atomically consume the single-use authorization code before any `.await`.
-    let code_hash = hash_oauth_code_sha256(code);
-    let Some(pending) = state.oauth_mcp.lock().take_code(&code_hash) else {
-        return oauth_error_response(
-            StatusCode::BAD_REQUEST,
-            "invalid_grant",
-            "authorization code is invalid or already used",
-        );
-    };
 
     if Utc::now() >= pending.expires_at {
         return oauth_error_response(
@@ -565,9 +483,12 @@ pub(crate) async fn oauth_token_handler(
 
     let store = state.auth_store.clone();
     let user_id = pending.user_id;
-    let session = match tokio::task::spawn_blocking(move || store.issue_oauth_session(user_id))
-        .await
-        .map_err(internal_err)
+    let credential = pending.authorizing_credential;
+    let session = match tokio::task::spawn_blocking(move || {
+        store.issue_oauth_session_from_authorization(user_id, credential)
+    })
+    .await
+    .map_err(internal_err)
     {
         Ok(Ok(s)) => s,
         Ok(Err(auth_err)) => {

@@ -1,39 +1,27 @@
 //! Agent worktree materialization, sandbox execution, fast-forward approval/merge,
 //! and GitHub sync handlers.
 
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use gitust_core::{
-    AgentKind, AgentWorktree, AuthError, AuthenticatedPrincipal, EnterpriseRole, RepoId,
-    WorktreeId, WorktreeStatus,
+    AgentWorktree, AuthError, AuthenticatedPrincipal, EnterpriseRole, WorktreeStatus,
 };
-use gitust_git::{GitEngine, GitEngineError, RepoHeadSnapshot};
-use gitust_sandbox::{SandboxExecutionResult, SandboxSpec};
+use gitust_git::{GitEngineError, RepoHeadSnapshot};
+use gitust_sandbox::SandboxExecutionResult;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::state::{
     check_repo_bola, filter_authorized_worktrees, find_authorized_worktree, internal_err,
     map_auth_err, map_git_err, map_sandbox_err, set_worktree_status, AppState, RunStatusGuard,
-    SpawnLifecycle, SpawnReservation, WorktreeRuntime, MAX_PROMPT_SUMMARY_BYTES,
     MAX_SANDBOX_COMMAND_BYTES,
 };
 
-#[derive(Serialize, Deserialize)]
-pub struct SpawnWorktreeRequest {
-    pub repo_id: Option<RepoId>,
-    pub agent: Option<AgentKind>,
-    /// Must be in the `agent/` namespace.
-    pub branch: String,
-    /// Branch to fork from (default: `main`).
-    #[serde(default)]
-    pub base_branch: Option<String>,
-    pub prompt_summary: String,
-}
+#[path = "worktree_spawn.rs"]
+mod spawn;
+pub use spawn::SpawnWorktreeRequest;
+pub(crate) use spawn::{spawn_worktree_core, spawn_worktree_handler};
 
 #[derive(Serialize, Deserialize)]
 pub struct SandboxExecRequest {
@@ -66,128 +54,6 @@ pub(crate) async fn list_worktrees_handler(
     caller: AuthenticatedPrincipal,
 ) -> Result<Json<Vec<AgentWorktree>>, (StatusCode, String)> {
     Ok(Json(filter_authorized_worktrees(&state, &caller).await?))
-}
-
-pub(crate) async fn spawn_worktree_core(
-    state: &AppState,
-    caller: &AuthenticatedPrincipal,
-    branch: &str,
-    base_branch: String,
-    agent: AgentKind,
-    prompt_summary: String,
-    target_repo_id: RepoId,
-) -> Result<(AgentWorktree, PathBuf), (StatusCode, String)> {
-    if prompt_summary.len() > MAX_PROMPT_SUMMARY_BYTES {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("prompt_summary exceeds {MAX_PROMPT_SUMMARY_BYTES} bytes"),
-        ));
-    }
-    let clean_branch = GitEngine::validate_agent_branch_name(branch).map_err(map_git_err)?;
-    let clean_base = GitEngine::validate_branch_name(&base_branch).map_err(map_git_err)?;
-    let store = state.auth_store.clone();
-    let default_repo = state.repo_id;
-    let caller_owned = caller.clone();
-    tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, default_repo, &caller_owned, target_repo_id)
-    })
-    .await
-    .map_err(internal_err)??;
-    if target_repo_id != state.repo_id {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "repository is not served by this instance".to_owned(),
-        ));
-    }
-    let reservation = SpawnReservation::reserve(state, caller.user_id)?;
-    let lifecycle = Arc::clone(&reservation.lifecycle);
-    let state_for_spawn = state.clone();
-    let user_id = caller.user_id;
-
-    let engine = state.git_engine.clone();
-    let materialized = tokio::task::spawn_blocking(move || {
-        let res = engine.materialize_agent_worktree(
-            WorktreeId::new(),
-            target_repo_id,
-            agent,
-            &clean_branch,
-            &clean_base,
-            prompt_summary,
-        );
-        let mut life = lifecycle.lock();
-        match (&*life, &res) {
-            (SpawnLifecycle::Cancelled, Ok(m)) => {
-                drop(life);
-                // fail-open-ok: best-effort rollback of materialized worktree when request future was cancelled mid-checkout.
-                let _ = engine.remove_agent_worktree(
-                    &m.worktree_dir,
-                    &m.worktree.branch,
-                    &m.worktree.base_commit,
-                );
-                state_for_spawn.release_in_flight_quota(user_id);
-            }
-            (SpawnLifecycle::Cancelled, Err(_)) => {
-                drop(life);
-                state_for_spawn.release_in_flight_quota(user_id);
-            }
-            (_, Ok(m)) => {
-                *life = SpawnLifecycle::Materialized {
-                    engine: engine.clone(),
-                    worktree_dir: m.worktree_dir.clone(),
-                    branch: m.worktree.branch.clone(),
-                    base_commit: m.worktree.base_commit.clone(),
-                };
-            }
-            (_, Err(_)) => {
-                *life = SpawnLifecycle::Failed;
-            }
-        }
-        res
-    })
-    .await
-    .map_err(internal_err)?
-    .map_err(map_git_err)?;
-
-    let worktree_dir = materialized.worktree_dir;
-    let runtime = WorktreeRuntime {
-        created_by: Some(caller.user_id),
-        sandbox_spec: SandboxSpec::for_linked_worktree(
-            &worktree_dir,
-            &materialized.worktree_admin_dir,
-            &materialized.common_git_dir,
-            materialized.main_workdir.as_deref(),
-            &materialized.worktrees_base,
-            &materialized.sandbox_scratch_base,
-        ),
-        worktree_dir: worktree_dir.clone(),
-        exec_lock: Arc::new(tokio::sync::Mutex::new(())),
-    };
-    let wt = materialized.worktree;
-    reservation.commit(wt.clone(), runtime);
-    Ok((wt, worktree_dir))
-}
-
-pub(crate) async fn spawn_worktree_handler(
-    State(state): State<AppState>,
-    _caller: AuthenticatedPrincipal,
-    headers: axum::http::HeaderMap,
-    Json(req): Json<SpawnWorktreeRequest>,
-) -> Result<Json<AgentWorktree>, (StatusCode, String)> {
-    let caller = crate::auth::extract_principal_async(&headers, &state.auth_store).await?;
-    let target_repo_id = req.repo_id.unwrap_or(state.repo_id);
-    let agent = req.agent.unwrap_or(AgentKind::ClaudeCode);
-    let base_branch = req.base_branch.unwrap_or_else(|| "main".to_owned());
-    let (wt, _worktree_dir) = spawn_worktree_core(
-        &state,
-        &caller,
-        &req.branch,
-        base_branch,
-        agent,
-        req.prompt_summary,
-        target_repo_id,
-    )
-    .await?;
-    Ok(Json(wt))
 }
 
 pub(crate) async fn exec_worktree_sandbox_core(
@@ -319,6 +185,15 @@ pub(crate) async fn exec_worktree_sandbox_core(
                     ));
                 }
             }
+            let store = state.auth_store.clone();
+            let active_caller = caller.clone();
+            let repo_id = wt.repo_id;
+            let default_repo = state.repo_id;
+            tokio::task::spawn_blocking(move || {
+                check_repo_bola(&store, default_repo, &active_caller, repo_id)
+            })
+            .await
+            .map_err(internal_err)??;
             let final_status = if res.exit_code != 0 {
                 WorktreeStatus::Failed
             } else if verify {
@@ -367,6 +242,9 @@ pub(crate) async fn discard_worktree_core(
         caller.role,
         EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
     );
+    if wt.status == WorktreeStatus::Merged && !is_privileged {
+        return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+    }
     let is_owner = runtime
         .as_ref()
         .is_some_and(|r| r.created_by == Some(caller.user_id));
@@ -381,6 +259,10 @@ pub(crate) async fn discard_worktree_core(
                 "a sandbox run is in progress for this worktree".to_owned(),
             )
         })?;
+        let current = find_authorized_worktree(state, caller, id).await?;
+        if current.status == WorktreeStatus::Merged && !is_privileged {
+            return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+        }
         let engine = state.git_engine.clone();
         let state_for_cleanup = state.clone();
         let wt_id = wt.id;

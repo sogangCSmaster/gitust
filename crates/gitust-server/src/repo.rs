@@ -58,6 +58,7 @@ pub(crate) async fn repo_commits_handler(
     let repo_id = state.repo_id;
     let engine = state.git_engine.clone();
     let rev = query.rev;
+    // fail-open-ok: optional page size defaults to a bounded limit; repository authorization is unchanged.
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
 
     let list = tokio::task::spawn_blocking(move || {

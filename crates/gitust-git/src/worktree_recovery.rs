@@ -7,7 +7,8 @@ use chrono::Utc;
 use gitust_core::{AgentKind, AgentWorktree, CommitSha, RepoId, WorktreeId, WorktreeStatus};
 
 use crate::config_guard::reject_credentials_in_config;
-use crate::worktree::{read_worktree_admin_dir, ManagedWorktreeEntry, MaterializedWorktree};
+use crate::worktree::{ManagedWorktreeEntry, MaterializedWorktree};
+use crate::worktree_metadata::read_worktree_admin_dir;
 use crate::{
     canonicalize_existing_ancestors, run_git, GitEngine, GitEngineError, AGENT_BRANCH_PREFIX,
     SANDBOX_SCRATCH_DIR_NAME,
@@ -45,19 +46,22 @@ impl GitEngine {
         let worktrees_base = canonicalize_existing_ancestors(&worktrees_base);
         let main_workdir = repo
             .work_dir()
+            // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
             .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()));
         let sandbox_scratch_base = common_git_dir.join(SANDBOX_SCRATCH_DIR_NAME);
 
         let entries = self.list_agent_worktrees()?;
         let mut recovered = Vec::with_capacity(entries.len());
         for entry in entries {
-            let worktree_admin_dir = read_worktree_admin_dir(&entry.worktree_dir)?;
             let worktree_id = entry
                 .worktree_dir
                 .file_name()
                 .and_then(|n| n.to_str())
-                .and_then(WorktreeId::parse_str)
-                .unwrap_or_else(WorktreeId::new);
+                .and_then(WorktreeId::parse_str);
+            let Some(worktree_id) = worktree_id else {
+                continue;
+            };
+            let worktree_admin_dir = read_worktree_admin_dir(&entry.worktree_dir, &common_git_dir)?;
             let (mut base_branch, mut base_commit) =
                 read_branch_creation_reflog(&common_git_dir, &entry.branch);
             let approval = self.load_worktree_approval(worktree_id)?;
@@ -115,7 +119,7 @@ impl GitEngine {
 /// `base_commit` across restarts. If the reflog is absent, returns an empty `base_commit` so
 /// [`GitEngine::remove_agent_worktree`] preserves the branch on discard.
 fn read_branch_creation_reflog(common_git_dir: &Path, branch: &str) -> (String, CommitSha) {
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Read};
     let default = || ("main".to_owned(), CommitSha(String::new()));
     // fail-open-ok: returning empty `base_commit` is fail-safe (causes `remove_agent_worktree` to preserve the branch rather than deleting it).
     let Ok(clean) = GitEngine::validate_agent_branch_name(branch) else {
@@ -127,37 +131,47 @@ fn read_branch_creation_reflog(common_git_dir: &Path, branch: &str) -> (String, 
         return default();
     };
     let mut first_line = String::new();
-    if BufReader::new(file).read_line(&mut first_line).is_err() || first_line.is_empty() {
+    if BufReader::new(file.take(8193))
+        .read_line(&mut first_line)
+        .is_err()
+        || first_line.is_empty()
+        || first_line.len() > 8192
+    {
         return default();
     };
     let first_line = first_line.trim_end_matches(['\r', '\n']);
+    // fail-open-ok: recovery display/parser default only; malformed reflog identity/OIDs fail to an empty base commit that preserves the branch.
     let (meta, msg) = first_line.split_once('\t').unwrap_or((first_line, ""));
     let mut parts = meta.split_whitespace();
     let (Some(old_oid), Some(new_oid)) = (parts.next(), parts.next()) else {
         return default();
     };
-    if old_oid.is_empty()
+    if old_oid.len() != 40
         || !old_oid.chars().all(|c| c == '0')
-        || new_oid.is_empty()
+        || new_oid.len() != 40
         || !new_oid.chars().all(|c| c.is_ascii_hexdigit())
     {
         return default();
     }
-    let base_branch = msg
-        .trim()
-        .strip_prefix("gitust: create agent branch from ")
-        .filter(|b| !b.is_empty())
-        .unwrap_or("main")
-        .to_owned();
+    let base_branch = match msg.trim().strip_prefix("gitust: create agent branch from ") {
+        Some(branch) => match GitEngine::validate_outbound_branch(branch) {
+            Ok(branch) => branch,
+            // fail-open-ok: an invalid base name discards reflog evidence; empty base commit preserves the branch on removal.
+            Err(_) => return default(),
+        },
+        None => return default(),
+    };
     (base_branch, CommitSha(new_oid.to_owned()))
 }
 
 fn infer_agent_kind(branch: &str) -> AgentKind {
     match branch
         .strip_prefix(AGENT_BRANCH_PREFIX)
+        // fail-open-ok: agent-kind display inference only; permissions never depend on this fallback.
         .unwrap_or(branch)
         .split('/')
         .next()
+        // fail-open-ok: unknown agent kinds receive a display default; no access is granted here.
         .unwrap_or("")
         .to_ascii_lowercase()
         .as_str()
@@ -185,6 +199,7 @@ fn parse_worktree_list(stdout: &[u8], managed_base: Option<&Path>) -> Vec<Manage
                         .filter(|s| s.starts_with(AGENT_BRANCH_PREFIX))
                         .map(str::to_owned),
                     None if managed_base.is_some_and(|base| canon_p.parent() == Some(base)) => {
+                        // fail-open-ok: display label only; recovery separately requires a valid UUID directory name.
                         let leaf = canon_p.file_name().and_then(|n| n.to_str()).unwrap_or("");
                         let clean: String = leaf
                             .chars()

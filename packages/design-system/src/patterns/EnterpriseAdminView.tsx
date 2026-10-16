@@ -2,6 +2,7 @@ import { Component, createSignal, For, Show } from "solid-js";
 import { Badge } from "../primitives/Badge";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
+import { EnterprisePolicyPreview } from "./EnterprisePolicyPreview";
 import { Input } from "../primitives/Input";
 import { Avatar } from "../primitives/TabsAndAvatar";
 import {
@@ -34,6 +35,7 @@ export interface EnterpriseAdminViewProps {
   onToggleRole: (userId: number) => void;
   onToggleStatus: (userId: number) => void;
   onPolicyFeedback: (msg: string) => void;
+  liveMode?: boolean;
   liveSession?: LiveAuthSessionInfo | null;
   onSignIn?: (identifier: string, password: string) => void;
   onSignOut?: () => void;
@@ -69,11 +71,6 @@ export interface EnterpriseAdminViewProps {
 export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
   props
 ) => {
-  const [inviteOnly, setInviteOnly] = createSignal(true);
-  const [require2FA, setRequire2FA] = createSignal(true);
-  const [ssoEnforced, setSsoEnforced] = createSignal(false);
-  const [allowedDomain, setAllowedDomain] = createSignal("company.internal");
-
   const [loginIdentifier, setLoginIdentifier] = createSignal("");
   const [loginPassword, setLoginPassword] = createSignal("");
   const [localRedeemMode, setLocalRedeemMode] = createSignal<
@@ -84,17 +81,6 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
   const activeRedeemMode = () => props.redeemMode ?? localRedeemMode();
   const activeRedeemToken = () => props.redeemToken ?? localRedeemToken();
 
-  const toggleSwitch = (
-    label: string,
-    getter: () => boolean,
-    setter: (v: boolean) => void
-  ) => {
-    const next = !getter();
-    setter(next);
-    props.onPolicyFeedback(
-      `Enterprise Security Policy Updated: ${label} → ${next ? "ENABLED" : "DISABLED"} (0ms Optimistic)`
-    );
-  };
 
   return (
     <div class="ds-admin-grid">
@@ -146,8 +132,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   color: "var(--ds-fg-muted)",
                 }}
               >
-                Invite-Only On-Premise Git &amp; Sandbox Server · Allowed:{" "}
-                <span class="ds-mono">@{allowedDomain()}</span>
+                Invite-only Gitust server
               </div>
             </div>
 
@@ -155,7 +140,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
               icon={<Icon name="users" size={14} />}
               value={loginIdentifier()}
               onInput={(e) => setLoginIdentifier(e.currentTarget.value)}
-              placeholder={`username or email@${allowedDomain()}`}
+              placeholder="username or email"
             />
             <Input
               type="password"
@@ -175,7 +160,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                     setLoginPassword("");
                   } else {
                     props.onPolicyFeedback(
-                      "Authenticated via Argon2id + CSPRNG Session Token (< 2ms)"
+                      "Demo only: sign-in is not connected"
                     );
                   }
                 }}
@@ -196,7 +181,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
         </div>
 
         <EnterpriseCredentialsPanel
-          allowedDomain={allowedDomain()}
+          allowedDomain="your-company.example"
           redeemMode={activeRedeemMode()}
           onChangeRedeemMode={(m) =>
             props.onChangeRedeemMode
@@ -225,131 +210,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
           onPolicyFeedback={props.onPolicyFeedback}
         />
 
-        {/* Site Admin Registration & Security Controls */}
-        <div class="ds-card">
-          <div class="ds-card-header">
-            <span
-              style={{
-                display: "inline-flex",
-                "align-items": "center",
-                gap: "var(--ds-space-1-5)",
-              }}
-            >
-              <Icon name="shield-check" size={13} />
-              <span>Registration &amp; Security Policy</span>
-            </span>
-            <Badge variant="accent">Site Admin</Badge>
-          </div>
-          <div class="ds-card-body">
-            <div class="ds-toggle-row">
-              <div>
-                <div style={{ "font-weight": 500 }}>
-                  Disable Public Registration (Invite-Only)
-                </div>
-                <div
-                  style={{
-                    "font-size": "var(--ds-font-size-2xs)",
-                    color: "var(--ds-fg-muted)",
-                  }}
-                >
-                  Accounts are created strictly via Site Admin single-use links
-                </div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={inviteOnly()}
-                data-checked={inviteOnly()}
-                class="ds-switch"
-                onClick={() =>
-                  toggleSwitch("Invite-Only Mode", inviteOnly, setInviteOnly)
-                }
-              >
-                <span class="ds-switch-thumb" />
-              </button>
-            </div>
-
-            <div class="ds-toggle-row">
-              <div>
-                <div style={{ "font-weight": 500 }}>
-                  Mandatory 2FA / Passkey &amp; Signed Commits
-                </div>
-                <div
-                  style={{
-                    "font-size": "var(--ds-font-size-2xs)",
-                    color: "var(--ds-fg-muted)",
-                  }}
-                >
-                  Require hardware WebAuthn/TOTP and SSH/GPG commit signatures
-                </div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={require2FA()}
-                data-checked={require2FA()}
-                class="ds-switch"
-                onClick={() =>
-                  toggleSwitch(
-                    "Mandatory 2FA & Signed Commits",
-                    require2FA,
-                    setRequire2FA
-                  )
-                }
-              >
-                <span class="ds-switch-thumb" />
-              </button>
-            </div>
-
-            <div class="ds-toggle-row">
-              <div>
-                <div style={{ "font-weight": 500 }}>
-                  Enforce Corporate SSO (OIDC / SAML) Only
-                </div>
-                <div
-                  style={{
-                    "font-size": "var(--ds-font-size-2xs)",
-                    color: "var(--ds-fg-muted)",
-                  }}
-                >
-                  Phase 4 Enterprise SSO integration toggle
-                </div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={ssoEnforced()}
-                data-checked={ssoEnforced()}
-                class="ds-switch"
-                onClick={() =>
-                  toggleSwitch(
-                    "Enforce Corporate SSO",
-                    ssoEnforced,
-                    setSsoEnforced
-                  )
-                }
-              >
-                <span class="ds-switch-thumb" />
-              </button>
-            </div>
-
-            <div>
-              <div
-                style={{
-                  "font-size": "var(--ds-font-size-xs)",
-                  "margin-bottom": "var(--ds-space-1)",
-                  color: "var(--ds-fg-secondary)",
-                }}
-              >
-                Allowed Email Domain Whitelist
-              </div>
-              <Input
-                value={allowedDomain()}
-                onInput={(e) => setAllowedDomain(e.currentTarget.value)}
-              />
-            </div>
-          </div>
-        </div>
+        <EnterprisePolicyPreview liveMode={props.liveMode} onPolicyFeedback={props.onPolicyFeedback} />
       </div>
 
       {/* Right Column: Site Admin User Directory & Self-Hosted Infrastructure */}
@@ -389,7 +250,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   color: "var(--ds-success-fg)",
                 }}
               >
-                In-Process Zero-Copy
+                In-Process Git
               </div>
               <div
                 style={{
@@ -423,7 +284,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   "font-weight": 700,
                 }}
               >
-                CoW + OS Sandbox
+                Local OS Sandbox
               </div>
               <div
                 style={{
@@ -431,7 +292,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   color: "var(--ds-fg-muted)",
                 }}
               >
-                Zero Cloud Leakage
+                Trusted single-user execution
               </div>
             </div>
           </div>
@@ -457,7 +318,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   "font-weight": 700,
                 }}
               >
-                {inviteOnly() ? "Invite-Only" : "Domain-Locked"}
+                Invite-Only
               </div>
               <div
                 style={{
@@ -465,7 +326,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   color: "var(--ds-fg-muted)",
                 }}
               >
-                Domain: @{allowedDomain()}
+                Administrator-issued invites
               </div>
             </div>
           </div>
@@ -530,7 +391,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                     >
                       <Icon name="shield-check" size={11} />
                       <span>
-                        {user.twoFactorEnabled ? "Argon2+SSH" : "No 2FA"}
+                        {user.liveId ? "2FA not available" : user.twoFactorEnabled ? "Demo 2FA" : "No 2FA"}
                       </span>
                     </Badge>
                   </div>

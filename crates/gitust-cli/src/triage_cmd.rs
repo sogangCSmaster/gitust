@@ -136,16 +136,9 @@ pub fn run_triage_discard(repo: &Path, branch: &str) -> Result<()> {
     let _service_lock = engine.lock_worktree_service()?;
     engine.ensure_config_has_no_credentials()?;
     let clean_branch = GitEngine::validate_agent_branch_name(branch)?;
-    let recovered = engine.recover_agent_worktrees(RepoId::new())?;
-    if let Some(m) = recovered
-        .into_iter()
-        .find(|w| w.worktree.branch == clean_branch)
-    {
-        let branch_deleted = engine.remove_agent_worktree(
-            &m.worktree_dir,
-            &m.worktree.branch,
-            &m.worktree.base_commit,
-        )?;
+    let entries = engine.list_agent_worktrees()?;
+    if let Some(m) = entries.into_iter().find(|w| w.branch == clean_branch) {
+        let branch_deleted = engine.remove_agent_worktree(&m.worktree_dir, &m.branch, &m.head)?;
         if !branch_deleted {
             engine.delete_agent_branch_ref(&clean_branch)?;
         }
@@ -169,6 +162,7 @@ pub fn run_triage_publish(
 ) -> Result<()> {
     let engine = GitEngine::new(repo);
     let _service = engine.lock_worktree_service()?;
+    engine.ensure_config_has_no_credentials()?;
     let base = GitEngine::validate_outbound_branch(base)?;
     let sha = CommitSha(approved_commit.to_ascii_lowercase());
     let mut approvals = engine

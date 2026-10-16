@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use axum::extract::{Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use gitust_core::{AgentKind, AuthenticatedPrincipal, EnterpriseRole, UserId};
@@ -104,7 +104,7 @@ async fn resolve_default_base_branch(state: &AppState) -> String {
     match tokio::task::spawn_blocking(move || engine.inspect_head_zero_copy()).await {
         Ok(Ok(s))
             if !s.branch_name.is_empty()
-                && !matches!(s.branch_name.as_str(), "HEAD" | "detached") =>
+                && GitEngine::validate_outbound_branch(&s.branch_name).is_ok() =>
         {
             s.branch_name
         }
@@ -113,9 +113,11 @@ async fn resolve_default_base_branch(state: &AppState) -> String {
 }
 
 pub(crate) async fn mcp_tools_handler(
-    _caller: AuthenticatedPrincipal,
-) -> Json<Vec<McpToolDescriptor>> {
-    Json(builtin_mcp_tools())
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<McpToolDescriptor>>, (StatusCode, String)> {
+    extract_mcp_principal_async(&headers, &state.auth_store).await?;
+    Ok(Json(builtin_mcp_tools()))
 }
 
 fn json_response(status: StatusCode, body: String) -> Response {
@@ -213,6 +215,7 @@ pub async fn handle_mcp_json_line_with_options(
     };
 
     let has_id = obj.contains_key("id");
+    // fail-open-ok: missing JSON-RPC id marks a notification; tool authorization is enforced separately.
     let id = obj.get("id").cloned().unwrap_or(serde_json::Value::Null);
     if !matches!(
         id,
@@ -240,6 +243,7 @@ pub async fn handle_mcp_json_line_with_options(
     let params = obj
         .get("params")
         .cloned()
+        // fail-open-ok: absent optional parameters become an empty object and still pass through each tool schema.
         .unwrap_or_else(|| serde_json::json!({}));
 
     match method {
@@ -247,6 +251,7 @@ pub async fn handle_mcp_json_line_with_options(
             let requested_version = params
                 .get("protocolVersion")
                 .and_then(serde_json::Value::as_str)
+                // fail-open-ok: default protocol-version label does not change caller permissions.
                 .unwrap_or("2024-11-05");
             let negotiated = match requested_version {
                 "2025-03-26" => "2025-03-26",
@@ -315,6 +320,7 @@ pub async fn handle_mcp_json_line_with_options(
                     };
                     let prompt_summary = args
                         .prompt_summary
+                        // fail-open-ok: optional prompt description has no authority; branch and repository checks remain mandatory.
                         .unwrap_or_else(|| "MCP agent workspace".to_owned());
 
                     match spawn_worktree_core(
@@ -473,6 +479,7 @@ async fn read_bounded_line<R: tokio::io::AsyncBufRead + Unpin>(
             }
             return Ok(String::from_utf8(buf)
                 .map(BoundedLine::Line)
+                // fail-open-ok: decoding failure becomes an explicit InvalidUtf8 frame that the reader rejects.
                 .unwrap_or(BoundedLine::InvalidUtf8));
         }
         if let Some(newline_pos) = available.iter().position(|&b| b == b'\n') {
@@ -488,6 +495,7 @@ async fn read_bounded_line<R: tokio::io::AsyncBufRead + Unpin>(
             }
             return Ok(String::from_utf8(buf)
                 .map(BoundedLine::Line)
+                // fail-open-ok: decoding failure becomes an explicit InvalidUtf8 frame that the reader rejects.
                 .unwrap_or(BoundedLine::InvalidUtf8));
         }
         let chunk_len = available.len();

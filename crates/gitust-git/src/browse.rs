@@ -71,6 +71,7 @@ impl GitEngine {
     /// injection (`-`), reflog syntax (`@{`), traversal (`..`), control/whitespace chars, and
     /// excessive `~N`/`^N` ancestry walk depth (`> 1_000` total steps).
     pub fn validate_revision_spec(rev: Option<&str>) -> Result<String, GitEngineError> {
+        // fail-open-ok: omitted revision intentionally selects HEAD; all explicit revisions are validated below.
         let trimmed = rev.map(str::trim).unwrap_or("");
         if trimmed.is_empty() {
             return Ok("HEAD".to_owned());
@@ -86,6 +87,7 @@ impl GitEngine {
         {
             return Err(GitEngineError::InvalidRevision(trimmed.to_owned()));
         }
+        // fail-open-ok: a revision without ancestry suffix is parsed as the whole validated anchor.
         let split_idx = trimmed.find(['~', '^']).unwrap_or(trimmed.len());
         let (anchor, mut suffix) = trimmed.split_at(split_idx);
         if anchor.is_empty() {
@@ -142,6 +144,7 @@ impl GitEngine {
         rev: Option<&str>,
     ) -> Result<(String, gix::Commit<'a>), GitEngineError> {
         let clean_rev = Self::validate_revision_spec(rev)?;
+        // fail-open-ok: a revision without ancestry suffix is parsed as the whole validated anchor.
         let split_idx = clean_rev.find(['~', '^']).unwrap_or(clean_rev.len());
         let (anchor, mut suffix) = clean_rev.split_at(split_idx);
         if anchor.is_empty() {
@@ -275,7 +278,9 @@ impl GitEngine {
                 .message_raw()
                 .map(|m| String::from_utf8_lossy(m.as_ref()).trim().to_owned())
                 .unwrap_or_default();
+            // fail-open-ok: display metadata fallback only; the commit object and identity were already resolved.
             let summary = raw_msg.lines().next().unwrap_or("").to_owned();
+            // fail-open-ok: display metadata fallback only; the commit object and identity were already resolved.
             let authored_timestamp = commit.time().map(|t| t.seconds).unwrap_or(0);
             let (author_name, author_email) = match commit.author() {
                 Ok(sig) => (
@@ -301,6 +306,7 @@ impl GitEngine {
             });
         }
 
+        // fail-open-ok: saturating telemetry conversion; does not authorize access or alter Git state.
         let lookup_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
         Ok(RepoCommitList {
             rev: clean_rev,
@@ -318,6 +324,7 @@ impl GitEngine {
         recursive: bool,
     ) -> Result<RepoTreeSnapshot, GitEngineError> {
         let start = Instant::now();
+        // fail-open-ok: an omitted directory means the repository root; validation and commit-tree lookup still apply.
         let clean_path = Self::validate_repo_relative_path(dir_path.unwrap_or(""))?;
         let repo = self.acquire_repo()?;
         let (clean_rev, commit) = Self::resolve_commit(&repo, rev)?;
@@ -357,6 +364,7 @@ impl GitEngine {
             &mut truncated,
         )?;
 
+        // fail-open-ok: saturating telemetry conversion; does not authorize access or alter Git state.
         let lookup_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
         Ok(RepoTreeSnapshot {
             rev: clean_rev,
@@ -417,8 +425,10 @@ impl GitEngine {
                 "'{clean_path}' does not resolve to a blob object"
             )));
         }
+        // fail-open-ok: overflow maps to the largest size, so the subsequent blob cap rejects it before allocation.
         let header_size = usize::try_from(header.size()).unwrap_or(usize::MAX);
         if header_size > MAX_BLOB_VIEW_BYTES {
+            // fail-open-ok: saturating telemetry conversion; does not authorize access or alter Git state.
             let lookup_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
             return Ok(RepoBlobSnapshot {
                 rev: clean_rev,
@@ -450,6 +460,7 @@ impl GitEngine {
             (Some(text), lines)
         };
 
+        // fail-open-ok: saturating telemetry conversion; does not authorize access or alter Git state.
         let lookup_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
         Ok(RepoBlobSnapshot {
             rev: clean_rev,

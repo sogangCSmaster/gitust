@@ -37,6 +37,7 @@ impl WorktreeId {
 
     #[must_use]
     pub fn parse_str(s: &str) -> Option<Self> {
+        // fail-open-ok: invalid UUID becomes None; managed resource callers reject it instead of gaining authority.
         Uuid::parse_str(s).ok().map(Self)
     }
 }

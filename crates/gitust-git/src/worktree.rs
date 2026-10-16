@@ -13,6 +13,7 @@ use gix::refs::{FullName, Target};
 use serde::{Deserialize, Serialize};
 
 use crate::config_guard::reject_credentials_in_config;
+use crate::worktree_metadata::read_worktree_admin_dir;
 use crate::{
     canonicalize_existing_ancestors, ensure_reflog_identity, io_err, run_git, GitEngine,
     GitEngineError, AGENT_BRANCH_PREFIX, SANDBOX_SCRATCH_DIR_NAME,
@@ -116,7 +117,7 @@ impl GitEngine {
                     ],
                 )
             })
-            .and_then(|_| read_worktree_admin_dir(&worktree_dir));
+            .and_then(|_| read_worktree_admin_dir(&worktree_dir, &common_git_dir));
         let worktree_admin_dir = match checkout {
             Ok(dir) => dir,
             Err(e) => {
@@ -147,11 +148,15 @@ impl GitEngine {
             }
         };
 
+        // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
         let worktree_dir = fs::canonicalize(&worktree_dir).unwrap_or(worktree_dir);
+        // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
         let worktrees_base = fs::canonicalize(&worktrees_base).unwrap_or(worktrees_base);
         let main_workdir = repo
             .work_dir()
+            // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
             .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()));
+        // fail-open-ok: saturating telemetry conversion; does not authorize access or alter Git state.
         let materialize_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
 
         Ok(MaterializedWorktree {
@@ -323,6 +328,7 @@ impl GitEngine {
         let clean_branch = Self::validate_agent_branch_name(branch)?;
         let clean_base = Self::validate_branch_name(base_branch)?;
         let _service_lock = self.lock_worktree_service()?;
+        self.ensure_config_has_no_credentials()?;
 
         let mut repo = self.acquire_repo()?;
         ensure_reflog_identity(&mut repo)?;
@@ -381,6 +387,7 @@ impl GitEngine {
         let head_on_base = main_checked_out.as_deref() == Some(clean_base.as_str());
 
         if head_on_base {
+            crate::verification::inspect_index_flags(&self.repo_path)?;
             let status_out = run_git(
                 &self.repo_path,
                 [
@@ -434,6 +441,7 @@ fn delete_branch_ref(
 ) -> Result<(), GitEngineError> {
     let short = full_branch
         .strip_prefix("refs/heads/")
+        // fail-open-ok: normalizes an optional refs/heads/ prefix; the required agent namespace is checked immediately below.
         .unwrap_or(full_branch);
     if !short.starts_with(AGENT_BRANCH_PREFIX) {
         return Err(GitEngineError::BranchNotAgentScoped(short.to_owned()));
@@ -451,25 +459,4 @@ fn delete_branch_ref(
     })
     .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
     Ok(())
-}
-
-/// Resolves `<worktree>/.git` (`gitdir: <common>/worktrees/<name>`) to the admin dir path.
-pub(crate) fn read_worktree_admin_dir(worktree_dir: &Path) -> Result<PathBuf, GitEngineError> {
-    let pointer = worktree_dir.join(".git");
-    let text = fs::read_to_string(&pointer).map_err(|e| io_err(&pointer, &e))?;
-    let raw = text
-        .trim()
-        .strip_prefix("gitdir:")
-        .map(str::trim)
-        .ok_or_else(|| GitEngineError::Io {
-            path: pointer.display().to_string(),
-            message: "not a linked worktree pointer".to_owned(),
-        })?;
-    let path = Path::new(raw);
-    let path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        worktree_dir.join(path)
-    };
-    fs::canonicalize(&path).map_err(|e| io_err(&path, &e))
 }

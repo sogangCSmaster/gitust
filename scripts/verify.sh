@@ -12,26 +12,20 @@ step() { printf '\n==> %s\n' "$*"; }
 
 step "600-line hard gate"
 find crates packages -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' \) \
-  -not -path '*/node_modules/*' -not -path '*/dist/*' -exec wc -l {} + |
+  -not -path '*/target/*' -not -path '*/node_modules/*' -not -path '*/dist/*' -exec wc -l {} + |
   awk '$2 != "total" && $1 >= 600 { print "OVER_600:", $0; bad = 1 } END { exit bad }'
 
 step "fail-open audit (security crates)"
 scripts/audit-fail-open.sh
 
-step "fail-open baseline may only shrink"
+step "fail-open baseline must remain empty"
 count_entries() { { grep -v -E '^[[:space:]]*(#|$)' || true; } | wc -l | tr -d ' '; }
 now_count="$(count_entries <scripts/fail-open-baseline.txt)"
-if git cat-file -e HEAD:scripts/fail-open-baseline.txt 2>/dev/null; then
-  head_count="$(git show HEAD:scripts/fail-open-baseline.txt | count_entries)"
-  if ((now_count > head_count)); then
-    echo "fail-open baseline grew ($head_count -> $now_count entries). Justify new hits inline" \
-      "with '// fail-open-ok: <reason>' or fix them instead." >&2
-    exit 1
-  fi
-  echo "baseline entries: $head_count (HEAD) -> $now_count"
-else
-  echo "baseline entries: $now_count (not yet in HEAD)"
+if ((now_count != 0)); then
+  echo "FAIL: fail-open baseline must remain empty ($now_count entries). Fix the code or justify the precise safe path inline." >&2
+  exit 1
 fi
+scripts/audit-fail-open.sh --self-test
 
 step "cargo fmt --check"
 cargo fmt --all -- --check
@@ -63,6 +57,8 @@ if [[ "$before" != "$after" ]]; then
   echo "$DIST was stale and has just been rebuilt: review and include the rebuilt bundle." >&2
   exit 1
 fi
+rm -rf "$DIST"
+mkdir -p "$DIST"
 cp -pR "$TMP_DIST"/. "$DIST"/
 
 step "cargo clippy -D warnings"

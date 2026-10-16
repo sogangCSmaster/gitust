@@ -25,6 +25,7 @@ import type { WorkbenchTab } from "./WorkbenchApp";
 
 export interface WorkbenchTabViewsProps {
   activeTab: WorkbenchTab;
+  liveMode: boolean;
   swarmTasks: AgentSandboxTask[];
   focusedSwarmIdx: number;
   onFocusedSwarmIdxChange: (idx: number) => void;
@@ -48,7 +49,7 @@ export interface WorkbenchTabViewsProps {
   liveCommits: LiveCommitSummary[];
   activeCommitRev: string;
   onSelectCommitDiff: (sha: string) => void;
-  lookupMicros: number;
+  lookupMicros: number | null;
   selectedFilePath: string;
   diffLines: DiffLine[];
   actionJobs: ActionJobStep[];
@@ -100,7 +101,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
           </div>
           <Badge variant="merged" mono>
             <Icon name="cpu" size={12} />
-            <span>Enterprise Sandbox Cluster Ready</span>
+            <span>Local worktree execution</span>
           </Badge>
         </div>
 
@@ -114,7 +115,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
           onVerifyWorktree={props.onVerifySwarmTask}
           onRefreshWorktrees={props.onRefreshSwarmTasks}
           canRunVerification={props.adminAuthProps?.liveSession?.role === "SiteAdmin"}
-          liveMode={Boolean(props.adminAuthProps?.liveSession)}
+          liveMode={props.liveMode}
           onSpawnBatchSwarm={props.onSpawnBatchAgentSwarm}
           onTriggerGithubSync={props.onTriggerGithubSync}
           filterQuery={props.swarmFilter}
@@ -200,8 +201,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
                 "margin-top": "var(--ds-space-1)",
               }}
             >
-              Renders up to 10,000 diff &amp; blob lines using O(1) viewport
-              slicing (~45 DOM nodes at 120fps).
+              Renders the visible diff and blob lines with viewport slicing.
             </p>
           </div>
           <div
@@ -229,10 +229,12 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
                 </Button>
               )}
             </For>
-            <Badge variant="success" mono>
-              <Icon name="zap" size={12} />
-              <span>gix {props.lookupMicros}µs</span>
-            </Badge>
+            <Show when={props.lookupMicros !== null}>
+              <Badge variant="success" mono>
+                <Icon name="zap" size={12} />
+                <span>gix {props.lookupMicros}µs</span>
+              </Badge>
+            </Show>
           </div>
         </div>
 
@@ -267,15 +269,12 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
                 color: "var(--ds-fg-secondary)",
               }}
             >
-              100% compatible with{" "}
-              <code class="ds-mono">.github/workflows/*.yml</code> &amp; Gitea{" "}
-              <code class="ds-mono">act_runner</code>. Streams 10,000+ console
-              lines at 120fps. Press <Kbd keys="r" /> to re-run jobs.
+              Interface demo with generated logs and simulated jobs. Press <Kbd keys="r" /> to replay the demo.
             </p>
           </div>
           <Badge variant="success" mono>
             <Icon name="server" size={12} />
-            <span>Private Runner Pool: Active</span>
+            <span>Sample pipeline</span>
           </Badge>
         </div>
 
@@ -316,9 +315,8 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
                 color: "var(--ds-fg-secondary)",
               }}
             >
-              Built for corporate on-premise deployments: control invite-only
-              registration, email domain whitelist, OIDC/LDAP SSO, 2FA, and
-              organization roles with 0ms Optimistic UI.
+              Manage live accounts, invites, password resets and credentials.
+              SSO and additional security policies are planned.
             </p>
           </div>
           <Badge variant="accent" mono>
@@ -352,7 +350,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
                 "font-weight": 600,
               }}
             >
-              Virtualized Monorepo File Tree (5,000 Files)
+              Virtualized Repository File Tree
             </h1>
             <p
               style={{
@@ -360,8 +358,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
                 color: "var(--ds-fg-secondary)",
               }}
             >
-              Instant client-side filtering and GPU-instanced SVG icons across
-              5,000 Rust &amp; TypeScript source paths.
+              Filter repository paths and select a file to preview its content.
             </p>
           </div>
           <Badge variant="info" mono>

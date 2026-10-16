@@ -141,7 +141,7 @@ fn decode_base64_standard(input: &str) -> Option<Vec<u8>> {
         let b = val(chunk[1])?;
         out.push((a << 2) | (b >> 4));
         if chunk[2] == b'=' {
-            if !is_last || chunk[3] != b'=' {
+            if !is_last || chunk[3] != b'=' || b & 0x0f != 0 {
                 return None;
             }
             break;
@@ -149,7 +149,7 @@ fn decode_base64_standard(input: &str) -> Option<Vec<u8>> {
         let c = val(chunk[2])?;
         out.push((b << 4) | (c >> 2));
         if chunk[3] == b'=' {
-            if !is_last {
+            if !is_last || c & 0x03 != 0 {
                 return None;
             }
             break;
@@ -187,6 +187,11 @@ fn encode_base64_unpadded(bytes: &[u8]) -> String {
 /// decoding the Base64 wire blob, verifying the embedded key-type header matches `<algorithm>`,
 /// and computing the standard OpenSSH SHA-256 fingerprint over the decoded binary key blob.
 pub(crate) fn canonicalize_openssh_pubkey(raw: &str) -> Result<(String, String), AuthError> {
+    if raw.len() > 16 * 1024 {
+        return Err(AuthError::InvalidInput(
+            "SSH public key exceeds 16384 bytes".into(),
+        ));
+    }
     let mut parts = raw.split_whitespace();
     let (Some(algo), Some(blob)) = (parts.next(), parts.next()) else {
         return Err(AuthError::InvalidInput(
@@ -218,6 +223,7 @@ pub(crate) fn canonicalize_openssh_pubkey(raw: &str) -> Result<(String, String),
     let header_len = usize::try_from(u32::from_be_bytes([
         decoded[0], decoded[1], decoded[2], decoded[3],
     ]))
+    // fail-open-ok: unrepresentable header length becomes an impossible value and is rejected below.
     .unwrap_or(usize::MAX);
     if header_len != algo.len() || &decoded[4..4 + algo.len()] != algo.as_bytes() {
         return Err(AuthError::InvalidInput(

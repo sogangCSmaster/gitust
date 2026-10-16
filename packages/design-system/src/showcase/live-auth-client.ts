@@ -44,14 +44,15 @@ const mapLiveUsers = (
     liveId: u.id,
     username: u.username,
     email: u.email,
-    department: u.role === "SiteAdmin" ? "Platform Security" : "Engineering",
+    department: "Live account",
     role: mapRoleLabel(u.role),
-    twoFactorEnabled: true,
+    twoFactorEnabled: false,
     status: u.status === "Active" ? "active" : "suspended",
   }));
 
 export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
   let authEpoch = 0;
+  let hydrationId = 0;
 
   const clearLocalAuthState = () => {
     authEpoch++;
@@ -75,12 +76,14 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
   const hydrateAuthData = async () => {
     const token = getLiveToken();
     if (!token) return;
-    const epoch = ++authEpoch;
+    const epoch = authEpoch;
+    const requestId = ++hydrationId;
+    const current = () => epoch === authEpoch && requestId === hydrationId && token === getLiveToken();
     const headers = { Authorization: `Bearer ${token}` };
 
     try {
       const meRes = await fetch("/api/v1/auth/me", { headers });
-      if (epoch !== authEpoch) return;
+      if (!current()) return;
       if (!meRes.ok) {
         if (meRes.status === 401 || meRes.status === 403) {
           clearLocalAuthState();
@@ -88,23 +91,23 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
         return;
       }
       const me = (await meRes.json()) as LiveAuthSessionInfo;
-      if (epoch !== authEpoch) return;
+      if (!current()) return;
       cb.setLiveSession(me);
 
       const [patsRes, sshRes] = await Promise.all([
         fetch("/api/v1/auth/pats", { headers }),
         fetch("/api/v1/auth/ssh-keys", { headers }),
       ]);
-      if (epoch !== authEpoch) return;
+      if (!current()) return;
       if (patsRes.ok) {
         const pats = await patsRes.json();
-        if (epoch === authEpoch && Array.isArray(pats)) {
+        if (current() && Array.isArray(pats)) {
           cb.setLivePats(pats);
         }
       }
       if (sshRes.ok) {
         const keys = await sshRes.json();
-        if (epoch === authEpoch && Array.isArray(keys)) {
+        if (current() && Array.isArray(keys)) {
           cb.setLiveSshKeys(keys);
         }
       }
@@ -114,16 +117,16 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
           fetch("/api/v1/admin/users", { headers }),
           fetch("/api/v1/admin/invites", { headers }),
         ]);
-        if (epoch !== authEpoch) return;
+        if (!current()) return;
         if (usersRes.ok) {
           const rawUsers = await usersRes.json();
-          if (epoch === authEpoch && Array.isArray(rawUsers)) {
+          if (current() && Array.isArray(rawUsers)) {
             cb.setEnterpriseUsers(mapLiveUsers(rawUsers));
           }
         }
         if (invitesRes.ok) {
           const invites = await invitesRes.json();
-          if (epoch === authEpoch && Array.isArray(invites)) {
+          if (current() && Array.isArray(invites)) {
             cb.setLiveInvites(invites);
           }
         }
@@ -142,7 +145,7 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
         );
       }
     } catch (err) {
-      if (epoch !== authEpoch) return;
+      if (!current()) return;
       console.warn("Live auth hydration failed:", formatErr(err));
     }
   };
@@ -178,9 +181,8 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
       cb.showQuickFeedback(
         `Signed in as @${data.user?.username ?? identifier} (${data.user?.role ?? "User"})`
       );
-      await hydrateAuthData();
-      if (!getLiveToken()) return;
       cb.onTokenAuthenticated();
+      await hydrateAuthData();
     } catch (err) {
       if (epoch !== authEpoch) return;
       cb.showQuickFeedback(`Sign-in request failed: ${formatErr(err)}`);
@@ -190,17 +192,23 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
   const signOut = async () => {
     const token = getLiveToken();
     clearLocalAuthState();
+    const epoch = authEpoch;
+    let revoked = !token;
     if (token) {
       try {
-        await fetch("/api/v1/auth/logout", {
+        const res = await fetch("/api/v1/auth/logout", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
         });
+        revoked = res.ok;
       } catch {
-        // Server session revocation best-effort after local token scrub
+        revoked = false;
       }
     }
-    cb.showQuickFeedback("Signed out and revoked active session token");
+    if (epoch !== authEpoch || getLiveToken()) return;
+    cb.showQuickFeedback(revoked
+      ? "Signed out and revoked active session token"
+      : "Signed out locally; server session revocation could not be confirmed");
   };
 
   const redeemInvite = async (
@@ -301,24 +309,24 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
           team_ids: [],
         }),
       });
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (epoch !== authEpoch) return;
+        if (epoch !== authEpoch || token !== getLiveToken()) return;
         cb.showQuickFeedback(
           `Invite issuance failed (HTTP ${res.status}${errText ? `: ${errText}` : ""})`
         );
         return;
       }
       const issued = await res.json();
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.setLastIssuedInviteUrl(String(issued.invite_url_path ?? ""));
       cb.showQuickFeedback(
         `Issued 72h single-use invite link for ${targetEmail}`
       );
       await hydrateAuthData();
     } catch (err) {
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.showQuickFeedback(`Invite issuance error: ${formatErr(err)}`);
     }
   };
@@ -335,10 +343,10 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (epoch !== authEpoch) return;
+        if (epoch !== authEpoch || token !== getLiveToken()) return;
         cb.showQuickFeedback(
           `Invite revocation failed (HTTP ${res.status}${errText ? `: ${errText}` : ""})`
         );
@@ -347,7 +355,7 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
       cb.showQuickFeedback("Revoked single-use invite link");
       await hydrateAuthData();
     } catch (err) {
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.showQuickFeedback(`Invite revocation error: ${formatErr(err)}`);
     }
   };
@@ -364,22 +372,22 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (epoch !== authEpoch) return;
+        if (epoch !== authEpoch || token !== getLiveToken()) return;
         cb.showQuickFeedback(
           `Reset link failed (HTTP ${res.status}${errText ? `: ${errText}` : ""})`
         );
         return;
       }
       const issued = await res.json();
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.setLastIssuedInviteUrl(String(issued.invite_url_path ?? ""));
       cb.showQuickFeedback("Issued single-use 72h password-reset link");
       await hydrateAuthData();
     } catch (err) {
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.showQuickFeedback(`Reset link error: ${formatErr(err)}`);
     }
   };
@@ -396,23 +404,23 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (epoch !== authEpoch) return;
+        if (epoch !== authEpoch || token !== getLiveToken()) return;
         cb.showQuickFeedback(
           `Deactivation failed (HTTP ${res.status}${errText ? `: ${errText}` : ""})`
         );
         return;
       }
       const profile = await res.json();
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.showQuickFeedback(
         `Deactivated @${profile.username} & revoked all sessions, PATs, and SSH keys`
       );
       await hydrateAuthData();
     } catch (err) {
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.showQuickFeedback(`Deactivation error: ${formatErr(err)}`);
     }
   };
@@ -433,22 +441,22 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
         },
         body: JSON.stringify({ name, ttl_days: 90 }),
       });
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (epoch !== authEpoch) return;
+        if (epoch !== authEpoch || token !== getLiveToken()) return;
         cb.showQuickFeedback(
           `PAT creation failed (HTTP ${res.status}${errText ? `: ${errText}` : ""})`
         );
         return;
       }
       const issued = await res.json();
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.setLastIssuedPatToken(String(issued.raw_token ?? ""));
       cb.showQuickFeedback(`Generated PAT '${name}' (90d expiry)`);
       await hydrateAuthData();
     } catch (err) {
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.showQuickFeedback(`PAT creation error: ${formatErr(err)}`);
     }
   };
@@ -465,10 +473,10 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (epoch !== authEpoch) return;
+        if (epoch !== authEpoch || token !== getLiveToken()) return;
         cb.showQuickFeedback(
           `PAT revocation failed (HTTP ${res.status}${errText ? `: ${errText}` : ""})`
         );
@@ -477,7 +485,7 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
       cb.showQuickFeedback("Revoked Personal Access Token");
       await hydrateAuthData();
     } catch (err) {
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.showQuickFeedback(`PAT revocation error: ${formatErr(err)}`);
     }
   };
@@ -498,10 +506,10 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
         },
         body: JSON.stringify({ title, public_key_openssh: publicKeyOpenssh }),
       });
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (epoch !== authEpoch) return;
+        if (epoch !== authEpoch || token !== getLiveToken()) return;
         cb.showQuickFeedback(
           `SSH key registration failed (HTTP ${res.status}${errText ? `: ${errText}` : ""})`
         );
@@ -510,7 +518,7 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
       cb.showQuickFeedback(`Registered SSH key '${title}'`);
       await hydrateAuthData();
     } catch (err) {
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.showQuickFeedback(`SSH key error: ${formatErr(err)}`);
     }
   };
@@ -527,10 +535,10 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (epoch !== authEpoch) return;
+        if (epoch !== authEpoch || token !== getLiveToken()) return;
         cb.showQuickFeedback(
           `SSH key revocation failed (HTTP ${res.status}${errText ? `: ${errText}` : ""})`
         );
@@ -539,7 +547,7 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
       cb.showQuickFeedback("Revoked SSH public key");
       await hydrateAuthData();
     } catch (err) {
-      if (epoch !== authEpoch) return;
+      if (epoch !== authEpoch || token !== getLiveToken()) return;
       cb.showQuickFeedback(`SSH key revocation error: ${formatErr(err)}`);
     }
   };

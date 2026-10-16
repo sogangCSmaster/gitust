@@ -119,6 +119,7 @@ pub fn inspect_receive_pack_updates(
                     "unexpected NUL byte in subsequent receive-pack command".to_owned(),
                 ));
             }
+            // fail-open-ok: the trailing protocol newline is optional; either payload still undergoes OID/ref validation.
             None => payload.strip_suffix(b"\n").unwrap_or(payload),
         };
 
@@ -126,8 +127,11 @@ pub fn inspect_receive_pack_updates(
             GitEngineError::InvalidBranchName("non-UTF8 ref update in receive-pack".to_owned())
         })?;
         let mut parts = cmd_str.splitn(3, ' ');
+        // fail-open-ok: missing protocol fields become empty and are explicitly rejected by tuple validation below.
         let old_oid = parts.next().unwrap_or("");
+        // fail-open-ok: missing protocol fields become empty and are explicitly rejected by tuple validation below.
         let new_oid = parts.next().unwrap_or("");
+        // fail-open-ok: missing protocol fields become empty and are explicitly rejected by tuple validation below.
         let raw_ref = parts.next().unwrap_or("");
 
         if !is_valid_hex_oid(old_oid)
@@ -324,6 +328,8 @@ fn run_git_stateless_rpc(
         "-c",
         "transfer.fsckObjects=true",
         "-c",
+        "transfer.hideRefs=refs/remotes/",
+        "-c",
         "receive.fsckObjects=true",
         "-c",
         "receive.denyNonFastForwards=true",
@@ -340,23 +346,14 @@ fn run_git_stateless_rpc(
         cmd.arg("--advertise-refs");
     }
     cmd.arg("--").arg(common_git_dir);
-    cmd.env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env_remove("GIT_PROTOCOL")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_COMMON_DIR")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_OBJECT_DIRECTORY")
-        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-        .stdin(if advertise_only {
-            Stdio::null()
-        } else {
-            Stdio::piped()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    crate::process::sanitize_git_environment(&mut cmd);
+    cmd.stdin(if advertise_only {
+        Stdio::null()
+    } else {
+        Stdio::piped()
+    })
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -395,7 +392,9 @@ fn run_git_stateless_rpc(
         });
         let out_reader =
             s.spawn(move || read_bounded_stream(child_stdout, MAX_SMART_HTTP_BODY_BYTES));
-        let err_reader = s.spawn(move || read_bounded_stream(child_stderr, 64 * 1024));
+        let err_reader = s.spawn(move || {
+            crate::process::capture(child_stderr, 64 * 1024).map(|(bytes, _)| bytes)
+        });
 
         let deadline = Instant::now() + SMART_HTTP_TIMEOUT;
         let status = loop {
@@ -421,6 +420,7 @@ fn run_git_stateless_rpc(
             }
         }?;
 
+        crate::process::terminate_group(&mut child);
         // fail-open-ok: writer thread join; any pipe break is surfaced by child status / stdout read below.
         let _ = writer.join();
         let stdout = out_reader

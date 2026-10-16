@@ -1,6 +1,8 @@
 import {
   Component,
   createMemo,
+  createEffect,
+  on,
   createSelector,
   createSignal,
   For,
@@ -26,7 +28,7 @@ export interface VirtualDiffViewerProps {
 
 /**
  * High-speed O(1) viewport-sliced Virtualized Diff Viewer capable of scrolling
- * 10,000+ lines at 120fps with zero frame drops.
+ * long files by rendering only the current viewport.
  */
 export const VirtualDiffViewer: Component<VirtualDiffViewerProps> = (props) => {
   const rowHeight = () => props.rowHeight ?? 20;
@@ -35,6 +37,15 @@ export const VirtualDiffViewer: Component<VirtualDiffViewerProps> = (props) => {
 
   const [scrollTop, setScrollTop] = createSignal(0);
   const [selectedLine, setSelectedLine] = createSignal<number | null>(null);
+  let viewport: HTMLDivElement | undefined;
+  createEffect(on(() => props.filePath, () => {
+    setScrollTop(0);
+    setSelectedLine(null);
+    if (viewport) {
+      viewport.scrollTop = 0;
+      viewport.scrollLeft = 0;
+    }
+  }));
   const isLineSelected = createSelector(selectedLine);
 
   const totalHeight = createMemo(() => props.lines.length * rowHeight());
@@ -105,6 +116,7 @@ export const VirtualDiffViewer: Component<VirtualDiffViewerProps> = (props) => {
 
       <div
         class="ds-diff-viewport"
+        ref={viewport}
         style={{ height: `${viewportHeight()}px` }}
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       >

@@ -1,6 +1,7 @@
 import {
   Component,
   createMemo,
+  createEffect,
   createSelector,
   createSignal,
   For,
@@ -108,6 +109,13 @@ export const IssueListView: Component<IssueListViewProps> = (props) => {
     });
   };
 
+  let list: HTMLDivElement | undefined;
+  createEffect(() => {
+    const index = props.focusedIndex;
+    filteredItems();
+    list?.children[index]?.scrollIntoView({ block: "nearest" });
+  });
+
   return (
     <div
       style={{
@@ -156,6 +164,7 @@ export const IssueListView: Component<IssueListViewProps> = (props) => {
       {/* High-Density Issue / PR List */}
       <div
         class="ds-issue-list"
+        ref={list}
         role="listbox"
         aria-label="Issues and Pull Requests"
       >

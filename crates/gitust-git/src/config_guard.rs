@@ -5,10 +5,9 @@
 //! `credential.helper = store` / `!cmd`, or `[include]` / `[includeIf]` directives.
 
 use std::fs;
-use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::{io_err, GitEngine, GitEngineError};
 
@@ -107,6 +106,8 @@ pub(crate) fn run_git_fetch_with_timeout(
             "fetch.writeCommitGraph=true",
             "-c",
             "core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=2",
+            "-c", "http.followRedirects=false",
+            "-c", "credential.helper=",
             "fetch",
             "--prune",
             "--no-tags",
@@ -117,99 +118,9 @@ pub(crate) fn run_git_fetch_with_timeout(
             "^refs/heads/agent/*",
             "+refs/tags/*:refs/remotes/upstream-tags/*",
         ])
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_COMMON_DIR")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_OBJECT_DIRECTORY")
-        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
-
-    let mut child = cmd.spawn().map_err(|e| GitEngineError::GitCommand {
-        args: "fetch".to_owned(),
-        message: e.to_string(),
-    })?;
-
-    let stderr_handle = child.stderr.take().map(|stderr| {
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            // fail-open-ok: diagnostic stderr capture for `git fetch`; exit status is checked below.
-            let _ = stderr.take(8192).read_to_end(&mut buf);
-            buf
-        })
-    });
-
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    #[cfg(unix)]
-                    {
-                        let pgid = format!("-{}", child.id());
-                        // fail-open-ok: best-effort process-group SIGKILL before returning timeout Err.
-                        let _ = Command::new("kill")
-                            .args(["-KILL", "--", &pgid])
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .status();
-                    }
-                    // fail-open-ok: best-effort child process kill on timeout.
-                    let _ = child.kill();
-                    // fail-open-ok: best-effort child wait to reap zombie after kill.
-                    let _ = child.wait();
-                    if let Some(h) = stderr_handle {
-                        // fail-open-ok: best-effort stderr reader thread join on timeout.
-                        let _ = h.join();
-                    }
-                    return Err(GitEngineError::GitCommand {
-                        args: "fetch".to_owned(),
-                        message: format!("git fetch timed out after {}ms", timeout.as_millis()),
-                    });
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(e) => {
-                // fail-open-ok: best-effort child process kill on wait error.
-                let _ = child.kill();
-                // fail-open-ok: best-effort child wait to reap zombie on wait error.
-                let _ = child.wait();
-                if let Some(h) = stderr_handle {
-                    // fail-open-ok: best-effort stderr reader thread join on wait error.
-                    let _ = h.join();
-                }
-                return Err(GitEngineError::GitCommand {
-                    args: "fetch".to_owned(),
-                    message: e.to_string(),
-                });
-            }
-        }
-    };
-
-    // fail-open-ok: diagnostic stderr text only; `!status.success()` below still fails closed.
-    let stderr_bytes = stderr_handle
-        .and_then(|h| h.join().ok())
-        .unwrap_or_default();
-
-    if !status.success() {
-        return Err(GitEngineError::GitCommand {
-            args: "fetch".to_owned(),
-            message: String::from_utf8_lossy(&stderr_bytes).trim().to_owned(),
-        });
-    }
+        .stdin(Stdio::null());
+    crate::process::sanitize_git_environment(&mut cmd);
+    crate::process::run_capped(cmd, timeout, 0)?;
     Ok(())
 }
 
@@ -239,6 +150,7 @@ pub(crate) fn contains_http_userinfo(text: &str) -> bool {
             let after = &rest[idx + scheme.len()..];
             let authority_end = after
                 .find(|c: char| c == '/' || c == '\'' || c == ']' || c.is_whitespace())
+                // fail-open-ok: without an authority delimiter the entire remaining URL is inspected for userinfo.
                 .unwrap_or(after.len());
             if after[..authority_end].contains('@') {
                 return true;
@@ -274,7 +186,16 @@ pub(crate) fn config_contains_credentials(text: &str) -> bool {
         for key in section.body().value_names() {
             let key_str: &str = key.as_ref();
             let key_lower = key_str.to_ascii_lowercase();
-            if key_lower == "extraheader" {
+            if key_lower == "extraheader"
+                || (sec_name == "http"
+                    && matches!(key_lower.as_str(), "cookiefile" | "sslkey" | "sslcert"))
+                || (sec_name == "core" && matches!(key_lower.as_str(), "sshcommand" | "askpass"))
+                || (sec_name == "filter"
+                    && matches!(key_lower.as_str(), "clean" | "smudge" | "process"))
+                || (sec_name == "diff" && matches!(key_lower.as_str(), "command" | "textconv"))
+                || (sec_name == "url"
+                    && matches!(key_lower.as_str(), "insteadof" | "pushinsteadof"))
+            {
                 return true;
             }
             for val in section.values(key_str) {

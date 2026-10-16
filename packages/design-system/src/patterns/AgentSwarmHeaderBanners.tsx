@@ -73,9 +73,9 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                     "font-size": "var(--ds-font-size-xs)",
                   }}
                 >
-                  Two-Way Live Mirror:{" "}
+                  GitHub Mirror:{" "}
                   <span class="ds-mono" style={{ color: "var(--ds-fg-link)" }}>
-                    github.com/corp/core-monorepo ⇄ gitust.internal/corp/core
+                    Configured upstream ⇄ local repository
                   </span>
                 </div>
                 <div
@@ -119,10 +119,10 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                   1. gitoxide (Git)
                 </Badge>
                 <Badge variant="accent" mono>
-                  2. container-use (MCP Worktree)
+                  2. MCP worktrees
                 </Badge>
                 <Badge variant="merged" mono>
-                  3. microsandbox (libkrun CI)
+                  3. Local OS sandbox
                 </Badge>
               </div>
 
@@ -170,29 +170,29 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
               padding: "var(--ds-space-2-5) var(--ds-space-3)",
               "background-color": "var(--ds-bg-canvas)",
               "font-size": "var(--ds-font-size-2xs)",
-              gap: "4px",
+              gap: "var(--ds-space-1)",
               color: "var(--ds-fg-secondary)",
             }}
           >
             <div>
               <span style={{ color: "var(--ds-success-fg)" }}>$</span> gitust
-              serve --sync-github corp/core-monorepo{" "}
+              serve --repo /srv/gitust/repo{" "}
               <span style={{ color: "var(--ds-fg-muted)" }}>
-                # All-in-one Git + Web + Microsandbox
+                # Start Gitust for an existing repository
               </span>
             </div>
             <div>
               <span style={{ color: "var(--ds-success-fg)" }}>$</span> claude
-              mcp add gitust -- gitust mcp{" "}
+              mcp add gitust -- gitust mcp --repo /srv/gitust/repo{" "}
               <span style={{ color: "var(--ds-fg-muted)" }}>
-                # Replaces container-use &amp; cloud VM
+                # Connect to a local repository
               </span>
             </div>
             <div>
               <span style={{ color: "var(--ds-success-fg)" }}>$</span> gitust
-              sandbox run "cargo test --workspace"{" "}
+              sandbox run "cargo test --workspace" --repo /srv/gitust/repo{" "}
               <span style={{ color: "var(--ds-fg-muted)" }}>
-                # &lt;1ms CoW fork + 84ms microsandbox
+                # Run a command in the local OS sandbox
               </span>
             </div>
             <div>
@@ -225,7 +225,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 "font-size": "var(--ds-font-size-xs)",
               }}
             >
-              <span>Container-Use Worktrees</span>
+              <span>Agent Worktrees</span>
               <Icon name="layers" size={14} />
             </div>
             <div
@@ -235,16 +235,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 "font-weight": 700,
               }}
             >
-              {props.stats.total}{" "}
-              <span
-                style={{
-                  "font-size": "var(--ds-font-size-xs)",
-                  color: "var(--ds-success-fg)",
-                  "font-weight": 500,
-                }}
-              >
-                (0.35ms CoW)
-              </span>
+              {props.stats.total}
             </div>
             <div
               style={{
@@ -252,7 +243,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 color: "var(--ds-fg-muted)",
               }}
             >
-              Unlimited On-Prem Quota · 0 Byte Clone Overhead
+              Git linked worktree checkouts
             </div>
           </div>
         </div>
@@ -268,7 +259,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 "font-size": "var(--ds-font-size-xs)",
               }}
             >
-              <span>Microsandbox Verified</span>
+              <span>Verification Results</span>
               <Icon name="check" size={14} />
             </div>
             <div
@@ -303,7 +294,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 "font-size": "var(--ds-font-size-xs)",
               }}
             >
-              <span>Microsandbox Engine (`msb`)</span>
+              <span>Local Sandbox</span>
               <Icon name="cpu" size={14} />
             </div>
             <div
@@ -314,7 +305,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 color: "var(--ds-info-fg)",
               }}
             >
-              {props.stats.compiling} Active · 84ms avg
+              {props.stats.compiling} Active
             </div>
             <div
               style={{
@@ -322,7 +313,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 color: "var(--ds-fg-muted)",
               }}
             >
-              Rust libkrun MicroVM + Shared Build Cache
+              OS sandbox execution for a trusted single user
             </div>
           </div>
         </div>
@@ -338,7 +329,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 "font-size": "var(--ds-font-size-xs)",
               }}
             >
-              <span>GitHub Bi-Directional Mirror</span>
+              <span>GitHub Publication</span>
               <Icon name="rotate-ccw" size={14} />
             </div>
             <div
@@ -349,7 +340,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 color: "var(--ds-merged-fg)",
               }}
             >
-              Live ⇄ 11ms
+              Explicit approval
             </div>
             <div
               style={{
@@ -357,7 +348,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 color: "var(--ds-fg-muted)",
               }}
             >
-              Inbound Webhook + Outbound Verified Push
+              Fetch upstream · publish approved merges
             </div>
           </div>
         </div>

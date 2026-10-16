@@ -403,7 +403,8 @@
 .ds-log-row {
   position: absolute;
   left: 0;
-  right: 0;
+  min-width: 100%;
+  width: max-content;
   height: var(--ds-code-line-height);
   display: flex;
   align-items: center;
@@ -411,7 +412,7 @@
   white-space: pre;
   font-family: var(--ds-font-mono);
   font-size: var(--ds-font-size-xs);
-  contain: layout style paint;
+  contain: layout style;
 }
 
 .ds-log-row:hover {
@@ -486,13 +487,13 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  width: 34px;
-  height: 18px;
+  width: var(--ds-switch-width);
+  height: var(--ds-switch-height);
   border-radius: var(--ds-radius-full);
   background-color: var(--ds-bg-tertiary);
   border: 1px solid var(--ds-border-strong);
   cursor: pointer;
-  padding: 2px;
+  padding: var(--ds-space-0-5);
   transition: background-color var(--ds-duration-instant) var(--ds-ease-out);
 }
 
@@ -502,13 +503,13 @@
 }
 
 .ds-switch-thumb {
-  width: 12px;
-  height: 12px;
+  width: var(--ds-switch-thumb-size);
+  height: var(--ds-switch-thumb-size);
   border-radius: var(--ds-radius-full);
-  background-color: #fff;
+  background-color: var(--ds-fg-on-accent);
   transition: transform var(--ds-duration-instant) var(--ds-ease-out);
 }
 
 .ds-switch[data-checked="true"] .ds-switch-thumb {
-  transform: translateX(16px);
+  transform: translateX(var(--ds-switch-thumb-travel));
 }

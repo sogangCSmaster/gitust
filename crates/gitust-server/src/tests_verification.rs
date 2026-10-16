@@ -1,6 +1,6 @@
 use super::*;
 
-fn commit(dir: &std::path::Path) {
+pub(super) fn commit(dir: &std::path::Path) {
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -26,7 +26,7 @@ fn commit(dir: &std::path::Path) {
     );
 }
 
-async fn fixture() -> (
+pub(super) async fn fixture() -> (
     tempfile::TempDir,
     AppState,
     Router,
@@ -58,7 +58,12 @@ async fn fixture() -> (
     (tmp, state, app, token, wt, dir)
 }
 
-async fn run(app: &Router, token: &str, wt: &AgentWorktree, command: &str) -> (StatusCode, String) {
+pub(super) async fn run(
+    app: &Router,
+    token: &str,
+    wt: &AgentWorktree,
+    command: &str,
+) -> (StatusCode, String) {
     call(
         app,
         "POST",

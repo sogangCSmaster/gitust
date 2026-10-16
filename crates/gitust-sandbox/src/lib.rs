@@ -22,10 +22,13 @@
 //! - **Processes**: the command runs in its own process group, which is killed when the lead
 //!   process exits, times out, or the future is dropped.
 
+mod command;
 mod mcp;
 mod policy;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_required_commands;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -279,6 +282,21 @@ impl LocalSandboxExecutor {
         spec: &SandboxSpec,
         command_str: &str,
     ) -> Result<SandboxExecutionResult, SandboxError> {
+        self.execute_with_checks(worktree_id, spec, command_str, &[])
+            .await
+    }
+
+    /// Runs each required check in its own shell after the requested command succeeds.
+    /// One process group, execution deadline, and output cap cover the entire sequence.
+    pub async fn execute_with_checks(
+        &self,
+        worktree_id: WorktreeId,
+        spec: &SandboxSpec,
+        requested: &str,
+        required: &[String],
+    ) -> Result<SandboxExecutionResult, SandboxError> {
+        let execution = command::ShellCommand::new(requested, required);
+        let command_str = execution.display;
         let _permit = self
             .semaphore
             .acquire()
@@ -294,11 +312,17 @@ impl LocalSandboxExecutor {
             cancelled: Arc::clone(&cancelled),
         };
         let spec_owned = spec.clone();
-        let command_owned = command_str.to_owned();
         let allow_network = self.allow_network;
         let prepared = tokio::task::spawn_blocking(move || {
             let anticipated = spec_owned.scratch_base.join(run_id.0.to_string());
-            let res = prepare_run(&spec_owned, run_id, &command_owned, allow_network);
+            let res = prepare_run(&spec_owned, run_id, &execution.script, allow_network).map(
+                |mut prepared| {
+                    prepared
+                        .args
+                        .extend(execution.args.into_iter().map(Into::into));
+                    prepared
+                },
+            );
             if res.is_err() || cancelled.load(Ordering::SeqCst) {
                 // fail-open-ok: best-effort cleanup of anticipated scratch dir on prepare failure or cancellation.
                 let _ = fs::remove_dir_all(&anticipated);

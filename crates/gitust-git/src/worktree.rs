@@ -166,6 +166,7 @@ impl GitEngine {
                 materialize_micros,
                 status: WorktreeStatus::Pending,
                 verified_commit: None,
+                verified_checks_oid: None,
                 last_sandbox_duration_ms: 0,
                 tests_passed: 0,
                 tests_total: 0,

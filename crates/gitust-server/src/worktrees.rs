@@ -264,11 +264,15 @@ pub(crate) async fn exec_worktree_sandbox_core(
     };
     let engine = state.git_engine.clone();
     let branch = wt.branch.clone();
-    let checked_commit = tokio::task::spawn_blocking(move || {
+    let base = wt.base_branch.clone();
+    let (checked_commit, checks) = tokio::task::spawn_blocking(move || {
         if verify {
-            engine.clean_worktree_commit(wt.id, &branch).map(Some)
+            let commit = engine.clean_worktree_commit(wt.id, &branch)?;
+            Ok((Some(commit), engine.required_checks(&base)?))
         } else {
-            engine.ensure_config_has_no_credentials().map(|_| None)
+            engine
+                .ensure_config_has_no_credentials()
+                .map(|_| (None, None))
         }
     })
     .await
@@ -279,14 +283,30 @@ pub(crate) async fn exec_worktree_sandbox_core(
         None => state.sandbox_executor.clone(),
     };
     let outcome = executor
-        .execute(wt.id, &runtime.sandbox_spec, &command)
+        .execute_with_checks(
+            wt.id,
+            &runtime.sandbox_spec,
+            &command,
+            checks
+                .as_ref()
+                .map_or(&[], |checks| checks.commands.as_slice()),
+        )
         .await;
+    let checks_oid = checks.map(|checks| checks.blob_oid);
     match outcome {
         Ok(res) => {
             if let Some(ref checked) = checked_commit {
                 let engine = state.git_engine.clone();
                 let branch = wt.branch.clone();
+                let base = wt.base_branch.clone();
+                let expected_policy = checks_oid.clone();
                 let after = tokio::task::spawn_blocking(move || {
+                    if engine.required_checks(&base)?.map(|c| c.blob_oid) != expected_policy {
+                        return Err(GitEngineError::VerificationInvalid(
+                            "required Checks changed during verification; run verification again"
+                                .into(),
+                        ));
+                    }
                     engine.clean_worktree_commit(wt.id, &branch)
                 })
                 .await
@@ -310,6 +330,7 @@ pub(crate) async fn exec_worktree_sandbox_core(
                 w.last_sandbox_duration_ms = res.duration_ms;
                 w.status = final_status;
                 w.verified_commit = checked_commit;
+                w.verified_checks_oid = checks_oid;
             });
             status_guard.armed = false;
             Ok((res, final_status))
@@ -448,6 +469,7 @@ pub(crate) async fn approve_worktree_handler(
     let wt_id = wt.id;
     let branch = wt.branch.clone();
     let base_branch = wt.base_branch.clone();
+    let verified_checks_oid = wt.verified_checks_oid.clone();
     let verified_commit = wt.verified_commit.ok_or_else(|| {
         (
             StatusCode::CONFLICT,
@@ -457,6 +479,19 @@ pub(crate) async fn approve_worktree_handler(
     let merged_wt = tokio::task::spawn_blocking(move || {
         let _held_wt = run_guard;
         let _held_repo = repo_guard;
+        let policy_matches = engine
+            .required_checks(&base_branch)
+            .map(|checks| checks.map(|c| c.blob_oid) == verified_checks_oid);
+        if !matches!(policy_matches, Ok(true)) {
+            set_worktree_status(&state_for_merge, wt_id, |w| {
+                w.status = WorktreeStatus::Pending
+            });
+            policy_matches.map_err(map_git_err)?;
+            return Err((
+                StatusCode::CONFLICT,
+                "required Checks changed since verification; run verification again".into(),
+            ));
+        }
         let merged_sha = match engine.approve_verified_worktree(
             wt_id,
             &branch,

@@ -305,6 +305,9 @@ pub struct AgentWorktree {
     /// Exact clean commit verified by the latest successful sandbox command.
     #[serde(default)]
     pub verified_commit: Option<CommitSha>,
+    /// Committed merge-target Checks policy used by this verification; None means no policy.
+    #[serde(default)]
+    pub verified_checks_oid: Option<String>,
     pub last_sandbox_duration_ms: u64,
     pub tests_passed: u32,
     pub tests_total: u32,

@@ -14,7 +14,9 @@ export interface AgentVerificationDialogProps {
 }
 
 export const AgentVerificationDialog: Component<AgentVerificationDialogProps> = (props) => {
-  const [command, setCommand] = createSignal(props.task.verificationResult?.command ?? "");
+  const [command, setCommand] = createSignal(
+    props.task.verificationResult?.requestedCommand ?? props.task.verificationResult?.command ?? "",
+  );
   const terminal = () => props.task.sandboxStatus === "merged" || props.task.sandboxStatus === "discarded";
   const blocked = () => !props.canRun || terminal() || Boolean(props.task.operation) ||
     props.task.sandboxStatus === "compiling" || props.task.verificationNeedsRefresh;
@@ -25,11 +27,12 @@ export const AgentVerificationDialog: Component<AgentVerificationDialogProps> = 
   } as const;
 
   return (
-    <Dialog open onClose={props.onClose} title="Manual verification">
+    <Dialog open onClose={props.onClose} title="Worktree verification">
       <div style={{ display: "flex", "flex-direction": "column", gap: "var(--ds-space-3)" }}>
         <div class="ds-mono">{props.task.branch}</div>
         <p style={{ margin: "var(--ds-space-0)", color: "var(--ds-fg-secondary)" }}>
           Run a command in this worktree. A clean committed revision must pass verification before approval.
+          Required checks configured on the merge target run after your command; every command must pass.
           Execution requires a SiteAdmin and a server started with trusted single-user sandbox execution enabled.
         </p>
         <Badge variant={props.task.sandboxStatus === "verified" ? "success" : "neutral"}>

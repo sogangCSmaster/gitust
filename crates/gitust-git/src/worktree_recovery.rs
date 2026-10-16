@@ -89,6 +89,7 @@ impl GitEngine {
                     },
                     last_sandbox_duration_ms: 0,
                     verified_commit: None,
+                    verified_checks_oid: None,
                     tests_passed: 0,
                     tests_total: 0,
                     files_changed: 0,

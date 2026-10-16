@@ -7,3 +7,8 @@ target/
 .gitust/
 .*.gitust-worktrees/
 
+# Local environment secrets; examples must contain placeholders only.
+.env
+.env.*
+!.env.example
+!.env.sample

@@ -7,6 +7,8 @@ use tempfile::TempDir;
 
 #[path = "tests_approvals.rs"]
 mod tests_approvals;
+#[path = "tests_checks.rs"]
+mod tests_checks;
 
 use crate::config_guard::config_contains_credentials;
 use crate::{GitEngine, GitEngineError, MaterializedWorktree};

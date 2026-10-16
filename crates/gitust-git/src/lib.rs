@@ -13,6 +13,7 @@
 mod ancestry;
 mod approvals;
 mod browse;
+mod checks;
 mod config_guard;
 mod diff;
 mod mirror;
@@ -42,6 +43,7 @@ pub use browse::{
     CommitEntry, RepoBlobSnapshot, RepoCommitList, RepoTreeNode, RepoTreeSnapshot,
     MAX_BLOB_VIEW_BYTES, MAX_TREE_ENTRIES,
 };
+pub use checks::RequiredChecks;
 pub use diff::{
     DiffLineKind, RepoDiffFileSummary, RepoDiffLine, RepoDiffSnapshot, MAX_DIFF_BYTES,
     MAX_DIFF_LINES,

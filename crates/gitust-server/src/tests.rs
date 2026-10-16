@@ -15,6 +15,8 @@ mod tests_mcp;
 mod tests_oauth;
 #[path = "tests_outbound.rs"]
 mod tests_outbound;
+#[path = "tests_required_checks.rs"]
+mod tests_required_checks;
 #[path = "tests_verification.rs"]
 mod tests_verification;
 

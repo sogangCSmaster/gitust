@@ -22,6 +22,7 @@ export type AgentProvider =
   | "Internal Bot";
 
 export interface AgentVerificationResult {
+  requestedCommand?: string;
   command: string;
   exitCode: number;
   durationMs: number;

@@ -282,6 +282,7 @@ impl AppState {
         }
         w.status = WorktreeStatus::Compiling;
         w.verified_commit = None;
+        w.verified_checks_oid = None;
         Ok(())
     }
 
@@ -480,6 +481,7 @@ pub(crate) fn set_worktree_status(
             f(wt);
             if wt.status != WorktreeStatus::Verified {
                 wt.verified_commit = None;
+                wt.verified_checks_oid = None;
             }
         }
     }

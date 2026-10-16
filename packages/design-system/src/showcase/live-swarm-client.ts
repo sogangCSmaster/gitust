@@ -264,7 +264,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       ...task, sandboxStatus: "compiling", operation: "verifying", verifiedCommit: undefined,
       verificationError: undefined, verificationResult: undefined, verificationNeedsRefresh: undefined,
     }));
-    cb.showQuickFeedback(`Running manual verification for ${target.branch}...`);
+    cb.showQuickFeedback(`Running verification for ${target.branch}...`);
     try {
       const res = await fetch(`/api/v1/swarm/worktrees/${encodeURIComponent(liveId)}/sandbox`, {
         method: "POST",
@@ -281,6 +281,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
         throw new Error("Invalid verification result from server");
       }
       updateTarget((task) => ({ ...task, verificationResult: {
+        requestedCommand: command,
         command: result.command, exitCode: result.exit_code, durationMs: result.duration_ms,
         stdout: result.stdout, stderr: result.stderr, outputTruncated: result.output_truncated === true,
       } }));

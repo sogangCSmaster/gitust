@@ -371,6 +371,7 @@ pub async fn handle_mcp_json_line_with_options(
                             serde_json::json!({
                                 "worktree_id": res.worktree_id.0,
                                 "run_id": res.run_id.0,
+                                "command": res.command,
                                 "exit_code": res.exit_code,
                                 "duration_ms": res.duration_ms,
                                 "backend": res.backend,

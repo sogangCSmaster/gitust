@@ -45,6 +45,18 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("manual verification before approval", () => {
+  it("preserves the requested command separately from expanded required checks for retries", async () => {
+    const expanded = "/bin/sh -c 'cargo test' && /bin/sh -c 'cargo fmt --check'";
+    fetchMock.mockResolvedValueOnce(response({ ...runResult(), command: expanded }))
+      .mockResolvedValueOnce(response([worktree("Verified")]));
+    await client.verifyLiveWorktree(1, "cargo test");
+    expect(tasks[0]?.verificationResult).toMatchObject({
+      requestedCommand: "cargo test", command: expanded,
+    });
+    fetchMock.mockResolvedValueOnce(response([worktree("Verified")]));
+    await client.hydrateSwarmWorktrees();
+    expect(tasks[0]?.verificationResult?.requestedCommand).toBe("cargo test");
+  });
   it("distinguishes idle Pending worktrees from actively Compiling worktrees", () => {
     expect(mapLiveWorktreeToTask(worktree(), 1).sandboxStatus).toBe("pending");
     expect(mapLiveWorktreeToTask(worktree("Compiling"), 1).sandboxStatus).toBe("compiling");

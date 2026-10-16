@@ -57,7 +57,7 @@ pub fn builtin_mcp_tools() -> Vec<McpToolDescriptor> {
                     "verify": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Require a clean committed checkout before and after the command and record its exact SHA for human approval. Ordinary editing commands must omit this or use false."
+                        "description": "Require a clean committed checkout, run the requested command followed by required commands from the merge target's committed .gitust-checks.json, and record the exact SHA and policy for human approval. Ordinary editing commands must omit this or use false."
                     },
                     "timeout_secs": {
                         "type": "integer",

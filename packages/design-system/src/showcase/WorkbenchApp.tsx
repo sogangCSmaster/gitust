@@ -190,6 +190,8 @@ export const WorkbenchApp: Component = () => {
     setRedeemToken,
     fallbackUsers: INITIAL_ENTERPRISE_USERS,
     onTokenAuthenticated: () => {
+      liveSwarmClient.resetSwarmEpoch();
+      setSwarmTasks([]);
       void liveClient.hydrateFromLiveBackend();
       void liveSwarmClient.hydrateSwarmWorktrees();
     },
@@ -220,6 +222,10 @@ export const WorkbenchApp: Component = () => {
     } else {
       demoActions.approveDemoSwarmTask(id);
     }
+  };
+
+  const publishSwarmTask = (id: number) => {
+    void liveSwarmClient.publishLiveWorktree(id);
   };
 
   const discardSwarmTask = (id: number) => {
@@ -419,6 +425,9 @@ export const WorkbenchApp: Component = () => {
           onFocusedSwarmIdxChange={setFocusedSwarmIdx}
           onApproveMergeSwarmTask={approveAndMergeSwarmTask}
           onDiscardSwarmTask={discardSwarmTask}
+          onPublishSwarmTask={publishSwarmTask}
+          onVerifySwarmTask={(id, command) => void liveSwarmClient.verifyLiveWorktree(id, command)}
+          onRefreshSwarmTasks={() => void liveSwarmClient.hydrateSwarmWorktrees()}
           onSpawnBatchAgentSwarm={spawnBatchAgentSwarm}
           onTriggerGithubSync={liveClient.triggerGithubSync}
           swarmFilter={swarmFilter()}

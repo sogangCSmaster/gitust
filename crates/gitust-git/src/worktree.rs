@@ -22,6 +22,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct MaterializedWorktree {
     pub worktree: AgentWorktree,
+    pub approval: Option<crate::WorktreeApproval>,
     /// Checkout directory of the linked worktree (sandbox read-write root).
     pub worktree_dir: PathBuf,
     /// This worktree's admin dir inside the shared git dir (`<common>/worktrees/<name>`).
@@ -164,6 +165,7 @@ impl GitEngine {
                 prompt_summary: prompt_summary.into(),
                 materialize_micros,
                 status: WorktreeStatus::Pending,
+                verified_commit: None,
                 last_sandbox_duration_ms: 0,
                 tests_passed: 0,
                 tests_total: 0,
@@ -173,6 +175,7 @@ impl GitEngine {
                 github_synced: false,
                 created_at: Utc::now(),
             },
+            approval: None,
             worktree_dir,
             worktree_admin_dir,
             sandbox_scratch_base: common_git_dir.join(SANDBOX_SCRATCH_DIR_NAME),
@@ -237,6 +240,13 @@ impl GitEngine {
             &self.repo_path,
             [OsStr::new("worktree"), OsStr::new("prune")],
         )?;
+        if let Some(id) = target
+            .file_name()
+            .and_then(|s| s.to_str())
+            .and_then(WorktreeId::parse_str)
+        {
+            self.remove_worktree_approval(id)?;
+        }
         // fail-open-ok: removes the shared worktrees base dir only when empty; non-empty when sibling worktrees exist.
         let _ = fs::remove_dir(&base);
 
@@ -300,6 +310,15 @@ impl GitEngine {
         branch: &str,
         base_branch: &str,
     ) -> Result<CommitSha, GitEngineError> {
+        self.merge_agent_branch_at(branch, base_branch, None)
+    }
+
+    pub(crate) fn merge_agent_branch_at(
+        &self,
+        branch: &str,
+        base_branch: &str,
+        expected: Option<&CommitSha>,
+    ) -> Result<CommitSha, GitEngineError> {
         let clean_branch = Self::validate_agent_branch_name(branch)?;
         let clean_base = Self::validate_branch_name(base_branch)?;
         let _service_lock = self.lock_worktree_service()?;
@@ -324,6 +343,11 @@ impl GitEngine {
             .detach();
 
         let agent_hex = agent_id.to_string();
+        if expected.is_some_and(|sha| sha.0 != agent_hex) {
+            return Err(GitEngineError::VerificationInvalid(
+                "branch changed since verification; run verification again".into(),
+            ));
+        }
         if agent_id == base_id {
             return Err(GitEngineError::MergeConflict(format!(
                 "agent branch '{clean_branch}' has no commits ahead of '{clean_base}' to merge"

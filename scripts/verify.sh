@@ -44,6 +44,9 @@ fi
 step "pnpm typecheck"
 pnpm -r typecheck
 
+step "frontend behavioral tests"
+pnpm --filter @gitust/design-system test
+
 # gitust-server embeds packages/design-system/dist via include_str!, so a stale bundle silently
 # ships an old UI in the binary. Preserve original mtimes when the bundle is byte-identical so
 # Cargo's incremental cache for gitust-server and gitust-cli stays warm across verify.sh runs.

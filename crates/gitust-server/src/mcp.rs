@@ -15,7 +15,7 @@ use gitust_sandbox::{builtin_mcp_tools, McpToolDescriptor};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::auth::extract_principal_async;
+use crate::auth::extract_mcp_principal_async;
 use crate::state::{filter_authorized_worktrees, AppState, MAX_MCP_LINE_BYTES};
 use crate::worktrees::{discard_worktree_core, exec_worktree_sandbox_core, spawn_worktree_core};
 
@@ -34,6 +34,8 @@ struct McpSandboxExecToolArgs {
     worktree_id: Uuid,
     command: String,
     timeout_secs: Option<u64>,
+    #[serde(default)]
+    verify: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,7 +130,7 @@ fn json_response(status: StatusCode, body: String) -> Response {
 /// slow-loris body stream cannot bypass mid-flight account deactivation or token revocation.
 pub(crate) async fn mcp_http_post_handler(State(state): State<AppState>, req: Request) -> Response {
     let (parts, request_body) = req.into_parts();
-    match extract_principal_async(&parts.headers, &state.auth_store).await {
+    match extract_mcp_principal_async(&parts.headers, &state.auth_store).await {
         Ok(_) => {}
         Err((StatusCode::UNAUTHORIZED, msg)) => {
             return (
@@ -156,7 +158,7 @@ pub(crate) async fn mcp_http_post_handler(State(state): State<AppState>, req: Re
         );
     };
 
-    let caller = match extract_principal_async(&parts.headers, &state.auth_store).await {
+    let caller = match extract_mcp_principal_async(&parts.headers, &state.auth_store).await {
         Ok(c) => c,
         Err((status, msg)) => return (status, msg).into_response(),
     };
@@ -360,6 +362,7 @@ pub async fn handle_mcp_json_line_with_options(
                         args.worktree_id,
                         args.command,
                         args.timeout_secs,
+                        args.verify,
                     )
                     .await
                     {
@@ -570,6 +573,7 @@ pub async fn serve_mcp_stdio(
             github_mirror_url,
             AuthStore::new_in_memory(),
         )
+        .map_err(std::io::Error::other)?
         .with_trusted_sandbox_exec(true);
         Ok::<_, std::io::Error>((state, lock))
     })

@@ -20,6 +20,8 @@ mod persistence;
 mod tests;
 #[cfg(test)]
 mod tests_persistence;
+#[cfg(test)]
+mod tests_session_scope;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

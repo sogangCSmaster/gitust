@@ -71,6 +71,14 @@ pub(crate) fn extract_principal(
     headers: &HeaderMap,
     auth_store: &AuthStore,
 ) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
+    extract_principal_for(headers, auth_store, false)
+}
+
+fn extract_principal_for(
+    headers: &HeaderMap,
+    auth_store: &AuthStore,
+    allow_mcp: bool,
+) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
     let Some(raw_header) = headers.get(header::AUTHORIZATION) else {
         return Err(map_auth_err(AuthError::Unauthenticated));
     };
@@ -84,6 +92,10 @@ pub(crate) fn extract_principal(
 
     if token.starts_with("gitust_pat_") {
         auth_store.authenticate_pat(token).map_err(map_auth_err)
+    } else if allow_mcp {
+        auth_store
+            .authenticate_mcp_session(token)
+            .map_err(map_auth_err)
     } else {
         auth_store.authenticate_session(token).map_err(map_auth_err)
     }
@@ -95,6 +107,21 @@ pub(crate) async fn extract_principal_async(
     headers: &HeaderMap,
     auth_store: &AuthStore,
 ) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
+    extract_principal_async_for(headers, auth_store, false).await
+}
+
+pub(crate) async fn extract_mcp_principal_async(
+    headers: &HeaderMap,
+    auth_store: &AuthStore,
+) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
+    extract_principal_async_for(headers, auth_store, true).await
+}
+
+async fn extract_principal_async_for(
+    headers: &HeaderMap,
+    auth_store: &AuthStore,
+    allow_mcp: bool,
+) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
     let Some(raw_header) = headers.get(header::AUTHORIZATION).cloned() else {
         return Err(map_auth_err(AuthError::Unauthenticated));
     };
@@ -102,7 +129,7 @@ pub(crate) async fn extract_principal_async(
     tokio::task::spawn_blocking(move || {
         let mut h = HeaderMap::with_capacity(1);
         h.insert(header::AUTHORIZATION, raw_header);
-        extract_principal(&h, &store)
+        extract_principal_for(&h, &store, allow_mcp)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

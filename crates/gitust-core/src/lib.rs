@@ -302,6 +302,9 @@ pub struct AgentWorktree {
     /// Measured wall-clock time to create the branch and check out the worktree.
     pub materialize_micros: u64,
     pub status: WorktreeStatus,
+    /// Exact clean commit verified by the latest successful sandbox command.
+    #[serde(default)]
+    pub verified_commit: Option<CommitSha>,
     pub last_sandbox_duration_ms: u64,
     pub tests_passed: u32,
     pub tests_total: u32,

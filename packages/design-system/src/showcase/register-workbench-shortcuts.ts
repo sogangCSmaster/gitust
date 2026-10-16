@@ -137,7 +137,7 @@ export function registerWorkbenchShortcuts(
       title: "Approve & Fast-Forward Merge Focused Agent Branch",
       category: "Actions",
       keys: "a",
-      description: "Instant 0ms in-memory merge of verified agent sandbox",
+      description: "Approve and fast-forward merge locally; GitHub publication is separate",
       handler: () => {
         if (cb.getActiveTab() === "swarm") {
           const list = cb.getVisibleSwarmTasks();

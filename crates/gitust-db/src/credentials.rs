@@ -10,8 +10,8 @@ use crate::crypto::{
     scoped_account_rate_limit_key, scoped_id_rate_limit_key, verify_password_argon2,
 };
 use crate::models::{
-    AuthState, IssuedPersonalAccessToken, LoginSessionResponse, StoredPat, StoredSession,
-    StoredSshKey,
+    AuthState, IssuedPersonalAccessToken, LoginSessionResponse, SessionPurpose, StoredPat,
+    StoredSession, StoredSshKey,
 };
 use crate::{
     AuthStore, DEFAULT_SESSION_TTL_HOURS, LOGIN_RATE_LIMIT_WINDOW_SECS, MAX_LOGIN_ATTEMPTS,
@@ -192,6 +192,7 @@ impl AuthStore {
                     created_at: check_now,
                     expires_at,
                     revoked: false,
+                    purpose: Some(SessionPurpose::Login),
                 },
             );
             let snap = self.maybe_snapshot(&mut guard);
@@ -241,6 +242,7 @@ impl AuthStore {
                     created_at: now,
                     expires_at,
                     revoked: false,
+                    purpose: Some(SessionPurpose::Mcp),
                 },
             );
             let snap = self.maybe_snapshot(&mut guard);
@@ -265,6 +267,22 @@ impl AuthStore {
         &self,
         raw_session_token: &str,
     ) -> Result<AuthenticatedPrincipal, AuthError> {
+        self.authenticate_session_for(raw_session_token, false)
+    }
+
+    /// MCP accepts explicitly scoped MCP sessions and ordinary authenticated login sessions.
+    pub fn authenticate_mcp_session(
+        &self,
+        raw_session_token: &str,
+    ) -> Result<AuthenticatedPrincipal, AuthError> {
+        self.authenticate_session_for(raw_session_token, true)
+    }
+
+    fn authenticate_session_for(
+        &self,
+        raw_session_token: &str,
+        allow_mcp: bool,
+    ) -> Result<AuthenticatedPrincipal, AuthError> {
         let candidate_hash = hash_token_sha256(raw_session_token);
         let guard = self.read_state()?;
 
@@ -283,6 +301,11 @@ impl AuthStore {
         }
         if session.revoked || Utc::now() >= session.expires_at {
             return Err(AuthError::Unauthenticated);
+        }
+        match session.purpose {
+            Some(SessionPurpose::Login) => {}
+            Some(SessionPurpose::Mcp) if allow_mcp => {}
+            _ => return Err(AuthError::Unauthenticated),
         }
 
         Ok(user.to_principal())

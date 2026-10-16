@@ -84,6 +84,15 @@ pub(crate) struct StoredSession {
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) expires_at: DateTime<Utc>,
     pub(crate) revoked: bool,
+    /// Missing on legacy snapshots: never infer general authority from an unscoped token.
+    #[serde(default)]
+    pub(crate) purpose: Option<SessionPurpose>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum SessionPurpose {
+    Login,
+    Mcp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

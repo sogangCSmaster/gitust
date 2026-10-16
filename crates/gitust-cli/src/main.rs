@@ -18,7 +18,7 @@ use gitust_sync::BiDirectionalSyncConfig;
 use crate::admin_cmd::{handle_admin_command, AdminCommands};
 use crate::sandbox_cmd::run_cli_sandbox;
 use crate::triage_cmd::{
-    run_triage_approve, run_triage_discard, run_triage_list, TriageSubcommands,
+    run_triage_approve, run_triage_discard, run_triage_list, run_triage_publish, TriageSubcommands,
 };
 
 #[derive(Debug, Parser)]
@@ -302,12 +302,21 @@ async fn main() -> Result<()> {
                 match sub {
                     None => run_triage_list(&repo),
                     Some(TriageSubcommands::List { repo }) => run_triage_list(&repo),
-                    Some(TriageSubcommands::Approve { branch, base, repo }) => {
-                        run_triage_approve(&repo, &branch, &base)
-                    }
+                    Some(TriageSubcommands::Approve {
+                        branch,
+                        base,
+                        repo,
+                        push_to,
+                    }) => run_triage_approve(&repo, &branch, &base, push_to.as_deref()),
                     Some(TriageSubcommands::Discard { branch, repo }) => {
                         run_triage_discard(&repo, &branch)
                     }
+                    Some(TriageSubcommands::Publish {
+                        approved_commit,
+                        base,
+                        to,
+                        repo,
+                    }) => run_triage_publish(&repo, &base, &approved_commit, &to),
                 }
             })
             .await??;

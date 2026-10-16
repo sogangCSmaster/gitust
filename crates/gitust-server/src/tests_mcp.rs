@@ -12,6 +12,7 @@ async fn mcp_jsonrpc_stdio_lifecycle_and_adversarial_bounds() {
         "https://github.com/sogangCSmaster/gitust.git".to_owned(),
         AuthStore::new_in_memory(),
     )
+    .expect("recover server state")
     .with_trusted_sandbox_exec(true);
     let caller = AuthenticatedPrincipal {
         user_id: UserId::new(),
@@ -119,7 +120,7 @@ async fn mcp_jsonrpc_stdio_lifecycle_and_adversarial_bounds() {
     )
     .expect("exec payload");
     assert_eq!(exec_payload["exit_code"], 0);
-    assert_eq!(exec_payload["status"], "verified");
+    assert_eq!(exec_payload["status"], "pending");
     assert!(exec_payload["stdout"]
         .as_str()
         .unwrap_or_default()
@@ -152,7 +153,7 @@ async fn mcp_jsonrpc_stdio_lifecycle_and_adversarial_bounds() {
         wt_list_payload["worktrees"][0]["worktree_id"].as_str(),
         Some(wt_id)
     );
-    assert_eq!(wt_list_payload["worktrees"][0]["status"], "verified");
+    assert_eq!(wt_list_payload["worktrees"][0]["status"], "pending");
 
     let discard_req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -245,7 +246,8 @@ async fn http_gate_7_4_inbound_mirror_sync_and_repo_code_commit_diff_browsing() 
     let token = login.raw_session_token;
 
     let upstream_url = upstream.to_string_lossy().into_owned();
-    let state = AppState::with_auth_store(mirror.clone(), upstream_url.clone(), auth_store);
+    let state = AppState::with_auth_store(mirror.clone(), upstream_url.clone(), auth_store)
+        .expect("recover server state");
     let app = build_router(state);
 
     let (s, body) = call(

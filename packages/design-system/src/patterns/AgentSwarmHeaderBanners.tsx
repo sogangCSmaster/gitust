@@ -1,4 +1,4 @@
-import { Component, createSignal } from "solid-js";
+import { Component } from "solid-js";
 import { Badge } from "../primitives/Badge";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
@@ -20,9 +20,6 @@ export interface AgentSwarmHeaderBannersProps {
 export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = (
   props
 ) => {
-  const [autoSyncMergedToGithub, setAutoSyncMergedToGithub] =
-    createSignal(true);
-
   return (
     <>
       {/* Top Architecture Banner: Gitea + Container-Use + Microsandbox + Bi-Directional GitHub Sync */}
@@ -45,12 +42,11 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
             >
               <Icon name="shield-check" size={14} />
               <span>
-                Zero-Cloud-Leakage On-Premise Engine &amp; Bi-Directional GitHub
-                Sync
+                On-Premise Worktrees &amp; GitHub Sync
               </span>
             </span>
             <Badge variant="success" mono>
-              Privacy Mode: STRICT ON-PREM (0 Bytes to Cloud)
+              Private worktrees · approved publication
             </Badge>
           </div>
           <div
@@ -88,8 +84,8 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                     color: "var(--ds-fg-muted)",
                   }}
                 >
-                  Agent experimental branches stay 100% private on-prem. Only
-                  human-approved (<Kbd keys="a" />) merges sync back to GitHub.
+                  Approve and merge locally with <Kbd keys="a" />, then select
+                  Publish to GitHub on the approved worktree.
                 </div>
               </div>
               <Button
@@ -98,7 +94,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 icon={<Icon name="rotate-ccw" size={12} />}
                 onClick={props.onTriggerGithubSync}
               >
-                Sync GitHub Now (11ms)
+                Fetch from GitHub
               </Button>
             </div>
 
@@ -143,18 +139,9 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                     color: "var(--ds-fg-secondary)",
                   }}
                 >
-                  Auto-push approved merges to GitHub
+                  GitHub publication requires an explicit action
                 </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoSyncMergedToGithub()}
-                  data-checked={autoSyncMergedToGithub()}
-                  class="ds-switch"
-                  onClick={() => setAutoSyncMergedToGithub((v) => !v)}
-                >
-                  <span class="ds-switch-thumb" />
-                </button>
+
               </div>
             </div>
           </div>
@@ -210,9 +197,9 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
             </div>
             <div>
               <span style={{ color: "var(--ds-success-fg)" }}>$</span> gitust
-              triage --approve-verified{" "}
+              triage approve agent/claude/task-1 --repo /srv/gitust/repo{" "}
               <span style={{ color: "var(--ds-fg-muted)" }}>
-                # Instant merge &amp; two-way GitHub push
+                # Approve and merge locally; publication is separate
               </span>
             </div>
           </div>
@@ -292,7 +279,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 color: "var(--ds-success-fg)",
               }}
             >
-              {props.stats.verified} Ready · {props.stats.merged} Synced
+              {props.stats.verified} Ready · {props.stats.merged} Merged
             </div>
             <div
               style={{
@@ -300,7 +287,7 @@ export const AgentSwarmHeaderBanners: Component<AgentSwarmHeaderBannersProps> = 
                 color: "var(--ds-fg-muted)",
               }}
             >
-              Press <Kbd keys="a" /> to merge &amp; sync to GitHub
+              Press <Kbd keys="a" /> to approve &amp; merge locally
             </div>
           </div>
         </div>

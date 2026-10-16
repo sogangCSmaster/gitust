@@ -1,10 +1,14 @@
 //! `gitust triage` CLI subcommands (`list`, `approve <branch>`, `discard <branch>`).
 
+#[cfg(test)]
+#[path = "tests_triage_publish.rs"]
+mod publish_tests;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Subcommand;
-use gitust_core::RepoId;
+use gitust_core::{CommitSha, RepoId};
 use gitust_git::GitEngine;
 
 #[derive(Debug, Subcommand)]
@@ -25,8 +29,27 @@ pub enum TriageSubcommands {
         #[arg(long, default_value = "main")]
         base: String,
 
+        /// Explicitly publish the approved commit to this remote (never force-pushes)
+        #[arg(long)]
+        push_to: Option<String>,
+
         /// Local repository path
         #[arg(long, default_value = ".")]
+        repo: PathBuf,
+    },
+
+    /// Explicitly approve publication of an exact merged SHA, including retries after a failed push
+    Publish {
+        /// Full commit SHA explicitly approved by the operator (never a moving branch name)
+        #[arg(long)]
+        approved_commit: String,
+        /// Local base branch containing the approved commit and remote destination branch
+        #[arg(long, default_value = "main")]
+        base: String,
+        /// Remote URL; GitHub authentication uses SSH keys/agent, not stored HTTPS tokens
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
         repo: PathBuf,
     },
 
@@ -54,17 +77,57 @@ pub fn run_triage_list(repo: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn run_triage_approve(repo: &Path, branch: &str, base: &str) -> Result<()> {
+pub fn run_triage_approve(
+    repo: &Path,
+    branch: &str,
+    base: &str,
+    push_to: Option<&str>,
+) -> Result<()> {
     let engine = GitEngine::new(repo);
     let _service_lock = engine.lock_worktree_service()?;
     engine.ensure_config_has_no_credentials()?;
     let clean_branch = GitEngine::validate_agent_branch_name(branch)?;
     let clean_base = GitEngine::validate_branch_name(base)?;
-    let merged_sha = engine.merge_agent_branch(&clean_branch, &clean_base)?;
+    let destination = push_to
+        .map(GitEngine::validate_mirror_remote_url)
+        .transpose()?;
+    if destination.is_some() {
+        GitEngine::validate_outbound_branch(&clean_base)?;
+    }
+    let managed_id = engine
+        .list_agent_worktrees()?
+        .into_iter()
+        .find(|w| w.branch == clean_branch)
+        .and_then(|w| {
+            w.worktree_dir
+                .file_name()
+                .and_then(|s| s.to_str())
+                .and_then(gitust_core::WorktreeId::parse_str)
+        });
+    let merged_sha = match managed_id {
+        Some(id) => engine.approve_managed_worktree(id, &clean_branch, &clean_base)?,
+        None => engine.merge_agent_branch(&clean_branch, &clean_base)?,
+    };
     println!(
         "✓ Fast-forward merged '{}' into '{}' ({})",
         clean_branch, clean_base, merged_sha.0
     );
+    if let Some(remote) = destination {
+        let result = match managed_id {
+            Some(id) => engine.publish_managed_worktree(id, &remote).map(|_| ()),
+            None => engine.push_approved_commit(&remote, &clean_base, &merged_sha),
+        };
+        result.map_err(|e| {
+            anyhow::anyhow!(
+                "local merge succeeded at {}; outbound failed: {e}",
+                merged_sha.0
+            )
+        })?;
+        println!(
+            "Published approved commit {} to {}",
+            merged_sha.0, clean_base
+        );
+    }
     Ok(())
 }
 
@@ -95,6 +158,30 @@ pub fn run_triage_discard(repo: &Path, branch: &str) -> Result<()> {
         engine.delete_agent_branch_ref(&clean_branch)?;
         println!("✓ Discarded agent branch '{}'", clean_branch);
     }
+    Ok(())
+}
+
+pub fn run_triage_publish(
+    repo: &Path,
+    base: &str,
+    approved_commit: &str,
+    remote: &str,
+) -> Result<()> {
+    let engine = GitEngine::new(repo);
+    let _service = engine.lock_worktree_service()?;
+    let base = GitEngine::validate_outbound_branch(base)?;
+    let sha = CommitSha(approved_commit.to_ascii_lowercase());
+    let mut approvals = engine
+        .recover_agent_worktrees(RepoId::new())?
+        .into_iter()
+        .filter_map(|m| m.approval)
+        .filter(|r| r.base_branch == base && r.approved_commit == sha);
+    match (approvals.next(), approvals.next()) {
+        (Some(record), None) => { engine.publish_managed_worktree(record.worktree_id, remote)?; },
+        (None, None) => engine.push_approved_commit(remote, &base, &sha)?,
+        _ => anyhow::bail!("multiple worktree approvals match this SHA; publish the chosen worktree through its HTTP endpoint"),
+    }
+    println!("Published explicitly approved commit {approved_commit} to {base}");
     Ok(())
 }
 
@@ -158,7 +245,8 @@ mod tests {
         git(&m2.worktree_dir, &["commit", "-m", "feat: unmerged work"]);
 
         run_triage_list(&repo).expect("triage list");
-        run_triage_approve(&repo, "agent/claude/triage-merge", "main").expect("triage approve");
+        run_triage_approve(&repo, "agent/claude/triage-merge", "main", None)
+            .expect("triage approve");
         assert!(repo.join("feature.txt").exists());
 
         run_triage_discard(&repo, "agent/cursor/triage-discard").expect("triage discard");

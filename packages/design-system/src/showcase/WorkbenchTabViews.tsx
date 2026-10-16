@@ -30,6 +30,9 @@ export interface WorkbenchTabViewsProps {
   onFocusedSwarmIdxChange: (idx: number) => void;
   onApproveMergeSwarmTask: (id: number) => void;
   onDiscardSwarmTask: (id: number) => void;
+  onPublishSwarmTask: (id: number) => void;
+  onVerifySwarmTask: (id: number, command: string) => void;
+  onRefreshSwarmTasks: () => void;
   onSpawnBatchAgentSwarm: () => void;
   onTriggerGithubSync: () => void;
   swarmFilter: string;
@@ -89,13 +92,10 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
                 color: "var(--ds-fg-secondary)",
               }}
             >
-              Claude Code, Cursor &amp; Codex agents spawn isolated{" "}
-              <code class="ds-mono">gitoxide</code> CoW branches in{" "}
-              <strong>&lt;1ms</strong> and run isolated sandbox builds in{" "}
-              <strong>&lt;100ms</strong>. Triage with <Kbd keys="j" /> /{" "}
-              <Kbd keys="k" />, press <Kbd keys="a" /> to merge,{" "}
-              <Kbd keys="x" /> to discard, or <Kbd keys="s" /> to spawn +10
-              sandboxes.
+              Spawn an isolated worktree and run a verification command before approval.
+              Triage with <Kbd keys="j" /> / <Kbd keys="k" />, press <Kbd keys="a" /> to
+              approve and merge locally, <Kbd keys="x" /> to discard, or <Kbd keys="s" /> to spawn.
+              Publish approved merges to GitHub separately.
             </p>
           </div>
           <Badge variant="merged" mono>
@@ -110,6 +110,11 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
           onFocusIndexChange={props.onFocusedSwarmIdxChange}
           onApproveMerge={props.onApproveMergeSwarmTask}
           onDiscardBranch={props.onDiscardSwarmTask}
+          onPublishGithub={props.onPublishSwarmTask}
+          onVerifyWorktree={props.onVerifySwarmTask}
+          onRefreshWorktrees={props.onRefreshSwarmTasks}
+          canRunVerification={props.adminAuthProps?.liveSession?.role === "SiteAdmin"}
+          liveMode={Boolean(props.adminAuthProps?.liveSession)}
           onSpawnBatchSwarm={props.onSpawnBatchAgentSwarm}
           onTriggerGithubSync={props.onTriggerGithubSync}
           filterQuery={props.swarmFilter}

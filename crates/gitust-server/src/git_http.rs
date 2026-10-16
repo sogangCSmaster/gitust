@@ -465,54 +465,19 @@ pub(crate) async fn git_receive_pack_handler(
     }
 
     let engine = state.git_engine.clone();
-    let tracked_for_rpc = matched_worktrees.clone();
     let rpc_res = tokio::task::spawn_blocking(move || {
         let _held_repo = repo_guard;
         let _held_exec = held_exec_locks;
-        let mut pre_oids = Vec::with_capacity(tracked_for_rpc.len());
-        for (wt_id, wt_branch, prev_status) in &tracked_for_rpc {
-            let oid = engine.resolve_branch_oid(wt_branch)?;
-            pre_oids.push((*wt_id, wt_branch.clone(), *prev_status, oid));
-        }
-        let bytes = engine.smart_http_receive_pack(&body)?;
-        let mut unchanged = Vec::new();
-        for (wt_id, wt_branch, prev_status, pre_oid) in pre_oids {
-            let post_oid = engine.resolve_branch_oid(&wt_branch)?;
-            if post_oid == pre_oid {
-                unchanged.push((wt_id, prev_status));
-            }
-        }
-        Ok::<(Vec<u8>, Vec<(gitust_core::WorktreeId, WorktreeStatus)>), gitust_git::GitEngineError>(
-            (bytes, unchanged),
-        )
+        engine.smart_http_receive_pack(&body)
     })
     .await;
 
+    // A failed RPC can have changed refs before losing its response. Never restore prior
+    // verification from a stale snapshot; every authorized push attempt requires a new run.
     let out = match rpc_res {
-        Ok(Ok((bytes, unchanged))) => {
-            for (wt_id, prev_status) in unchanged {
-                crate::state::set_worktree_status(&state, wt_id, |w| {
-                    w.status = prev_status;
-                });
-            }
-            bytes
-        }
-        Ok(Err(e)) => {
-            for (wt_id, _, prev_status) in &matched_worktrees {
-                crate::state::set_worktree_status(&state, *wt_id, |w| {
-                    w.status = *prev_status;
-                });
-            }
-            return map_git_err(e).into_response();
-        }
-        Err(e) => {
-            for (wt_id, _, prev_status) in &matched_worktrees {
-                crate::state::set_worktree_status(&state, *wt_id, |w| {
-                    w.status = *prev_status;
-                });
-            }
-            return internal_err(e).into_response();
-        }
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(e)) => return map_git_err(e).into_response(),
+        Err(e) => return internal_err(e).into_response(),
     };
 
     (

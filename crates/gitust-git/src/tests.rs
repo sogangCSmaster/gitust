@@ -5,6 +5,9 @@ use std::process::Command;
 use gitust_core::{AgentKind, RepoId, WorktreeId, WorktreeStatus};
 use tempfile::TempDir;
 
+#[path = "tests_approvals.rs"]
+mod tests_approvals;
+
 use crate::config_guard::config_contains_credentials;
 use crate::{GitEngine, GitEngineError, MaterializedWorktree};
 

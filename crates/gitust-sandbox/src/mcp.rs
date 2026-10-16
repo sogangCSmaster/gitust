@@ -54,6 +54,11 @@ pub fn builtin_mcp_tools() -> Vec<McpToolDescriptor> {
                         "type": "string",
                         "description": "Shell command to execute inside the sandboxed worktree."
                     },
+                    "verify": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Require a clean committed checkout before and after the command and record its exact SHA for human approval. Ordinary editing commands must omit this or use false."
+                    },
                     "timeout_secs": {
                         "type": "integer",
                         "minimum": 1,

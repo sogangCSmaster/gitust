@@ -147,6 +147,18 @@ Origin: P1 (2026-10-16) — `open_persistent()` read the JSON and then `stat()`-
 
 ---
 
+### Check 17: OAuth Token Purpose Must Survive Authentication and Persistence
+- A token advertised as `scope=mcp` must not authenticate as a general login session on approval, publication, admin, credential-management, or Git endpoints, even when its owner is SiteAdmin.
+- Persist a session purpose and enforce it in the shared authentication boundary; only MCP endpoints may accept MCP-purpose tokens. Never infer authority from the user's role alone.
+- Missing legacy purpose is ambiguous: require a fresh login/OAuth exchange instead of defaulting to unrestricted access. Verify purpose persistence, revocation, normal login compatibility, MCP success, and rejection of MCP tokens on approval/publication with regression tests.
+
+
+### Check 18: Verification Must Bind to Actual Committed Content
+- A successful command must not grant approval to a moving branch name: record the clean commit SHA before and after explicit verification, and pass that SHA into the final merge operation.
+- Git status is not independent evidence when index flags hide tracked changes. Reject `assume-unchanged` and `skip-worktree` during verification, or compare contents without trusting those flags. Include both cases in regression tests.
+- Ordinary agent editing commands must remain distinct from verification. Clear verification evidence on new execution, failure, cancellation, or an authorized push attempt; never restore old authority after an indeterminate RPC result.
+- Bound Git inspection time and output, and retain operation guards through final validation and state updates.
+
 ## 2.5 Fix-Sweep Rule (Do Not Patch Only the Reported Line)
 
 When fixing any finding, before declaring it fixed:

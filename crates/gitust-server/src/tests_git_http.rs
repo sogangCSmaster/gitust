@@ -103,7 +103,8 @@ async fn smart_http_gate_7_4_clone_commit_push_fetch_roundtrip_rbac_and_fsck() {
         server_repo.clone(),
         "https://github.com/sogangCSmaster/gitust.git".to_owned(),
         store.clone(),
-    );
+    )
+    .expect("recover server state");
     let app = build_router(state.clone());
 
     // 1. Unauthenticated request to /git/default.git/info/refs must return 401 with WWW-Authenticate
@@ -352,7 +353,8 @@ async fn smart_http_push_enforces_worktree_ownership_and_resets_verified_status(
         repo_dir.clone(),
         "https://github.com/sogangCSmaster/gitust.git".to_owned(),
         store,
-    );
+    )
+    .expect("recover server state");
 
     // Materialize a real checked-out linked worktree owned by Developer A and mark it `Verified`
     let wt_id = WorktreeId::new();
@@ -460,8 +462,8 @@ async fn smart_http_push_enforces_worktree_ownership_and_resets_verified_status(
     );
     assert_eq!(
         state.worktrees.read()[0].status,
-        WorktreeStatus::Verified,
-        "rejected push on dirty worktree must preserve Verified status"
+        WorktreeStatus::Pending,
+        "authorized push attempt invalidates verification even if the remote rejects it"
     );
 
     // 3. Once the worktree is clean, Developer A's real `git push` succeeds, updates the checked-out worktree on disk, and resets status to `Pending`

@@ -35,6 +35,7 @@ impl GitEngine {
         &self,
         repo_id: RepoId,
     ) -> Result<Vec<MaterializedWorktree>, GitEngineError> {
+        let _service = self.lock_worktree_service()?;
         let repo = self.acquire_repo()?;
         let common_git_dir = Self::common_git_dir(&repo);
         reject_credentials_in_config(&common_git_dir)?;
@@ -57,8 +58,18 @@ impl GitEngine {
                 .and_then(|n| n.to_str())
                 .and_then(WorktreeId::parse_str)
                 .unwrap_or_else(WorktreeId::new);
-            let (base_branch, base_commit) =
+            let (mut base_branch, mut base_commit) =
                 read_branch_creation_reflog(&common_git_dir, &entry.branch);
+            let approval = self.load_worktree_approval(worktree_id)?;
+            if let Some(ref record) = approval {
+                if record.branch != entry.branch {
+                    return Err(GitEngineError::ApprovalState(
+                        "approval branch does not match managed worktree".into(),
+                    ));
+                }
+                base_branch = record.base_branch.clone();
+                base_commit = record.approved_commit.clone();
+            }
             let agent = infer_agent_kind(&entry.branch);
 
             recovered.push(MaterializedWorktree {
@@ -71,8 +82,13 @@ impl GitEngine {
                     base_commit,
                     prompt_summary: "recovered from disk".to_owned(),
                     materialize_micros: 0,
-                    status: WorktreeStatus::Pending,
+                    status: if approval.is_some() {
+                        WorktreeStatus::Merged
+                    } else {
+                        WorktreeStatus::Pending
+                    },
                     last_sandbox_duration_ms: 0,
+                    verified_commit: None,
                     tests_passed: 0,
                     tests_total: 0,
                     files_changed: 0,
@@ -82,6 +98,7 @@ impl GitEngine {
                     created_at: Utc::now(),
                 },
                 worktree_dir: entry.worktree_dir,
+                approval,
                 worktree_admin_dir,
                 common_git_dir: common_git_dir.clone(),
                 main_workdir: main_workdir.clone(),

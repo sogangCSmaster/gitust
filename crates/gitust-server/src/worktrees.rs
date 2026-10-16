@@ -11,7 +11,7 @@ use gitust_core::{
     AgentKind, AgentWorktree, AuthError, AuthenticatedPrincipal, EnterpriseRole, RepoId,
     WorktreeId, WorktreeStatus,
 };
-use gitust_git::{GitEngine, RepoHeadSnapshot};
+use gitust_git::{GitEngine, GitEngineError, RepoHeadSnapshot};
 use gitust_sandbox::{SandboxExecutionResult, SandboxSpec};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -38,6 +38,9 @@ pub struct SpawnWorktreeRequest {
 #[derive(Serialize, Deserialize)]
 pub struct SandboxExecRequest {
     pub command: String,
+    /// Explicit verification requires a clean, unchanged committed checkout.
+    #[serde(default)]
+    pub verify: bool,
 }
 
 pub(crate) async fn git_head_handler(
@@ -193,6 +196,7 @@ pub(crate) async fn exec_worktree_sandbox_core(
     id: Uuid,
     command: String,
     timeout_secs: Option<u64>,
+    verify: bool,
 ) -> Result<(SandboxExecutionResult, WorktreeStatus), (StatusCode, String)> {
     if !state.trusted_sandbox_exec {
         return Err((
@@ -251,12 +255,6 @@ pub(crate) async fn exec_worktree_sandbox_core(
         return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
     }
 
-    let engine = state.git_engine.clone();
-    tokio::task::spawn_blocking(move || engine.ensure_config_has_no_credentials())
-        .await
-        .map_err(internal_err)?
-        .map_err(map_git_err)?;
-
     state.try_begin_worktree_compiling(wt.id)?;
 
     let mut status_guard = RunStatusGuard {
@@ -264,6 +262,18 @@ pub(crate) async fn exec_worktree_sandbox_core(
         id: wt.id,
         armed: true,
     };
+    let engine = state.git_engine.clone();
+    let branch = wt.branch.clone();
+    let checked_commit = tokio::task::spawn_blocking(move || {
+        if verify {
+            engine.clean_worktree_commit(wt.id, &branch).map(Some)
+        } else {
+            engine.ensure_config_has_no_credentials().map(|_| None)
+        }
+    })
+    .await
+    .map_err(internal_err)?
+    .map_err(map_git_err)?;
     let executor = match timeout_secs {
         Some(secs) => state.sandbox_executor.clone().with_timeout_secs(secs),
         None => state.sandbox_executor.clone(),
@@ -271,23 +281,42 @@ pub(crate) async fn exec_worktree_sandbox_core(
     let outcome = executor
         .execute(wt.id, &runtime.sandbox_spec, &command)
         .await;
-    status_guard.armed = false;
-
     match outcome {
         Ok(res) => {
-            let final_status = if res.exit_code == 0 {
+            if let Some(ref checked) = checked_commit {
+                let engine = state.git_engine.clone();
+                let branch = wt.branch.clone();
+                let after = tokio::task::spawn_blocking(move || {
+                    engine.clean_worktree_commit(wt.id, &branch)
+                })
+                .await
+                .map_err(internal_err)?
+                .map_err(map_git_err)?;
+                if &after != checked {
+                    return Err((
+                        StatusCode::CONFLICT,
+                        "checkout changed during verification; run verification again".into(),
+                    ));
+                }
+            }
+            let final_status = if res.exit_code != 0 {
+                WorktreeStatus::Failed
+            } else if verify {
                 WorktreeStatus::Verified
             } else {
-                WorktreeStatus::Failed
+                WorktreeStatus::Pending
             };
             set_worktree_status(state, wt.id, |w| {
                 w.last_sandbox_duration_ms = res.duration_ms;
                 w.status = final_status;
+                w.verified_commit = checked_commit;
             });
+            status_guard.armed = false;
             Ok((res, final_status))
         }
         Err(e) => {
             set_worktree_status(state, wt.id, |w| w.status = WorktreeStatus::Failed);
+            status_guard.armed = false;
             Err(map_sandbox_err(e))
         }
     }
@@ -301,7 +330,8 @@ pub(crate) async fn exec_worktree_sandbox_handler(
     Json(req): Json<SandboxExecRequest>,
 ) -> Result<Json<SandboxExecutionResult>, (StatusCode, String)> {
     let caller = crate::auth::extract_principal_async(&headers, &state.auth_store).await?;
-    let (res, _status) = exec_worktree_sandbox_core(&state, &caller, id, req.command, None).await?;
+    let (res, _status) =
+        exec_worktree_sandbox_core(&state, &caller, id, req.command, None, req.verify).await?;
     Ok(Json(res))
 }
 
@@ -392,7 +422,7 @@ pub(crate) async fn approve_worktree_handler(
         return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
     }
     let wt = find_authorized_worktree(&state, &caller, id).await?;
-    if wt.status != WorktreeStatus::Verified {
+    if wt.status != WorktreeStatus::Verified || wt.verified_commit.is_none() {
         return Err((
             StatusCode::CONFLICT,
             format!(
@@ -418,12 +448,31 @@ pub(crate) async fn approve_worktree_handler(
     let wt_id = wt.id;
     let branch = wt.branch.clone();
     let base_branch = wt.base_branch.clone();
+    let verified_commit = wt.verified_commit.ok_or_else(|| {
+        (
+            StatusCode::CONFLICT,
+            "verification commit is missing; run verification again".into(),
+        )
+    })?;
     let merged_wt = tokio::task::spawn_blocking(move || {
         let _held_wt = run_guard;
         let _held_repo = repo_guard;
-        let merged_sha = engine
-            .merge_agent_branch(&branch, &base_branch)
-            .map_err(map_git_err)?;
+        let merged_sha = match engine.approve_verified_worktree(
+            wt_id,
+            &branch,
+            &base_branch,
+            &verified_commit,
+        ) {
+            Ok(sha) => sha,
+            Err(err) => {
+                if matches!(err, GitEngineError::VerificationInvalid(_)) {
+                    set_worktree_status(&state_for_merge, wt_id, |w| {
+                        w.status = WorktreeStatus::Pending
+                    });
+                }
+                return Err(map_git_err(err));
+            }
+        };
         state_for_merge.complete_worktree_merge(wt_id, merged_sha)
     })
     .await

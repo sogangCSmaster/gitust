@@ -249,6 +249,7 @@ async fn approve_worktree_conflicts_while_exec_lock_held_and_preserves_terminal_
         "https://github.com/sogangCSmaster/gitust.git".to_owned(),
         auth_store,
     )
+    .expect("recover server state")
     .with_trusted_sandbox_exec(true);
     let app = build_router(state.clone());
 
@@ -269,7 +270,7 @@ async fn approve_worktree_conflicts_while_exec_lock_held_and_preserves_terminal_
         "POST",
         format!("/api/v1/swarm/worktrees/{}/sandbox", wt.id.0),
         &token,
-        Some(serde_json::json!({"command": "true"})),
+        Some(serde_json::json!({"verify":true,"command": "true"})),
     )
     .await;
     assert_eq!(s, StatusCode::OK);
@@ -326,6 +327,16 @@ async fn approve_worktree_conflicts_while_exec_lock_held_and_preserves_terminal_
         .output()
         .expect("git commit");
     assert!(commit_out.status.success());
+
+    let (verified, body) = call(
+        &app,
+        "POST",
+        format!("/api/v1/swarm/worktrees/{}/sandbox", wt.id.0),
+        &token,
+        Some(serde_json::json!({"verify":true,"command": "true"})),
+    )
+    .await;
+    assert_eq!(verified, StatusCode::OK, "{body}");
 
     let (ok_status, _) = call(
         &app,

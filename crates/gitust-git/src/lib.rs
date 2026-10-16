@@ -11,13 +11,18 @@
 //!   and tags while strictly preserving private on-premise `refs/heads/agent/*` branches.
 
 mod ancestry;
+mod approvals;
 mod browse;
 mod config_guard;
 mod diff;
 mod mirror;
+mod outbound;
 mod smart_http;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_outbound;
+mod verification;
 mod worktree;
 mod worktree_recovery;
 
@@ -32,6 +37,7 @@ use gitust_core::CommitSha;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub use approvals::WorktreeApproval;
 pub use browse::{
     CommitEntry, RepoBlobSnapshot, RepoCommitList, RepoTreeNode, RepoTreeSnapshot,
     MAX_BLOB_VIEW_BYTES, MAX_TREE_ENTRIES,
@@ -57,6 +63,10 @@ pub(crate) const SANDBOX_SCRATCH_DIR_NAME: &str = "gitust-sandbox-scratch";
 
 #[derive(Debug, Error)]
 pub enum GitEngineError {
+    #[error("verification invalid: {0}")]
+    VerificationInvalid(String),
+    #[error("worktree approval state error: {0}")]
+    ApprovalState(String),
     #[error("failed to open git repository at '{path}': {message}")]
     OpenRepo { path: String, message: String },
 
@@ -444,26 +454,8 @@ where
     S: AsRef<OsStr>,
 {
     let args: Vec<_> = args.into_iter().map(|a| a.as_ref().to_owned()).collect();
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args([
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "core.fsmonitor=false",
-        ])
+    let output = git_command(dir)
         .args(&args)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_COMMON_DIR")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_OBJECT_DIRECTORY")
-        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-        .stdin(Stdio::null())
         .output()
         .map_err(|e| GitEngineError::GitCommand {
             args: display_args(&args),
@@ -477,6 +469,30 @@ where
         });
     }
     Ok(output.stdout)
+}
+
+pub(crate) fn git_command(dir: &Path) -> Command {
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "core.fsmonitor=false",
+        ])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+        .stdin(Stdio::null());
+    command
 }
 
 fn display_args(args: &[std::ffi::OsString]) -> String {

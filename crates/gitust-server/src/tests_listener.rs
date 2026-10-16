@@ -166,11 +166,14 @@ async fn held_auth_lock_under_concurrent_mcp_and_pat_requests_does_not_starve_he
         .expect("login");
     let token = session.raw_session_token;
 
-    let app = crate::build_router(crate::AppState::with_auth_store(
-        temp.path().to_path_buf(),
-        "https://github.com/org/repo.git".to_owned(),
-        store,
-    ));
+    let app = crate::build_router(
+        crate::AppState::with_auth_store(
+            temp.path().to_path_buf(),
+            "https://github.com/org/repo.git".to_owned(),
+            store,
+        )
+        .expect("recover server state"),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
     tokio::spawn(serve_hardened_with(listener, app, fast_limits()));

@@ -179,6 +179,7 @@ impl SandboxSpec {
             "config.worktree",
             "worktrees",
             "gitust-worktree-service.lock",
+            "gitust-approvals",
         ] {
             rules.push(PathRule::new(
                 common_git_dir.join(private),

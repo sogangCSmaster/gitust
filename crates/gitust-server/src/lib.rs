@@ -15,6 +15,7 @@ pub mod git_http;
 pub mod listener;
 pub mod mcp;
 pub mod oauth;
+mod outbound;
 pub(crate) mod quota;
 pub mod repo;
 pub mod state;
@@ -195,6 +196,10 @@ pub fn build_router(state: AppState) -> Router {
             post(worktrees::approve_worktree_handler),
         )
         .route("/api/v1/sync/github", post(repo::sync_github_handler))
+        .route(
+            "/api/v1/swarm/worktrees/{id}/publish",
+            post(outbound::publish_worktree_handler),
+        )
         .route("/api/v1/mcp/tools", get(mcp::mcp_tools_handler))
         .route(
             "/api/v1/enterprise/policy",
@@ -237,6 +242,7 @@ pub async fn serve(
                 .lock_worktree_service()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::WouldBlock, e))?;
             let state = AppState::with_engine_and_auth_store(engine, github_mirror_url, auth_store)
+                .map_err(std::io::Error::other)?
                 .with_trusted_sandbox_exec(trusted_sandbox_exec);
             Ok((state, lock))
         },

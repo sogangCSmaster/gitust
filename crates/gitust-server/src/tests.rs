@@ -13,6 +13,10 @@ mod tests_git_http;
 mod tests_mcp;
 #[path = "tests_oauth.rs"]
 mod tests_oauth;
+#[path = "tests_outbound.rs"]
+mod tests_outbound;
+#[path = "tests_verification.rs"]
+mod tests_verification;
 
 fn test_app_at(repo: PathBuf, trusted_sandbox_exec: bool) -> (Router, String) {
     let auth_store = AuthStore::new_in_memory();
@@ -32,6 +36,7 @@ fn test_app_at(repo: PathBuf, trusted_sandbox_exec: bool) -> (Router, String) {
         "https://github.com/sogangCSmaster/gitust.git".to_owned(),
         auth_store,
     )
+    .expect("recover server state")
     .with_trusted_sandbox_exec(trusted_sandbox_exec);
     (build_router(state), login.raw_session_token)
 }
@@ -82,7 +87,8 @@ fn test_app_with_devs(repo: PathBuf) -> (Router, String, String, String) {
         repo,
         "https://github.com/sogangCSmaster/gitust.git".to_owned(),
         store,
-    );
+    )
+    .expect("recover server state");
     let dev_b = dev_tokens.pop().expect("dev b");
     let dev_a = dev_tokens.pop().expect("dev a");
     (build_router(state), admin.raw_session_token, dev_a, dev_b)
@@ -118,7 +124,7 @@ async fn http_gate_worktree_ownership_quota_and_work_preservation() {
         "POST",
         format!("{wt_a_uri}/sandbox"),
         &dev_a,
-        Some(serde_json::json!({"command": "true"})),
+        Some(serde_json::json!({"verify":true,"command": "true"})),
     )
     .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
@@ -285,7 +291,7 @@ async fn http_worktree_lifecycle_spawn_exec_approve_discard() {
         "POST",
         format!("/api/v1/swarm/worktrees/{}/sandbox", wt.id.0),
         &token,
-        Some(serde_json::json!({"command": "true"})),
+        Some(serde_json::json!({"verify":true,"command": "true"})),
     )
     .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
@@ -398,7 +404,7 @@ async fn http_worktree_lifecycle_spawn_exec_approve_discard() {
         format!("/api/v1/swarm/worktrees/{}/sandbox", wt.id.0),
         &token,
         Some(serde_json::json!({
-            "command": "grep -q merged-by-agent README.md"
+            "command": "grep -q merged-by-agent README.md", "verify": true
         })),
     )
     .await;

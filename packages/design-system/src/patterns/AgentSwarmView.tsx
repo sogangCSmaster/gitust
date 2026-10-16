@@ -13,12 +13,22 @@ import { Icon } from "../primitives/Icon";
 import { Input } from "../primitives/Input";
 import { Kbd } from "../primitives/Kbd";
 import { AgentSwarmHeaderBanners } from "./AgentSwarmHeaderBanners";
+import { AgentVerificationDialog } from "./AgentVerificationDialog";
 
 export type AgentProvider =
   | "Claude Code"
   | "Cursor Agent"
   | "Codex Swarm"
   | "Internal Bot";
+
+export interface AgentVerificationResult {
+  command: string;
+  exitCode: number;
+  durationMs: number;
+  stdout: string;
+  stderr: string;
+  outputTruncated: boolean;
+}
 
 export interface AgentSandboxTask {
   id: number;
@@ -28,7 +38,7 @@ export interface AgentSandboxTask {
   baseBranch: string;
   forkLatencyMs: number;
   promptSummary: string;
-  sandboxStatus: "verified" | "compiling" | "failed" | "merged" | "discarded";
+  sandboxStatus: "pending" | "verified" | "compiling" | "failed" | "merged" | "discarded";
   compileTimeMs: number;
   testsPassed: number;
   testsTotal: number;
@@ -36,6 +46,12 @@ export interface AgentSandboxTask {
   additions: number;
   deletions: number;
   githubSynced?: boolean;
+  operation?: "approving" | "discarding" | "publishing" | "verifying";
+  verifiedCommit?: string;
+  verificationResult?: AgentVerificationResult;
+  verificationError?: string;
+  verificationNeedsRefresh?: boolean;
+  publicationError?: string;
   updatedAt: string;
 }
 
@@ -45,6 +61,11 @@ export interface AgentSwarmViewProps {
   onFocusIndexChange: (idx: number) => void;
   onApproveMerge: (id: number) => void;
   onDiscardBranch: (id: number) => void;
+  onPublishGithub: (id: number) => void;
+  onVerifyWorktree: (id: number, command: string) => void;
+  onRefreshWorktrees: () => void;
+  canRunVerification: boolean;
+  liveMode: boolean;
   onSpawnBatchSwarm: () => void;
   onTriggerGithubSync: () => void;
   filterQuery?: string;
@@ -75,6 +96,8 @@ export function filterAgentSwarmTasks(
  */
 export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
   const [localFilter, setLocalFilter] = createSignal("");
+  const [verificationId, setVerificationId] = createSignal<string | null>(null);
+  const verificationTask = () => props.tasks.find((task) => task.liveId === verificationId());
   const filter = () => props.filterQuery ?? localFilter();
   const setFilter = (q: string) => {
     setLocalFilter(q);
@@ -121,6 +144,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
       case "merged":
         return "merged";
       case "discarded":
+      case "pending":
         return "neutral";
     }
   };
@@ -168,10 +192,13 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
             "flex-shrink": 0,
           }}
         >
+          <Show when={props.liveMode}>
+            <Button size="sm" onClick={props.onRefreshWorktrees}>Refresh worktrees</Button>
+          </Show>
           <span>Triage:</span>
           <Kbd keys="j" />
           <Kbd keys="k" />
-          <span>Merge &amp; Sync:</span>
+          <span>Approve &amp; Merge:</span>
           <Kbd keys="a" />
           <span>Discard:</span>
           <Kbd keys="x" />
@@ -182,7 +209,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
             shortcut="s"
             onClick={props.onSpawnBatchSwarm}
           >
-            Spawn +10 Agent Sandboxes (&lt;1ms)
+            {props.liveMode ? "Spawn worktree" : "Spawn demo worktrees"}
           </Button>
         </div>
       </div>
@@ -225,7 +252,7 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                     }
                     size={12}
                   />
-                  <span>{task.sandboxStatus}</span>
+                  <span>{task.verificationNeedsRefresh ? "state unconfirmed" : task.sandboxStatus}</span>
                 </Badge>
 
                 <Badge variant="neutral" mono>
@@ -237,7 +264,11 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                   <Badge variant={task.githubSynced ? "info" : "neutral"} mono>
                     <Icon name="rotate-ccw" size={11} />
                     <span>
-                      {task.githubSynced ? "GitHub Synced" : "Local Merged"}
+                      {task.operation === "approving"
+                        ? "Approving..."
+                        : task.operation === "publishing"
+                          ? "Publishing..."
+                          : task.githubSynced ? "GitHub Synced" : "Local Merged"}
                     </span>
                   </Badge>
                 </Show>
@@ -259,11 +290,11 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
 
                 <Badge
                   variant={
-                    task.testsPassed === task.testsTotal ? "success" : "danger"
+                    task.testsTotal === 0 ? "neutral" : task.testsPassed === task.testsTotal ? "success" : "danger"
                   }
                   mono
                 >
-                  {task.testsPassed}/{task.testsTotal} tests
+                  {task.testsTotal > 0 ? `${task.testsPassed}/${task.testsTotal} tests` : "No test counts"}
                 </Badge>
 
                 <span
@@ -282,6 +313,35 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                   </span>
                 </span>
 
+                <Show when={task.liveId && ((task.sandboxStatus !== "merged" && task.sandboxStatus !== "discarded") || task.verificationResult)}>
+                  <Button size="xs" variant="secondary" onClick={(event) => {
+                    event.stopPropagation();
+                    setVerificationId(task.liveId ?? null);
+                  }}>
+                    {task.verificationResult ? "Verification result" : "Verify command"}
+                  </Button>
+                </Show>
+
+                <Show when={task.sandboxStatus === "merged" && !task.githubSynced && task.liveId}>
+                  <Show when={task.publicationError}>
+                    <Badge variant="danger">Publication failed</Badge>
+                  </Show>
+                  <Button
+                    size="xs"
+                    variant="primary"
+                    disabled={Boolean(task.operation)}
+                    title={task.publicationError || "Publish this approved merge to GitHub"}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onPublishGithub(task.id);
+                    }}
+                  >
+                    {task.operation === "publishing"
+                      ? "Publishing..."
+                      : task.publicationError ? "Retry publication" : "Publish to GitHub"}
+                  </Button>
+                </Show>
+
                 <Show
                   when={
                     task.sandboxStatus !== "merged" &&
@@ -291,16 +351,18 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                   <Button
                     size="xs"
                     variant="primary"
+                    disabled={Boolean(task.operation) || task.sandboxStatus !== "verified" || Boolean(task.liveId && (!task.verifiedCommit || task.verificationNeedsRefresh))}
                     onClick={(e) => {
                       e.stopPropagation();
                       props.onApproveMerge(task.id);
                     }}
                   >
-                    Merge &amp; Sync (a)
+                    Approve &amp; Merge (a)
                   </Button>
                   <Button
                     size="xs"
                     variant="ghost"
+                    disabled={Boolean(task.operation) || task.sandboxStatus === "compiling"}
                     onClick={(e) => {
                       e.stopPropagation();
                       props.onDiscardBranch(task.id);
@@ -314,6 +376,15 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
           )}
         </For>
       </div>
+      <Show when={verificationTask()}>
+        {(task) => <AgentVerificationDialog
+          task={task()}
+          canRun={props.canRunVerification}
+          onRun={props.onVerifyWorktree}
+          onRefresh={props.onRefreshWorktrees}
+          onClose={() => setVerificationId(null)}
+        />}
+      </Show>
     </div>
   );
 };

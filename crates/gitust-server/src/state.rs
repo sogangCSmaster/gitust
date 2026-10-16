@@ -138,6 +138,8 @@ pub struct AppState {
     pub repo_mutation_lock: Arc<tokio::sync::Mutex<()>>,
     /// Serializes inbound `git fetch` staging runs so `repo_mutation_lock` is never held across network I/O.
     pub sync_fetch_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Serializes exact-commit publication without blocking local merges during network I/O.
+    pub outbound_sync_lock: Arc<tokio::sync::Mutex<()>>,
     /// Bounded OAuth 2.0 Dynamic Client Registration + PKCE S256 authorization code store.
     pub oauth_mcp: Arc<Mutex<OAuthMcpStore>>,
     /// Host OS sandbox execution over HTTP is only safe for a trusted single-user deployment.
@@ -146,32 +148,39 @@ pub struct AppState {
 }
 
 impl AppState {
-    #[must_use]
-    pub fn new(repo_path: PathBuf, github_mirror_url: String) -> Self {
+    pub fn new(repo_path: PathBuf, github_mirror_url: String) -> Result<Self, GitEngineError> {
         Self::with_auth_store(repo_path, github_mirror_url, AuthStore::new_in_memory())
     }
 
-    #[must_use]
     pub fn with_auth_store(
         repo_path: PathBuf,
         github_mirror_url: String,
         auth_store: AuthStore,
-    ) -> Self {
+    ) -> Result<Self, GitEngineError> {
         Self::with_engine_and_auth_store(GitEngine::new(&repo_path), github_mirror_url, auth_store)
     }
 
-    #[must_use]
     pub fn with_engine_and_auth_store(
         git_engine: GitEngine,
         github_mirror_url: String,
         auth_store: AuthStore,
-    ) -> Self {
+    ) -> Result<Self, GitEngineError> {
         let repo_id = RepoId::new();
         let mut worktrees = VecDeque::new();
         let mut worktree_runtime = HashMap::new();
         match git_engine.recover_agent_worktrees(repo_id) {
             Ok(recovered) => {
-                for m in recovered.into_iter().take(MAX_TRACKED_WORKTREES) {
+                if recovered.len() > MAX_TRACKED_WORKTREES {
+                    return Err(GitEngineError::ApprovalState(
+                        "managed worktree limit exceeded; refusing partial recovery".into(),
+                    ));
+                }
+                for mut m in recovered {
+                    if let Some(ref approval) = m.approval {
+                        let destination =
+                            GitEngine::validate_mirror_remote_url(&github_mirror_url)?;
+                        m.worktree.github_synced = approval.published_to(&destination);
+                    }
                     let runtime = WorktreeRuntime {
                         created_by: None,
                         sandbox_spec: SandboxSpec::for_linked_worktree(
@@ -189,13 +198,10 @@ impl AppState {
                     worktrees.push_back(m.worktree);
                 }
             }
-            Err(GitEngineError::OpenRepo { .. }) => {}
-            Err(err) => {
-                tracing::warn!(
-                    error = %err,
-                    "failed to recover existing agent worktrees on startup"
-                );
-            }
+            // Auth-only unit fixtures deliberately use no repository. Production constructors
+            // propagate every recovery error before exposing HTTP/MCP or Git mutation routes.
+            Err(GitEngineError::OpenRepo { .. }) if cfg!(test) => {}
+            Err(err) => return Err(err),
         }
         let mut oauth_store = OAuthMcpStore::default();
         // Pre-register a default local CLI/IDE public client so users/agents can also use
@@ -211,7 +217,7 @@ impl AppState {
             ],
             created_at: Utc::now() - Duration::seconds(1),
         });
-        Self {
+        Ok(Self {
             repo_id,
             auth_store,
             git_engine,
@@ -222,9 +228,10 @@ impl AppState {
             spawn_quota: Arc::new(Mutex::new(SpawnQuotaTracker::default())),
             repo_mutation_lock: Arc::new(tokio::sync::Mutex::new(())),
             sync_fetch_lock: Arc::new(tokio::sync::Mutex::new(())),
+            outbound_sync_lock: Arc::new(tokio::sync::Mutex::new(())),
             oauth_mcp: Arc::new(Mutex::new(oauth_store)),
             trusted_sandbox_exec: false,
-        }
+        })
     }
 
     #[must_use]
@@ -274,6 +281,7 @@ impl AppState {
             return Err((StatusCode::CONFLICT, format!("worktree is {:?}", w.status)));
         }
         w.status = WorktreeStatus::Compiling;
+        w.verified_commit = None;
         Ok(())
     }
 
@@ -331,6 +339,7 @@ pub(crate) fn map_git_err(err: GitEngineError) -> (StatusCode, String) {
         | GitEngineError::PathNotFound(_) => StatusCode::NOT_FOUND,
         GitEngineError::BranchAlreadyExists(_)
         | GitEngineError::MergeConflict(_)
+        | GitEngineError::VerificationInvalid(_)
         | GitEngineError::WorktreeServiceBusy(_) => StatusCode::CONFLICT,
         GitEngineError::CredentialsInRepoConfig => StatusCode::PRECONDITION_FAILED,
         _ => {
@@ -469,6 +478,9 @@ pub(crate) fn set_worktree_status(
             WorktreeStatus::Merged | WorktreeStatus::Discarded
         ) {
             f(wt);
+            if wt.status != WorktreeStatus::Verified {
+                wt.verified_commit = None;
+            }
         }
     }
 }

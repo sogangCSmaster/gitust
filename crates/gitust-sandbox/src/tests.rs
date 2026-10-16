@@ -366,3 +366,27 @@ async fn read_capped_drains_beyond_1mib_without_sigpipe() {
         usize::try_from(MAX_SANDBOX_STREAM_BYTES).expect("usize")
     );
 }
+
+/// Gate A P1 (2026-10-16): a Hidden rule whose only existing ancestor is `/` (non-existent
+/// `$HOME`, hosts without `/mnt` or `/media`) must be KEPT lexically, not dropped and not
+/// turned into an error that aborts every sandbox spawn.
+#[test]
+fn hidden_rule_without_existing_ancestor_is_kept_lexically() {
+    let missing = format!(
+        "/gitust-missing-{}-{:?}/x",
+        std::process::id(),
+        Instant::now()
+    );
+    let rules = resolve_rules(vec![PathRule::new(&missing, PathAccess::Hidden)])
+        .expect("missing hidden path under / must resolve");
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0].path, Path::new(&missing));
+    assert_eq!(rules[0].access, PathAccess::Hidden);
+
+    // Non-normalized Hidden paths still fail closed instead of being dropped.
+    let dotted = format!("/gitust-missing-{}/../etc", std::process::id());
+    assert!(matches!(
+        resolve_rules(vec![PathRule::new(&dotted, PathAccess::Hidden)]),
+        Err(SandboxError::UnsupportedPath(_))
+    ));
+}

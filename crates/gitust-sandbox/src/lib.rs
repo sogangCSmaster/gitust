@@ -178,6 +178,7 @@ impl SandboxSpec {
             "FETCH_HEAD",
             "config.worktree",
             "worktrees",
+            "gitust-worktree-service.lock",
         ] {
             rules.push(PathRule::new(
                 common_git_dir.join(private),

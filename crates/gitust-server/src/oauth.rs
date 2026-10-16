@@ -325,7 +325,7 @@ pub(crate) async fn oauth_authorize_handler(
     headers: HeaderMap,
     Json(req): Json<OAuthAuthorizeRequest>,
 ) -> Response {
-    let caller = match crate::auth::extract_principal(&headers, &state.auth_store) {
+    let caller = match crate::auth::extract_principal_async(&headers, &state.auth_store).await {
         Ok(c) => c,
         Err(err) => return err.into_response(),
     };

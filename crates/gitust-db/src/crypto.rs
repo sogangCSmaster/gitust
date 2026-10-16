@@ -24,6 +24,7 @@ pub(crate) fn dummy_password_hash() -> &'static str {
     static DUMMY_HASH: OnceLock<String> = OnceLock::new();
     DUMMY_HASH.get_or_init(|| {
         let salt = SaltString::generate(&mut OsRng);
+        // fail-open-ok: only the timing shield degrades; an empty dummy hash never verifies.
         argon2_hasher()
             .ok()
             .and_then(|a| a.hash_password(b"dummy-timing-shield-password", &salt).ok())
@@ -56,9 +57,11 @@ pub(crate) fn hash_password_argon2(password: &str) -> Result<String, AuthError> 
 }
 
 pub(crate) fn verify_password_argon2(password: &str, phc_hash: &str) -> bool {
+    // fail-open-ok: errors map to `false` (reject), i.e. fail closed.
     let Ok(parsed) = PasswordHash::new(phc_hash) else {
         return false;
     };
+    // fail-open-ok: errors map to `false` (reject), i.e. fail closed.
     let Ok(argon2) = argon2_hasher() else {
         return false;
     };

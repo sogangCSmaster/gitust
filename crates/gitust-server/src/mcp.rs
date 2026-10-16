@@ -2,24 +2,21 @@
 //! Streamable HTTP + OAuth 2.0 Bearer auth (`POST /mcp`, `POST /api/v1/mcp`) and local
 //! `stdio` (`gitust mcp`).
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use axum::extract::{Request, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use gitust_core::{
-    AgentKind, AgentWorktree, AuthenticatedPrincipal, EnterpriseRole, RepoId, UserId,
-};
+use gitust_core::{AgentKind, AuthenticatedPrincipal, EnterpriseRole, UserId};
 use gitust_db::AuthStore;
 use gitust_git::GitEngine;
 use gitust_sandbox::{builtin_mcp_tools, McpToolDescriptor};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::auth::extract_principal;
-use crate::state::{check_repo_bola, AppState, MAX_MCP_LINE_BYTES};
+use crate::auth::extract_principal_async;
+use crate::state::{filter_authorized_worktrees, AppState, MAX_MCP_LINE_BYTES};
 use crate::worktrees::{discard_worktree_core, exec_worktree_sandbox_core, spawn_worktree_core};
 
 #[derive(Debug, Deserialize)]
@@ -131,7 +128,7 @@ fn json_response(status: StatusCode, body: String) -> Response {
 /// slow-loris body stream cannot bypass mid-flight account deactivation or token revocation.
 pub(crate) async fn mcp_http_post_handler(State(state): State<AppState>, req: Request) -> Response {
     let (parts, request_body) = req.into_parts();
-    match extract_principal(&parts.headers, &state.auth_store) {
+    match extract_principal_async(&parts.headers, &state.auth_store).await {
         Ok(_) => {}
         Err((StatusCode::UNAUTHORIZED, msg)) => {
             return (
@@ -158,7 +155,7 @@ pub(crate) async fn mcp_http_post_handler(State(state): State<AppState>, req: Re
         );
     };
 
-    let caller = match extract_principal(&parts.headers, &state.auth_store) {
+    let caller = match extract_principal_async(&parts.headers, &state.auth_store).await {
         Ok(c) => c,
         Err((status, msg)) => return (status, msg).into_response(),
     };
@@ -387,24 +384,10 @@ pub async fn handle_mcp_json_line_with_options(
                         Ok(a) => a,
                         Err(resp) => return Some(resp),
                     };
-                    let mut access_cache: HashMap<RepoId, bool> = HashMap::new();
-                    let authorized: Vec<AgentWorktree> = state
-                        .worktrees
-                        .read()
-                        .iter()
-                        .filter(|wt| {
-                            *access_cache.entry(wt.repo_id).or_insert_with(|| {
-                                check_repo_bola(
-                                    &state.auth_store,
-                                    state.repo_id,
-                                    caller,
-                                    wt.repo_id,
-                                )
-                                .is_ok()
-                            })
-                        })
-                        .cloned()
-                        .collect();
+                    let authorized = match filter_authorized_worktrees(state, caller).await {
+                        Ok(list) => list,
+                        Err((status, msg)) => return Some(mcp_tool_http_err(id, status, msg)),
+                    };
                     let runtimes = state.worktree_runtime.read();
                     let items: Vec<serde_json::Value> = authorized
                         .into_iter()

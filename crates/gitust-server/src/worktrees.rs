@@ -1,7 +1,6 @@
 //! Agent worktree materialization, sandbox execution, fast-forward approval/merge,
 //! and GitHub sync handlers.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -18,9 +17,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::state::{
-    check_repo_bola, find_authorized_worktree, internal_err, map_auth_err, map_git_err,
-    map_sandbox_err, set_worktree_status, AppState, RunStatusGuard, SpawnLifecycle,
-    SpawnReservation, WorktreeRuntime, MAX_PROMPT_SUMMARY_BYTES, MAX_SANDBOX_COMMAND_BYTES,
+    check_repo_bola, filter_authorized_worktrees, find_authorized_worktree, internal_err,
+    map_auth_err, map_git_err, map_sandbox_err, set_worktree_status, AppState, RunStatusGuard,
+    SpawnLifecycle, SpawnReservation, WorktreeRuntime, MAX_PROMPT_SUMMARY_BYTES,
+    MAX_SANDBOX_COMMAND_BYTES,
 };
 
 #[derive(Serialize, Deserialize)]
@@ -44,31 +44,25 @@ pub(crate) async fn git_head_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
 ) -> Result<Json<RepoHeadSnapshot>, (StatusCode, String)> {
-    check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
+    let store = state.auth_store.clone();
+    let repo_id = state.repo_id;
     let engine = state.git_engine.clone();
-    tokio::task::spawn_blocking(move || engine.inspect_head_zero_copy())
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    let head = tokio::task::spawn_blocking(move || {
+        check_repo_bola(&store, repo_id, &caller, repo_id)?;
+        engine
+            .inspect_head_zero_copy()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
+    Ok(Json(head))
 }
 
 pub(crate) async fn list_worktrees_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
-) -> Json<Vec<AgentWorktree>> {
-    let mut access_cache: HashMap<RepoId, bool> = HashMap::new();
-    let guard = state.worktrees.read();
-    let list = guard
-        .iter()
-        .filter(|wt| {
-            *access_cache.entry(wt.repo_id).or_insert_with(|| {
-                check_repo_bola(&state.auth_store, state.repo_id, &caller, wt.repo_id).is_ok()
-            })
-        })
-        .cloned()
-        .collect();
-    Json(list)
+) -> Result<Json<Vec<AgentWorktree>>, (StatusCode, String)> {
+    Ok(Json(filter_authorized_worktrees(&state, &caller).await?))
 }
 
 pub(crate) async fn spawn_worktree_core(
@@ -88,7 +82,14 @@ pub(crate) async fn spawn_worktree_core(
     }
     let clean_branch = GitEngine::validate_agent_branch_name(branch).map_err(map_git_err)?;
     let clean_base = GitEngine::validate_branch_name(&base_branch).map_err(map_git_err)?;
-    check_repo_bola(&state.auth_store, state.repo_id, caller, target_repo_id)?;
+    let store = state.auth_store.clone();
+    let default_repo = state.repo_id;
+    let caller_owned = caller.clone();
+    tokio::task::spawn_blocking(move || {
+        check_repo_bola(&store, default_repo, &caller_owned, target_repo_id)
+    })
+    .await
+    .map_err(internal_err)??;
     if target_repo_id != state.repo_id {
         return Err((
             StatusCode::NOT_FOUND,
@@ -168,7 +169,7 @@ pub(crate) async fn spawn_worktree_handler(
     headers: axum::http::HeaderMap,
     Json(req): Json<SpawnWorktreeRequest>,
 ) -> Result<Json<AgentWorktree>, (StatusCode, String)> {
-    let caller = crate::auth::extract_principal(&headers, &state.auth_store)?;
+    let caller = crate::auth::extract_principal_async(&headers, &state.auth_store).await?;
     let target_repo_id = req.repo_id.unwrap_or(state.repo_id);
     let agent = req.agent.unwrap_or(AgentKind::ClaudeCode);
     let base_branch = req.base_branch.unwrap_or_else(|| "main".to_owned());
@@ -225,7 +226,7 @@ pub(crate) async fn exec_worktree_sandbox_core(
         }
     }
 
-    let wt = find_authorized_worktree(state, caller, id)?;
+    let wt = find_authorized_worktree(state, caller, id).await?;
     if matches!(
         wt.status,
         WorktreeStatus::Merged | WorktreeStatus::Discarded
@@ -298,7 +299,7 @@ pub(crate) async fn exec_worktree_sandbox_handler(
     Path(id): Path<Uuid>,
     Json(req): Json<SandboxExecRequest>,
 ) -> Result<Json<SandboxExecutionResult>, (StatusCode, String)> {
-    let caller = crate::auth::extract_principal(&headers, &state.auth_store)?;
+    let caller = crate::auth::extract_principal_async(&headers, &state.auth_store).await?;
     let (res, _status) = exec_worktree_sandbox_core(&state, &caller, id, req.command, None).await?;
     Ok(Json(res))
 }
@@ -308,7 +309,7 @@ pub(crate) async fn discard_worktree_core(
     caller: &AuthenticatedPrincipal,
     id: Uuid,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let wt = find_authorized_worktree(state, caller, id)?;
+    let wt = find_authorized_worktree(state, caller, id).await?;
     let runtime = state.get_worktree_runtime(wt.id);
     let is_privileged = matches!(
         caller.role,
@@ -372,7 +373,7 @@ pub(crate) async fn approve_worktree_handler(
         return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
     }
 
-    let wt_initial = find_authorized_worktree(&state, &caller, id)?;
+    let wt_initial = find_authorized_worktree(&state, &caller, id).await?;
     let runtime = state.get_worktree_runtime(wt_initial.id).ok_or_else(|| {
         (
             StatusCode::CONFLICT,
@@ -389,7 +390,7 @@ pub(crate) async fn approve_worktree_handler(
     if state.get_worktree_runtime(wt_initial.id).is_none() {
         return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
     }
-    let wt = find_authorized_worktree(&state, &caller, id)?;
+    let wt = find_authorized_worktree(&state, &caller, id).await?;
     if wt.status != WorktreeStatus::Verified {
         return Err((
             StatusCode::CONFLICT,

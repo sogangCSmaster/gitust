@@ -197,6 +197,8 @@ impl GitEngine {
         unchanged_from: &CommitSha,
     ) -> Result<bool, GitEngineError> {
         let clean_branch = Self::validate_agent_branch_name(branch)?;
+        // fail-open-ok: a missing/unreadable path is not a symlink; the canonical parent check
+        // below still rejects anything outside the managed worktrees base.
         if fs::symlink_metadata(worktree_dir)
             .map(|m| m.file_type().is_symlink())
             .unwrap_or(false)

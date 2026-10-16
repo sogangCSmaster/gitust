@@ -1,0 +1,102 @@
+# Legacy fail-open hits triaged on 2026-10-16 (scripts/audit-fail-open.sh).
+# Format: <file> TAB <previous code line> TAB <hit line> (trimmed). This list may only SHRINK:
+# verify.sh fails if it grows vs HEAD, audit-fail-open.sh fails on stale entries.
+# New code must justify inline with `// fail-open-ok: <reason>` or propagate the error.
+# When touching a listed line, replace the entry with an inline justification or a fix.
+#
+# Known open items (P2, from Gate A 2026-10-16 triage):
+#   - gitust-server/src/state.rs `if let Ok(recovered) = git_engine.recover_agent_worktrees(..)` and
+#     gitust-git/src/worktree.rs `let Ok(worktree_admin_dir) = .. else { continue }`: recovery errors
+#     at startup leave on-disk agent worktrees untracked (quota / cleanup gap).
+#   - gitust-git/src/mirror.rs `let Ok(mut r) = reference_res else` (local ref map): an unreadable
+#     local ref is omitted, which may misclassify that branch.
+#   - gitust-sandbox/src/lib.rs output drain timeout -> empty stdout/stderr without a truncation flag.
+crates/gitust-cli/src/sandbox_cmd.rs	drop(slot);	if let Ok(ref m) = res {
+crates/gitust-cli/src/sandbox_cmd.rs	if !keep {	let _ = engine_for_spawn.remove_agent_worktree(
+crates/gitust-cli/src/sandbox_cmd.rs	}	} else if let Ok(ref m) = res {
+crates/gitust-git/src/ancestry.rs	const BOTH: u8 = FROM_LOCAL | FROM_UPSTREAM;	let commit_graph = repo.commit_graph_if_enabled().ok().flatten();
+crates/gitust-git/src/browse.rs	.into_iter()	.find_map(|cand| repo.try_find_reference(&cand).ok().flatten())
+crates/gitust-git/src/browse.rs	.lookup_prefix(prefix, None)	.ok()
+crates/gitust-git/src/browse.rs	repo.find_object(oid)	.ok()
+crates/gitust-git/src/browse.rs	.ok()	.and_then(|o| o.peel_to_commit().ok())
+crates/gitust-git/src/browse.rs	.object()	.ok()
+crates/gitust-git/src/browse.rs	.ok()	.and_then(|o| o.peel_to_commit().ok())
+crates/gitust-git/src/browse.rs	.object()	.ok()
+crates/gitust-git/src/browse.rs	.ok()	.and_then(|o| o.peel_to_commit().ok())
+crates/gitust-git/src/browse.rs	.map(|m| String::from_utf8_lossy(m.as_ref()).trim().to_owned())	.unwrap_or_default();
+crates/gitust-git/src/config_guard.rs	let mut buf = Vec::new();	let _ = stderr.take(8192).read_to_end(&mut buf);
+crates/gitust-git/src/config_guard.rs	let pgid = format!("-{}", child.id());	let _ = Command::new("kill")
+crates/gitust-git/src/config_guard.rs	}	let _ = child.kill();
+crates/gitust-git/src/config_guard.rs	let _ = child.kill();	let _ = child.wait();
+crates/gitust-git/src/config_guard.rs	if let Some(h) = stderr_handle {	let _ = h.join();
+crates/gitust-git/src/config_guard.rs	Err(e) => {	let _ = child.kill();
+crates/gitust-git/src/config_guard.rs	let _ = child.kill();	let _ = child.wait();
+crates/gitust-git/src/config_guard.rs	if let Some(h) = stderr_handle {	let _ = h.join();
+crates/gitust-git/src/config_guard.rs	let stderr_bytes = stderr_handle	.and_then(|h| h.join().ok())
+crates/gitust-git/src/config_guard.rs	.and_then(|h| h.join().ok())	.unwrap_or_default();
+crates/gitust-git/src/config_guard.rs	pub(crate) fn config_contains_credentials(text: &str) -> bool {	let Ok(cfg) = gix::config::File::try_from(text) else {
+crates/gitust-git/src/diff.rs	let mut limited = stdout.take((MAX_DIFF_BYTES + 1) as u64);	let _ = limited.read_to_end(&mut raw_diff);
+crates/gitust-git/src/diff.rs	let mut rest = limited.into_inner();	let _ = std::io::copy(&mut rest, &mut std::io::sink());
+crates/gitust-git/src/diff.rs	let mut parts = rest.split(',');	old_start = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+crates/gitust-git/src/diff.rs	old_start = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);	old_count = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+crates/gitust-git/src/diff.rs	let mut parts = rest.split(',');	new_start = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+crates/gitust-git/src/diff.rs	new_start = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);	new_count = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+crates/gitust-git/src/lib.rs	fn drop(&mut self) {	let _ = self.0.unlock();
+crates/gitust-git/src/lib.rs	let lock = OnceLock::new();	if let Ok(repo) = gix::ThreadSafeRepository::open(&path) {
+crates/gitust-git/src/lib.rs	if let Ok(repo) = gix::ThreadSafeRepository::open(&path) {	let _ = lock.set(repo);
+crates/gitust-git/src/lib.rs	let local = opened.to_thread_local();	let _ = self.shared_repo.set(opened);
+crates/gitust-git/src/lib.rs	pub(crate) fn canonicalize_existing_ancestors(path: &Path) -> PathBuf {	if let Ok(canonical) = fs::canonicalize(path) {
+crates/gitust-git/src/lib.rs	}	if let Ok(mut canonical_base) = fs::canonicalize(ancestor) {
+crates/gitust-git/src/lib.rs	if let Ok(mut canonical_base) = fs::canonicalize(ancestor) {	if let Ok(suffix) = path.strip_prefix(ancestor) {
+crates/gitust-git/src/mirror.rs	reject_credentials_in_config(&common_git_dir)?;	let has_existing_upstream = repo.references().ok().is_some_and(|p| {
+crates/gitust-git/src/mirror.rs	for reference_res in all_refs {	let Ok(mut r) = reference_res else {
+crates/gitust-git/src/mirror.rs	let full_name = r.name().as_bstr().to_string();	let Ok(oid) = r.follow_to_object().map(|id| id.detach()) else {
+crates/gitust-git/src/mirror.rs	for staging_ref in &filtered_upstream_agent_refs {	if let Ok(name) = FullName::try_from(staging_ref.as_str()) {
+crates/gitust-git/src/mirror.rs	if let Ok(name) = FullName::try_from(staging_ref.as_str()) {	let _ = repo.edit_reference(RefEdit {
+crates/gitust-git/src/mirror.rs	.head()	.ok()
+crates/gitust-git/src/mirror.rs	.ok()	.and_then(|mut h| h.peel_to_commit_in_place().ok())
+crates/gitust-git/src/mirror.rs	let target_ref = format!("refs/heads/{target_branch}");	let _ = run_git(
+crates/gitust-git/src/mirror.rs	for reference_res in all_refs {	let Ok(mut r) = reference_res else {
+crates/gitust-git/src/mirror.rs	}	if let Ok(id) = r.follow_to_object() {
+crates/gitust-git/src/mirror.rs	) -> bool {	let Ok(status_out) = run_git(repo_path, ["status", "--porcelain", "--untracked-files=no"])
+crates/gitust-git/src/mirror.rs	) {	if let Ok(name) = FullName::try_from(full_ref) {
+crates/gitust-git/src/worktree.rs	Err(e) => {	let _ = run_git(
+crates/gitust-git/src/worktree.rs	);	let _ = fs::remove_dir_all(&worktree_dir);
+crates/gitust-git/src/worktree.rs	let _ = fs::remove_dir_all(&worktree_dir);	let _ = run_git(
+crates/gitust-git/src/worktree.rs	);	let _ = delete_branch_ref(
+crates/gitust-git/src/worktree.rs	)?;	let _ = fs::remove_dir(&base);
+crates/gitust-git/src/worktree.rs	reject_credentials_in_config(&common_git_dir)?;	let _ = run_git(&self.repo_path, ["worktree", "prune"]);
+crates/gitust-git/src/worktree.rs	for entry in entries {	let Ok(worktree_admin_dir) = read_worktree_admin_dir(&entry.worktree_dir) else {
+crates/gitust-git/src/worktree.rs	.head_name()	.ok()
+crates/gitust-git/src/worktree.rs	let default = || ("main".to_owned(), CommitSha(String::new()));	let Ok(clean) = GitEngine::validate_agent_branch_name(branch) else {
+crates/gitust-git/src/worktree.rs	let log_path = common_git_dir.join("logs/refs/heads").join(&clean);	let Ok(file) = fs::File::open(log_path) else {
+crates/gitust-sandbox/src/lib.rs	}	let _ = fs::remove_dir_all(&self.run_dir);
+crates/gitust-sandbox/src/lib.rs	if res.is_err() || cancelled.load(Ordering::SeqCst) {	let _ = fs::remove_dir_all(&anticipated);
+crates/gitust-sandbox/src/lib.rs	let _ = fs::remove_dir_all(&anticipated);	if let Ok(ref p) = res {
+crates/gitust-sandbox/src/lib.rs	if let Ok(ref p) = res {	let _ = fs::remove_dir_all(&p.run_dir);
+crates/gitust-sandbox/src/lib.rs	.await	.ok()
+crates/gitust-sandbox/src/lib.rs	.and_then(Result::ok)	.unwrap_or_default();
+crates/gitust-sandbox/src/lib.rs	.await	.ok()
+crates/gitust-sandbox/src/lib.rs	.and_then(Result::ok)	.unwrap_or_default();
+crates/gitust-sandbox/src/lib.rs	if let Some(mut p) = pipe {	let _ = (&mut p)
+crates/gitust-sandbox/src/lib.rs	.await;	let _ = tokio::io::copy(&mut p, &mut tokio::io::sink()).await;
+crates/gitust-sandbox/src/lib.rs	fn kill_process_group(pid: u32) {	if let Ok(pgid) = i32::try_from(pid) {
+crates/gitust-sandbox/src/lib.rs	unsafe {	let _ = libc::killpg(pgid, libc::SIGKILL);
+crates/gitust-sandbox/src/policy.rs	fn canonicalize_rule_path(path: &Path, access: PathAccess) -> Option<PathBuf> {	if let Ok(canonical) = fs::canonicalize(path) {
+crates/gitust-sandbox/src/policy.rs	}	if let Ok(mut canonical_base) = fs::canonicalize(ancestor) {
+crates/gitust-sandbox/src/policy.rs	if let Ok(mut canonical_base) = fs::canonicalize(ancestor) {	let suffix = path.strip_prefix(ancestor).ok()?;
+crates/gitust-sandbox/src/policy.rs	];	if let Ok(host_home) = std::env::var("HOME") {
+crates/gitust-server/src/auth.rs	};	let Ok(header_str) = raw_header.to_str() else {
+crates/gitust-server/src/auth.rs	.get(header::AUTHORIZATION)	.and_then(|v| v.to_str().ok())
+crates/gitust-server/src/mcp.rs	}	let Ok(body) = axum::body::to_bytes(request_body, MAX_MCP_LINE_BYTES).await else {
+crates/gitust-server/src/mcp.rs	};	let Ok(line) = std::str::from_utf8(&body) else {
+crates/gitust-server/src/mcp.rs	Ok(v) => v,	Err(_) => return Some(jsonrpc_err(serde_json::Value::Null, -32700, "Parse error")),
+crates/gitust-server/src/mcp.rs	}	let method = method.unwrap_or_default();
+crates/gitust-server/src/oauth.rs	.get(header::HOST)	.and_then(|v| v.to_str().ok())
+crates/gitust-server/src/oauth.rs	}	String::from_utf8(out).ok()
+crates/gitust-server/src/oauth.rs	.get(header::CONTENT_TYPE)	.and_then(|v| v.to_str().ok())
+crates/gitust-server/src/oauth.rs	let headers = http_req.headers().clone();	let Ok(body) = axum::body::to_bytes(http_req.into_body(), MAX_OAUTH_FORM_BYTES).await else {
+crates/gitust-server/src/repo.rs	let path = query.path;	let recursive = query.recursive.unwrap_or(false);
+crates/gitust-server/src/state.rs	let mut worktree_runtime = HashMap::new();	if let Ok(recovered) = git_engine.recover_agent_worktrees(repo_id) {
+crates/gitust-server/src/state.rs	tokio::task::spawn_blocking(move || {	let _ = engine.remove_agent_worktree(&worktree_dir, &branch, &base_commit);
+crates/gitust-server/src/worktrees.rs	drop(life);	let _ = engine.remove_agent_worktree(

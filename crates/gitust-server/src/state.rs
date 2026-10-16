@@ -433,7 +433,7 @@ pub(crate) fn map_auth_err(err: AuthError) -> (StatusCode, String) {
         | AuthError::TokenRevoked
         | AuthError::TokenPurposeMismatch
         | AuthError::InvalidInput(_) => StatusCode::BAD_REQUEST,
-        AuthError::StorageError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        AuthError::StorageError(_) => StatusCode::SERVICE_UNAVAILABLE,
     };
     (code, err.to_string())
 }
@@ -497,7 +497,10 @@ pub(crate) fn check_repo_bola(
     auth_store
         .verify_active_principal(caller)
         .map_err(map_auth_err)?;
-    if auth_store.repository_exists(repo_id) {
+    if auth_store
+        .repository_exists(repo_id)
+        .map_err(map_auth_err)?
+    {
         auth_store
             .authorize_repository_access(caller, repo_id)
             .map_err(map_auth_err)?;
@@ -509,8 +512,8 @@ pub(crate) fn check_repo_bola(
     Err(map_auth_err(AuthError::ForbiddenRepositoryAccess))
 }
 
-/// Looks up a worktree and enforces repository access. Returns a snapshot of the public model.
-pub(crate) fn find_authorized_worktree(
+/// Looks up a worktree and enforces repository access off the async worker threads.
+pub(crate) async fn find_authorized_worktree(
     state: &AppState,
     caller: &AuthenticatedPrincipal,
     id: uuid::Uuid,
@@ -522,8 +525,56 @@ pub(crate) fn find_authorized_worktree(
         .find(|w| w.id.0 == id)
         .cloned()
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("worktree {id} not found")))?;
-    check_repo_bola(&state.auth_store, state.repo_id, caller, wt.repo_id)?;
+    let store = state.auth_store.clone();
+    let default_repo = state.repo_id;
+    let caller_owned = caller.clone();
+    let repo_id = wt.repo_id;
+    tokio::task::spawn_blocking(move || {
+        check_repo_bola(&store, default_repo, &caller_owned, repo_id)
+    })
+    .await
+    .map_err(internal_err)??;
     Ok(wt)
+}
+
+/// Snapshots tracked worktrees without holding `state.worktrees.read()` across `AuthStore` lock I/O,
+/// and filters them by repository BOLA access on the blocking threadpool.
+pub(crate) async fn filter_authorized_worktrees(
+    state: &AppState,
+    caller: &AuthenticatedPrincipal,
+) -> Result<Vec<AgentWorktree>, (StatusCode, String)> {
+    let candidates: Vec<AgentWorktree> = state.worktrees.read().iter().cloned().collect();
+    let store = state.auth_store.clone();
+    let default_repo = state.repo_id;
+    let caller_owned = caller.clone();
+    tokio::task::spawn_blocking(move || {
+        store
+            .verify_active_principal(&caller_owned)
+            .map_err(map_auth_err)?;
+        let mut access_cache: HashMap<RepoId, bool> = HashMap::new();
+        let mut authorized = Vec::with_capacity(candidates.len());
+        for wt in candidates {
+            let allowed = match access_cache.get(&wt.repo_id).copied() {
+                Some(cached) => cached,
+                None => {
+                    let ok = match check_repo_bola(&store, default_repo, &caller_owned, wt.repo_id)
+                    {
+                        Ok(()) => true,
+                        Err((StatusCode::FORBIDDEN, _)) => false,
+                        Err(err) => return Err(err),
+                    };
+                    access_cache.insert(wt.repo_id, ok);
+                    ok
+                }
+            };
+            if allowed {
+                authorized.push(wt);
+            }
+        }
+        Ok(authorized)
+    })
+    .await
+    .map_err(internal_err)?
 }
 
 pub(crate) fn set_worktree_status(

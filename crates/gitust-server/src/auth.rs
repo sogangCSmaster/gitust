@@ -88,6 +88,25 @@ pub(crate) fn extract_principal(
     }
 }
 
+/// Async wrapper around `extract_principal` that runs `AuthStore` lock/reload checks on the
+/// blocking pool so a held cross-process `.lock` cannot stall Tokio async worker threads.
+pub(crate) async fn extract_principal_async(
+    headers: &HeaderMap,
+    auth_store: &AuthStore,
+) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
+    let Some(raw_header) = headers.get(header::AUTHORIZATION).cloned() else {
+        return Err(map_auth_err(AuthError::Unauthenticated));
+    };
+    let store = auth_store.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut h = HeaderMap::with_capacity(1);
+        h.insert(header::AUTHORIZATION, raw_header);
+        extract_principal(&h, &store)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+}
+
 /// Zero-boilerplate Axum extractor for `AuthenticatedPrincipal`.
 /// Guarantees that every handler declaring `caller: AuthenticatedPrincipal` is authenticated
 /// in O(1) time and immediately rejects deactivated accounts or revoked tokens.
@@ -98,7 +117,7 @@ impl FromRequestParts<AppState> for AuthenticatedPrincipal {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        extract_principal(&parts.headers, &state.auth_store)
+        extract_principal_async(&parts.headers, &state.auth_store).await
     }
 }
 
@@ -158,20 +177,21 @@ pub(crate) async fn create_invite_handler(
     headers: HeaderMap,
     Json(req): Json<CreateInviteRequest>,
 ) -> Result<(StatusCode, Json<IssuedInviteLink>), (StatusCode, String)> {
-    let caller = extract_principal(&headers, &state.auth_store)?;
     let store = state.auth_store.clone();
     let issued = tokio::task::spawn_blocking(move || {
-        store.create_invite_link(
-            &caller,
-            &req.target_email,
-            req.assigned_role,
-            req.team_ids,
-            req.ttl_hours,
-        )
+        let caller = extract_principal(&headers, &store)?;
+        store
+            .create_invite_link(
+                &caller,
+                &req.target_email,
+                req.assigned_role,
+                req.team_ids,
+                req.ttl_hours,
+            )
+            .map_err(map_auth_err)
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(map_auth_err)?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok((StatusCode::CREATED, Json(issued)))
 }
 
@@ -179,9 +199,10 @@ pub(crate) async fn list_invites_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
 ) -> Result<Json<Vec<InvitePublicView>>, (StatusCode, String)> {
-    let list = state
-        .auth_store
-        .list_invites(&caller)
+    let store = state.auth_store.clone();
+    let list = tokio::task::spawn_blocking(move || store.list_invites(&caller))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .map_err(map_auth_err)?;
     Ok(Json(list))
 }
@@ -246,7 +267,11 @@ pub(crate) async fn list_users_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
 ) -> Result<Json<Vec<UserPublicProfile>>, (StatusCode, String)> {
-    let list = state.auth_store.list_users(&caller).map_err(map_auth_err)?;
+    let store = state.auth_store.clone();
+    let list = tokio::task::spawn_blocking(move || store.list_users(&caller))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(map_auth_err)?;
     Ok(Json(list))
 }
 
@@ -268,9 +293,10 @@ pub(crate) async fn list_pats_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
 ) -> Result<Json<Vec<PersonalAccessTokenView>>, (StatusCode, String)> {
-    let list = state
-        .auth_store
-        .list_personal_access_tokens(&caller)
+    let store = state.auth_store.clone();
+    let list = tokio::task::spawn_blocking(move || store.list_personal_access_tokens(&caller))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .map_err(map_auth_err)?;
     Ok(Json(list))
 }
@@ -281,14 +307,15 @@ pub(crate) async fn create_pat_handler(
     headers: HeaderMap,
     Json(req): Json<CreatePatRequest>,
 ) -> Result<(StatusCode, Json<IssuedPersonalAccessToken>), (StatusCode, String)> {
-    let caller = extract_principal(&headers, &state.auth_store)?;
     let store = state.auth_store.clone();
     let issued = tokio::task::spawn_blocking(move || {
-        store.create_personal_access_token(&caller, &req.name, req.ttl_days)
+        let caller = extract_principal(&headers, &store)?;
+        store
+            .create_personal_access_token(&caller, &req.name, req.ttl_days)
+            .map_err(map_auth_err)
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(map_auth_err)?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok((StatusCode::CREATED, Json(issued)))
 }
 
@@ -311,9 +338,10 @@ pub(crate) async fn list_ssh_keys_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
 ) -> Result<Json<Vec<SshPublicKeyView>>, (StatusCode, String)> {
-    let list = state
-        .auth_store
-        .list_ssh_public_keys(&caller)
+    let store = state.auth_store.clone();
+    let list = tokio::task::spawn_blocking(move || store.list_ssh_public_keys(&caller))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .map_err(map_auth_err)?;
     Ok(Json(list))
 }
@@ -324,14 +352,15 @@ pub(crate) async fn register_ssh_key_handler(
     headers: HeaderMap,
     Json(req): Json<RegisterSshKeyRequest>,
 ) -> Result<(StatusCode, Json<SshPublicKeyView>), (StatusCode, String)> {
-    let caller = extract_principal(&headers, &state.auth_store)?;
     let store = state.auth_store.clone();
     let view = tokio::task::spawn_blocking(move || {
-        store.register_ssh_public_key(&caller, &req.title, &req.public_key_openssh)
+        let caller = extract_principal(&headers, &store)?;
+        store
+            .register_ssh_public_key(&caller, &req.title, &req.public_key_openssh)
+            .map_err(map_auth_err)
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(map_auth_err)?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok((StatusCode::CREATED, Json(view)))
 }
 
@@ -356,14 +385,15 @@ pub(crate) async fn create_team_repo_handler(
     headers: HeaderMap,
     Json(req): Json<CreateTeamRepoRequest>,
 ) -> Result<(StatusCode, Json<RepositoryRecord>), (StatusCode, String)> {
-    let caller = extract_principal(&headers, &state.auth_store)?;
     let store = state.auth_store.clone();
     let repo = tokio::task::spawn_blocking(move || {
-        store.create_team_repository(&caller, &req.name, req.owner_team_id, req.is_private)
+        let caller = extract_principal(&headers, &store)?;
+        store
+            .create_team_repository(&caller, &req.name, req.owner_team_id, req.is_private)
+            .map_err(map_auth_err)
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(map_auth_err)?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok((StatusCode::CREATED, Json(repo)))
 }
 
@@ -372,10 +402,13 @@ pub(crate) async fn get_team_repo_handler(
     caller: AuthenticatedPrincipal,
     Path(repo_id): Path<Uuid>,
 ) -> Result<Json<RepositoryRecord>, (StatusCode, String)> {
-    let repo = state
-        .auth_store
-        .authorize_repository_access(&caller, RepoId(repo_id))
-        .map_err(map_auth_err)?;
+    let store = state.auth_store.clone();
+    let repo = tokio::task::spawn_blocking(move || {
+        store.authorize_repository_access(&caller, RepoId(repo_id))
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(map_auth_err)?;
     Ok(Json(repo))
 }
 
@@ -386,5 +419,10 @@ pub(crate) async fn enterprise_policy_handler(
     if caller.role != EnterpriseRole::SiteAdmin {
         return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
     }
-    Ok(Json(state.auth_store.security_policy()))
+    let store = state.auth_store.clone();
+    let policy = tokio::task::spawn_blocking(move || store.security_policy())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(map_auth_err)?;
+    Ok(Json(policy))
 }

@@ -149,7 +149,7 @@ pub(crate) struct PersistedSnapshot {
     pub(crate) repositories: Vec<RepositoryRecord>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct AuthState {
     pub(crate) revision: u64,
     pub(crate) policy: EnterpriseSecurityPolicy,

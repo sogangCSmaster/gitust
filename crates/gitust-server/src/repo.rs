@@ -13,7 +13,7 @@ use gitust_git::{
 use gitust_sync::SyncStatusReport;
 use serde::Deserialize;
 
-use crate::auth::extract_principal;
+use crate::auth::{extract_principal, extract_principal_async};
 use crate::state::{check_repo_bola, internal_err, map_auth_err, map_git_err, AppState};
 
 #[derive(Debug, Default, Deserialize)]
@@ -54,15 +54,20 @@ pub(crate) async fn repo_commits_handler(
     caller: AuthenticatedPrincipal,
     Query(query): Query<RepoCommitsQuery>,
 ) -> Result<Json<RepoCommitList>, (StatusCode, String)> {
-    check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
+    let store = state.auth_store.clone();
+    let repo_id = state.repo_id;
     let engine = state.git_engine.clone();
     let rev = query.rev;
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
 
-    let list = tokio::task::spawn_blocking(move || engine.list_commits(rev.as_deref(), limit))
-        .await
-        .map_err(internal_err)?
-        .map_err(map_git_err)?;
+    let list = tokio::task::spawn_blocking(move || {
+        check_repo_bola(&store, repo_id, &caller, repo_id)?;
+        engine
+            .list_commits(rev.as_deref(), limit)
+            .map_err(map_git_err)
+    })
+    .await
+    .map_err(internal_err)??;
     Ok(Json(list))
 }
 
@@ -72,18 +77,21 @@ pub(crate) async fn repo_tree_handler(
     caller: AuthenticatedPrincipal,
     Query(query): Query<RepoTreeQuery>,
 ) -> Result<Json<RepoTreeSnapshot>, (StatusCode, String)> {
-    check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
+    let store = state.auth_store.clone();
+    let repo_id = state.repo_id;
     let engine = state.git_engine.clone();
     let rev = query.rev;
     let path = query.path;
     let recursive = query.recursive.unwrap_or(false);
 
     let tree = tokio::task::spawn_blocking(move || {
-        engine.inspect_tree(rev.as_deref(), path.as_deref(), recursive)
+        check_repo_bola(&store, repo_id, &caller, repo_id)?;
+        engine
+            .inspect_tree(rev.as_deref(), path.as_deref(), recursive)
+            .map_err(map_git_err)
     })
     .await
-    .map_err(internal_err)?
-    .map_err(map_git_err)?;
+    .map_err(internal_err)??;
     Ok(Json(tree))
 }
 
@@ -93,15 +101,18 @@ pub(crate) async fn repo_blob_handler(
     caller: AuthenticatedPrincipal,
     Query(query): Query<RepoBlobQuery>,
 ) -> Result<Json<RepoBlobSnapshot>, (StatusCode, String)> {
-    check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
+    let store = state.auth_store.clone();
+    let repo_id = state.repo_id;
     let engine = state.git_engine.clone();
     let rev = query.rev;
     let path = query.path;
 
-    let blob = tokio::task::spawn_blocking(move || engine.read_blob(rev.as_deref(), &path))
-        .await
-        .map_err(internal_err)?
-        .map_err(map_git_err)?;
+    let blob = tokio::task::spawn_blocking(move || {
+        check_repo_bola(&store, repo_id, &caller, repo_id)?;
+        engine.read_blob(rev.as_deref(), &path).map_err(map_git_err)
+    })
+    .await
+    .map_err(internal_err)??;
     Ok(Json(blob))
 }
 
@@ -111,18 +122,21 @@ pub(crate) async fn repo_diff_handler(
     caller: AuthenticatedPrincipal,
     Query(query): Query<RepoDiffQuery>,
 ) -> Result<Json<RepoDiffSnapshot>, (StatusCode, String)> {
-    check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
+    let store = state.auth_store.clone();
+    let repo_id = state.repo_id;
     let engine = state.git_engine.clone();
     let base = query.base;
     let head = query.head;
     let path = query.path;
 
     let diff = tokio::task::spawn_blocking(move || {
-        engine.inspect_diff(base.as_deref(), head.as_deref(), path.as_deref())
+        check_repo_bola(&store, repo_id, &caller, repo_id)?;
+        engine
+            .inspect_diff(base.as_deref(), head.as_deref(), path.as_deref())
+            .map_err(map_git_err)
     })
     .await
-    .map_err(internal_err)?
-    .map_err(map_git_err)?;
+    .map_err(internal_err)??;
     Ok(Json(diff))
 }
 
@@ -137,7 +151,7 @@ pub(crate) async fn sync_github_handler(
     req: Request,
 ) -> Result<Json<SyncStatusReport>, (StatusCode, String)> {
     let (parts, request_body) = req.into_parts();
-    let _pre_caller = extract_principal(&parts.headers, &state.auth_store)?;
+    let _pre_caller = extract_principal_async(&parts.headers, &state.auth_store).await?;
 
     let body = axum::body::to_bytes(request_body, 4096)
         .await
@@ -148,14 +162,21 @@ pub(crate) async fn sync_github_handler(
             )
         })?;
 
-    let caller = extract_principal(&parts.headers, &state.auth_store)?;
-    if !matches!(
-        caller.role,
-        EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
-    ) {
-        return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
-    }
-    check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
+    let store = state.auth_store.clone();
+    let repo_id = state.repo_id;
+    let headers = parts.headers;
+    tokio::task::spawn_blocking(move || {
+        let caller = extract_principal(&headers, &store)?;
+        if !matches!(
+            caller.role,
+            EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
+        ) {
+            return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+        }
+        check_repo_bola(&store, repo_id, &caller, repo_id)
+    })
+    .await
+    .map_err(internal_err)??;
 
     let configured_url = state.sync_config.github_remote_url.trim().to_owned();
     if !body.iter().all(u8::is_ascii_whitespace) {

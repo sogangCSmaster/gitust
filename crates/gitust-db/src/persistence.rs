@@ -1,7 +1,7 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::fs::{self, File};
+use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::SystemTime;
 
 use chrono::Utc;
@@ -10,8 +10,13 @@ use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 
 use crate::crypto::hash_token_sha256;
+pub(crate) use crate::disk_lock::acquire_advisory_lock;
+use crate::disk_lock::ensure_private_parent_dir;
 use crate::models::{AuthState, PersistedSnapshot};
 use crate::AuthStore;
+
+/// Upper bound for the on-disk auth DB snapshot.
+pub(crate) const MAX_AUTH_DB_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Point-in-time file metadata stamp used to detect external process updates (`gitust admin ...`)
 /// to `.gitust/auth-db.json` in ~1µs via `stat(2)` without reading or parsing the file on the fast path.
@@ -26,14 +31,24 @@ pub(crate) struct DiskStamp {
 }
 
 impl DiskStamp {
-    pub(crate) fn of_path(path: &Path) -> Option<Self> {
-        let meta = fs::metadata(path).ok()?;
+    pub(crate) fn of_path(path: &Path) -> Result<Option<Self>, AuthError> {
+        match fs::metadata(path) {
+            Ok(meta) => Ok(Self::of_metadata(&meta)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(AuthError::StorageError(format!(
+                "failed to stat auth db: {e}"
+            ))),
+        }
+    }
+
+    pub(crate) fn of_metadata(meta: &fs::Metadata) -> Option<Self> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
             Some(Self {
                 dev: meta.dev(),
                 ino: meta.ino(),
+                // fail-open-ok: mtime unsupported -> dev/ino/len still detect atomic renames.
                 modified: meta.modified().ok(),
                 len: meta.len(),
             })
@@ -41,6 +56,7 @@ impl DiskStamp {
         #[cfg(not(unix))]
         {
             Some(Self {
+                // fail-open-ok: mtime unsupported -> dev/ino/len still detect atomic renames.
                 modified: meta.modified().ok(),
                 len: meta.len(),
             })
@@ -50,12 +66,14 @@ impl DiskStamp {
 
 pub(crate) struct PendingDiskWrite {
     pub(crate) snapshot: PersistedSnapshot,
+    pub(crate) rollback_state: Option<AuthState>,
     pub(crate) _lock_file: Option<File>,
 }
 
 pub(crate) struct AuthWriteGuard<'a> {
     pub(crate) guard: RwLockWriteGuard<'a, AuthState>,
     pub(crate) lock_file: Option<File>,
+    pub(crate) rollback_state: Option<AuthState>,
 }
 
 impl Deref for AuthWriteGuard<'_> {
@@ -72,42 +90,56 @@ impl DerefMut for AuthWriteGuard<'_> {
     }
 }
 
-fn lock_file_path(db_path: &Path) -> PathBuf {
-    let mut os = db_path.as_os_str().to_os_string();
-    os.push(".lock");
-    PathBuf::from(os)
-}
-
-fn acquire_advisory_lock(db_path: &Path) -> Result<File, AuthError> {
-    if let Some(parent) = db_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|e| {
-                AuthError::StorageError(format!("failed to create db parent dir: {e}"))
-            })?;
+/// Reads and parses the snapshot, deriving the `DiskStamp` from `fstat(2)` of the very file
+/// handle the bytes were read from. The returned stamp therefore always describes the returned
+/// snapshot: a concurrent atomic rename (new inode) can never attach a fresh stamp to stale
+/// content, which would otherwise suppress later syncs and resurrect revoked sessions.
+/// Callers must hold the cross-process advisory lock.
+fn read_snapshot_with_stamp(
+    db_path: &Path,
+) -> Result<(Option<PersistedSnapshot>, Option<DiskStamp>), AuthError> {
+    let mut file = match File::open(db_path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((None, None)),
+        Err(e) => {
+            return Err(AuthError::StorageError(format!(
+                "failed to open auth db: {e}"
+            )))
         }
+    };
+    let meta = file
+        .metadata()
+        .map_err(|e| AuthError::StorageError(format!("failed to stat auth db: {e}")))?;
+    let stamp = DiskStamp::of_metadata(&meta);
+    // Bound allocation + read time while holding the lock (sparse / oversized DB files).
+    if meta.len() > MAX_AUTH_DB_BYTES {
+        return Err(AuthError::StorageError(format!(
+            "auth db is {} bytes, exceeding the {MAX_AUTH_DB_BYTES}-byte limit",
+            meta.len()
+        )));
     }
-    let lpath = lock_file_path(db_path);
-    let file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(&lpath)
-        .map_err(|e| AuthError::StorageError(format!("failed to open auth lockfile: {e}")))?;
-    file.lock()
-        .map_err(|e| AuthError::StorageError(format!("failed to lock auth lockfile: {e}")))?;
-    Ok(file)
-}
-
-fn read_snapshot_from_disk(db_path: &Path) -> Result<Option<PersistedSnapshot>, AuthError> {
-    if !db_path.exists() {
-        return Ok(None);
-    }
-    let bytes = fs::read(db_path)
+    let mut bytes = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
+    (&mut file)
+        .take(MAX_AUTH_DB_BYTES + 1)
+        .read_to_end(&mut bytes)
         .map_err(|e| AuthError::StorageError(format!("failed to read auth db: {e}")))?;
+    if bytes.len() as u64 > MAX_AUTH_DB_BYTES {
+        return Err(AuthError::StorageError(
+            "auth db grew beyond the size limit while reading".to_owned(),
+        ));
+    }
     let snap: PersistedSnapshot = serde_json::from_slice(&bytes)
         .map_err(|e| AuthError::StorageError(format!("corrupt auth db json: {e}")))?;
-    Ok(Some(snap))
+    Ok((Some(snap), stamp))
+}
+
+/// Initial load for `AuthStore::open_persistent`: holds the cross-process advisory lock for the
+/// whole read → parse → stamp critical section.
+pub(crate) fn load_initial_snapshot_locked(
+    db_path: &Path,
+) -> Result<(Option<PersistedSnapshot>, Option<DiskStamp>), AuthError> {
+    let _lock_file = acquire_advisory_lock(db_path)?;
+    read_snapshot_with_stamp(db_path)
 }
 
 fn apply_disk_snapshot_preserving_rate_limits(state: &mut AuthState, snap: PersistedSnapshot) {
@@ -139,58 +171,73 @@ fn apply_disk_snapshot_preserving_rate_limits(state: &mut AuthState, snap: Persi
 }
 
 impl AuthStore {
-    /// Synchronizes in-memory state if an external process (`gitust admin ...`) modified
-    /// `auth-db.json` on disk. Fast path is a single `stat(2)` check (~1µs).
-    pub(crate) fn sync_from_disk_if_changed(&self) {
-        let Some(ref db_path) = self.persistence_path else {
-            return;
-        };
-        let current_stamp = DiskStamp::of_path(db_path);
-        if current_stamp == *self.last_disk_stamp.lock() {
-            return;
+    /// Reloads the on-disk snapshot if its stamp differs from the last observed one.
+    /// Caller MUST hold the cross-process advisory lock.
+    ///
+    /// Fail-closed: read/parse errors propagate, and a DB that was observed before but is now
+    /// missing or un-stat-able is a `StorageError` (never treated as "no change"), so revocations
+    /// written by other processes can't be silently ignored or overwritten with stale state.
+    fn reload_if_changed_locked(
+        &self,
+        db_path: &Path,
+    ) -> Result<Option<RwLockWriteGuard<'_, AuthState>>, AuthError> {
+        let last = *self.last_disk_stamp.lock();
+        if DiskStamp::of_path(db_path)? == last {
+            return Ok(None);
         }
-        let Ok(_lock_file) = acquire_advisory_lock(db_path) else {
-            return;
-        };
-        let locked_stamp = DiskStamp::of_path(db_path);
-        if locked_stamp == *self.last_disk_stamp.lock() {
-            return;
-        }
-        if let Ok(Some(snap)) = read_snapshot_from_disk(db_path) {
-            let mut guard = self.state.write();
-            apply_disk_snapshot_preserving_rate_limits(&mut guard, snap);
-            *self.last_disk_stamp.lock() = locked_stamp;
-        }
-    }
-
-    pub(crate) fn read_state(&self) -> RwLockReadGuard<'_, AuthState> {
-        self.sync_from_disk_if_changed();
-        self.state.read()
-    }
-
-    pub(crate) fn write_state(&self) -> AuthWriteGuard<'_> {
-        let lock_file = if let Some(ref db_path) = self.persistence_path {
-            let lf = acquire_advisory_lock(db_path).ok();
-            let disk_stamp = DiskStamp::of_path(db_path);
-            if disk_stamp != *self.last_disk_stamp.lock() {
-                if let Ok(Some(snap)) = read_snapshot_from_disk(db_path) {
-                    let mut guard = self.state.write();
-                    apply_disk_snapshot_preserving_rate_limits(&mut guard, snap);
-                    *self.last_disk_stamp.lock() = disk_stamp;
-                    return AuthWriteGuard {
-                        guard,
-                        lock_file: lf,
-                    };
-                }
+        match read_snapshot_with_stamp(db_path)? {
+            (Some(snap), read_stamp) => {
+                let mut guard = self.state.write();
+                apply_disk_snapshot_preserving_rate_limits(&mut guard, snap);
+                *self.last_disk_stamp.lock() = read_stamp;
+                Ok(Some(guard))
             }
-            lf
-        } else {
-            None
-        };
-        AuthWriteGuard {
-            guard: self.state.write(),
-            lock_file,
+            (None, _) if last.is_some() => Err(AuthError::StorageError(
+                "auth db disappeared after being observed; refusing to use stale auth state"
+                    .to_owned(),
+            )),
+            (None, _) => Ok(None),
         }
+    }
+
+    /// Synchronizes in-memory state if an external process (`gitust admin ...`) modified
+    /// `auth-db.json` on disk. Fast path is a single unlocked `stat(2)` comparison.
+    pub(crate) fn sync_from_disk_if_changed(&self) -> Result<(), AuthError> {
+        let Some(ref db_path) = self.persistence_path else {
+            return Ok(());
+        };
+        if DiskStamp::of_path(db_path)? == *self.last_disk_stamp.lock() {
+            return Ok(());
+        }
+        let _lock_file = acquire_advisory_lock(db_path)?;
+        self.reload_if_changed_locked(db_path)?;
+        Ok(())
+    }
+
+    pub(crate) fn read_state(&self) -> Result<RwLockReadGuard<'_, AuthState>, AuthError> {
+        self.sync_from_disk_if_changed()?;
+        Ok(self.state.read())
+    }
+
+    pub(crate) fn write_state(&self) -> Result<AuthWriteGuard<'_>, AuthError> {
+        let Some(ref db_path) = self.persistence_path else {
+            return Ok(AuthWriteGuard {
+                guard: self.state.write(),
+                lock_file: None,
+                rollback_state: None,
+            });
+        };
+        let lock_file = acquire_advisory_lock(db_path)?;
+        let guard = match self.reload_if_changed_locked(db_path)? {
+            Some(reloaded) => reloaded,
+            None => self.state.write(),
+        };
+        let rollback_state = Some(guard.clone());
+        Ok(AuthWriteGuard {
+            guard,
+            lock_file: Some(lock_file),
+            rollback_state,
+        })
     }
 
     pub(crate) fn maybe_snapshot(
@@ -201,6 +248,7 @@ impl AuthStore {
         if self.persistence_path.is_some() {
             Some(PendingDiskWrite {
                 snapshot: guard.snapshot_current(),
+                rollback_state: guard.rollback_state.take(),
                 _lock_file: guard.lock_file.take(),
             })
         } else {
@@ -213,56 +261,81 @@ impl AuthStore {
 
     /// Persists a point-in-time snapshot to disk OUTSIDE the in-memory `RwLock` while holding
     /// the cross-process advisory file lock (`<auth-db>.lock`).
+    ///
+    /// On failure the pre-mutation `AuthState` captured under the lock in `write_state()` is
+    /// restored directly in memory (without doing disk I/O that could also fail), so a mutation
+    /// that reported an error is never applied in memory or persisted later.
     pub(crate) fn persist_snapshot_unlocked(
         &self,
         pending: Option<PendingDiskWrite>,
     ) -> Result<(), AuthError> {
-        let (Some(ref target_path), Some(pending_write)) = (&self.persistence_path, pending) else {
+        let (Some(ref target_path), Some(mut pending_write)) = (&self.persistence_path, pending)
+        else {
             return Ok(());
         };
-        let snap = &pending_write.snapshot;
-
-        if let Some(parent) = target_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|e| {
-                    AuthError::StorageError(format!("failed to create db parent dir: {e}"))
-                })?;
+        let result = write_snapshot_atomically(target_path, &pending_write.snapshot);
+        match result {
+            Ok(new_stamp) => {
+                *self.last_disk_stamp.lock() = new_stamp;
+                drop(pending_write);
+                Ok(())
+            }
+            Err(err) => {
+                if let Some(mut prev) = pending_write.rollback_state.take() {
+                    let mut guard = self.state.write();
+                    prev.failed_logins = std::mem::take(&mut guard.failed_logins);
+                    prev.revision = guard.revision.max(prev.revision);
+                    *guard = prev;
+                }
+                drop(pending_write);
+                Err(err)
             }
         }
+    }
+}
 
-        let tmp_path = target_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
-        let payload = serde_json::to_vec(snap)
-            .map_err(|e| AuthError::StorageError(format!("failed to serialize auth db: {e}")))?;
-
+fn write_snapshot_atomically(
+    target_path: &Path,
+    snap: &PersistedSnapshot,
+) -> Result<Option<DiskStamp>, AuthError> {
+    ensure_private_parent_dir(target_path)?;
+    let tmp_path = target_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
+    let payload = serde_json::to_vec(snap)
+        .map_err(|e| AuthError::StorageError(format!("failed to serialize auth db: {e}")))?;
+    let written = (|| {
+        let mut opts = fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
         {
-            let mut file = File::create(&tmp_path).map_err(|e| {
-                AuthError::StorageError(format!("failed to create temp auth db: {e}"))
-            })?;
-
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let perms = fs::Permissions::from_mode(0o600);
-                file.set_permissions(perms).map_err(|e| {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = opts
+            .open(&tmp_path)
+            .map_err(|e| AuthError::StorageError(format!("failed to create temp auth db: {e}")))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(0o600))
+                .map_err(|e| {
                     AuthError::StorageError(format!("failed to set 0600 permissions: {e}"))
                 })?;
-            }
-
-            file.write_all(&payload).map_err(|e| {
-                AuthError::StorageError(format!("failed to write temp auth db: {e}"))
-            })?;
-            file.sync_all().map_err(|e| {
-                AuthError::StorageError(format!("failed to fsync temp auth db: {e}"))
-            })?;
         }
-
+        file.write_all(&payload)
+            .map_err(|e| AuthError::StorageError(format!("failed to write temp auth db: {e}")))?;
+        file.sync_all()
+            .map_err(|e| AuthError::StorageError(format!("failed to fsync temp auth db: {e}")))?;
         fs::rename(&tmp_path, target_path).map_err(|e| {
-            let _ = fs::remove_file(&tmp_path);
             AuthError::StorageError(format!("failed to atomically replace auth db: {e}"))
         })?;
-
-        *self.last_disk_stamp.lock() = DiskStamp::of_path(target_path);
-        drop(pending_write);
-        Ok(())
+        let meta = file.metadata().map_err(|e| {
+            AuthError::StorageError(format!("failed to stat persisted auth db: {e}"))
+        })?;
+        Ok(DiskStamp::of_metadata(&meta))
+    })();
+    if written.is_err() {
+        // fail-open-ok: best-effort temp cleanup; the original write error is returned.
+        let _ = fs::remove_file(&tmp_path);
     }
+    written
 }

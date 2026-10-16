@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Pre-push gate. Enable once per clone:  git config core.hooksPath .githooks
+# Never bypass with --no-verify (AGENTS.md 7.3).
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+# verify.sh checks the working tree, so the tree must equal what is being pushed.
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "pre-push: working tree is dirty; commit or stash first so verify checks what you push." >&2
+  exit 1
+fi
+
+head_sha="$(git rev-parse HEAD)"
+zero="0000000000000000000000000000000000000000"
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  [[ -z "${local_sha:-}" || "$local_sha" == "$zero" ]] && continue # branch deletion
+  if [[ "$local_sha" != "$head_sha" ]]; then
+    echo "pre-push: pushing $local_sha but HEAD is $head_sha; check it out and push from there." >&2
+    exit 1
+  fi
+done
+
+exec "$ROOT/scripts/verify.sh"

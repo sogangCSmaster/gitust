@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use gitust_core::{EnterpriseRole, RepoId};
+use gitust_core::{AuthenticatedPrincipal, EnterpriseRole, RepoId, UserPublicProfile};
 use gitust_db::AuthStore;
 use gitust_git::GitEngine;
 use gitust_sandbox::builtin_mcp_tools;
@@ -435,20 +435,19 @@ fn handle_admin_command(action: AdminCommands) -> Result<()> {
         } => {
             let assigned_role = parse_enterprise_role(&role)?;
             let store = AuthStore::open_persistent(&auth_db)?;
-            let session = store.login(&admin_username, &admin_password)?;
-            let caller = store.authenticate_session(&session.raw_session_token)?;
-            let issued_res =
-                store.create_invite_link(&caller, &email, assigned_role, vec![], ttl_hours);
-            let _ = store.revoke_session(&caller, &session.raw_session_token);
-            let issued = issued_res?;
-            println!(
-                "✓ Issued single-use invite link for {} ({:?}, expires {}):\n  URL path: {}\n  Token:    {}",
-                issued.invite.target_email,
-                issued.invite.assigned_role,
-                issued.invite.expires_at,
-                issued.invite_url_path,
-                issued.raw_token
-            );
+            with_admin_session(&store, &admin_username, &admin_password, |caller| {
+                let issued =
+                    store.create_invite_link(caller, &email, assigned_role, vec![], ttl_hours)?;
+                println!(
+                    "✓ Issued single-use invite link for {} ({:?}, expires {}):\n  URL path: {}\n  Token:    {}",
+                    issued.invite.target_email,
+                    issued.invite.assigned_role,
+                    issued.invite.expires_at,
+                    issued.invite_url_path,
+                    issued.raw_token
+                );
+                Ok(())
+            })?;
         }
         AdminCommands::ResetPassword {
             admin_username,
@@ -458,35 +457,19 @@ fn handle_admin_command(action: AdminCommands) -> Result<()> {
             auth_db,
         } => {
             let store = AuthStore::open_persistent(&auth_db)?;
-            let session = store.login(&admin_username, &admin_password)?;
-            let caller = store.authenticate_session(&session.raw_session_token)?;
-            let target_norm = target.trim().to_ascii_lowercase();
-            let users_res = store.list_users(&caller);
-            let users = match users_res {
-                Ok(u) => u,
-                Err(e) => {
-                    let _ = store.revoke_session(&caller, &session.raw_session_token);
-                    return Err(e.into());
-                }
-            };
-            let Some(found) = users.into_iter().find(|u| {
-                u.username.eq_ignore_ascii_case(&target_norm)
-                    || u.email.eq_ignore_ascii_case(&target_norm)
-            }) else {
-                let _ = store.revoke_session(&caller, &session.raw_session_token);
-                anyhow::bail!("user '{target}' not found");
-            };
-            let issued_res = store.create_password_reset_link(&caller, found.id, ttl_hours);
-            let _ = store.revoke_session(&caller, &session.raw_session_token);
-            let issued = issued_res?;
-            println!(
-                "✓ Issued single-use password-reset link for '{}' ({}, expires {}):\n  URL path: {}\n  Token:    {}",
-                found.username,
-                found.email,
-                issued.invite.expires_at,
-                issued.invite_url_path,
-                issued.raw_token
-            );
+            with_admin_session(&store, &admin_username, &admin_password, |caller| {
+                let found = find_user(&store, caller, &target)?;
+                let issued = store.create_password_reset_link(caller, found.id, ttl_hours)?;
+                println!(
+                    "✓ Issued single-use password-reset link for '{}' ({}, expires {}):\n  URL path: {}\n  Token:    {}",
+                    found.username,
+                    found.email,
+                    issued.invite.expires_at,
+                    issued.invite_url_path,
+                    issued.raw_token
+                );
+                Ok(())
+            })?;
         }
         AdminCommands::Deactivate {
             admin_username,
@@ -495,32 +478,67 @@ fn handle_admin_command(action: AdminCommands) -> Result<()> {
             auth_db,
         } => {
             let store = AuthStore::open_persistent(&auth_db)?;
-            let session = store.login(&admin_username, &admin_password)?;
-            let caller = store.authenticate_session(&session.raw_session_token)?;
-            let target_norm = target.trim().to_ascii_lowercase();
-            let users_res = store.list_users(&caller);
-            let users = match users_res {
-                Ok(u) => u,
-                Err(e) => {
-                    let _ = store.revoke_session(&caller, &session.raw_session_token);
-                    return Err(e.into());
-                }
-            };
-            let Some(found) = users.into_iter().find(|u| {
-                u.username.eq_ignore_ascii_case(&target_norm)
-                    || u.email.eq_ignore_ascii_case(&target_norm)
-            }) else {
-                let _ = store.revoke_session(&caller, &session.raw_session_token);
-                anyhow::bail!("user '{target}' not found");
-            };
-            let deactivated_res = store.deactivate_user(&caller, found.id);
-            let _ = store.revoke_session(&caller, &session.raw_session_token);
-            let deactivated = deactivated_res?;
-            println!(
-                "✓ Deactivated user '{}' ({}) [id: {}] and revoked all sessions, PATs, SSH keys, and pending invites",
-                deactivated.username, deactivated.email, deactivated.id.0
-            );
+            with_admin_session(&store, &admin_username, &admin_password, |caller| {
+                let found = find_user(&store, caller, &target)?;
+                let deactivated = store.deactivate_user(caller, found.id)?;
+                println!(
+                    "✓ Deactivated user '{}' ({}) [id: {}] and revoked all sessions, PATs, SSH keys, and pending invites",
+                    deactivated.username, deactivated.email, deactivated.id.0
+                );
+                Ok(())
+            })?;
         }
     }
     Ok(())
+}
+
+/// Runs `op` with a short-lived admin session and ALWAYS revokes it afterwards.
+/// A failed revocation is surfaced as an error (never silently ignored), so the operator learns
+/// that a persisted admin session may still be live until its expiry.
+fn with_admin_session<T>(
+    store: &AuthStore,
+    admin_username: &str,
+    admin_password: &str,
+    op: impl FnOnce(&AuthenticatedPrincipal) -> Result<T>,
+) -> Result<T> {
+    let session = store.login(admin_username, admin_password)?;
+    let fallback_caller = AuthenticatedPrincipal {
+        user_id: session.user.id,
+        username: session.user.username,
+        role: session.user.role,
+        team_ids: session.user.team_ids,
+    };
+    let result = store
+        .authenticate_session(&session.raw_session_token)
+        .map_err(anyhow::Error::from)
+        .and_then(|caller| op(&caller));
+    let revoked = store.revoke_session(&fallback_caller, &session.raw_session_token);
+    match (result, revoked) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Ok(_), Err(e)) => Err(anyhow::anyhow!(
+            "operation completed, but revoking the temporary admin session failed: {e} \
+             (it stays valid until {})",
+            session.expires_at
+        )),
+        (Err(e), Ok(())) => Err(e),
+        (Err(e), Err(revoke_err)) => Err(e.context(format!(
+            "additionally, revoking the temporary admin session failed: {revoke_err}"
+        ))),
+    }
+}
+
+fn find_user(
+    store: &AuthStore,
+    caller: &AuthenticatedPrincipal,
+    target: &str,
+) -> Result<UserPublicProfile> {
+    let target_norm = target.trim().to_ascii_lowercase();
+    store
+        .list_users(caller)?
+        .into_iter()
+        .find(|u| {
+            u.username.eq_ignore_ascii_case(&target_norm)
+                || u.email.eq_ignore_ascii_case(&target_norm)
+        })
+        .ok_or_else(|| anyhow::anyhow!("user '{target}' not found"))
 }

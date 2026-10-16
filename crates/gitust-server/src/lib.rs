@@ -11,6 +11,7 @@ use serde::Serialize;
 use tower_http::cors::CorsLayer;
 
 pub mod auth;
+pub mod listener;
 pub mod mcp;
 pub mod oauth;
 pub mod repo;
@@ -197,6 +198,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/enterprise/policy",
             get(auth::enterprise_policy_handler),
         )
+        .layer(axum::middleware::map_request(listener::apply_body_deadline))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -235,12 +237,10 @@ pub async fn serve(
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Gitust All-in-One Server listening on http://{addr}");
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
+    listener::serve_hardened(listener, app).await
 }
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_listener;

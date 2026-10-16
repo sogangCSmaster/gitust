@@ -130,6 +130,33 @@ This skill enforces a ruthless, non-rubber-stamping verification standard before
     - Keyboard navigation (`ArrowUp`/`ArrowDown`, `j`/`k`, `Ctrl+N`/`Ctrl+P`) in scrollable lists/palettes must call `scrollIntoView({ block: "nearest" })` so the active selection never moves off-screen.
   - **XSS Hygiene**: Never inject unsanitized commit messages, branch names, diffs, or agent logs into raw HTML sinks.
 
+### Check 15: Fail-Open Error Swallowing in Security Paths (Partially Mechanically Gated)
+Origin: P1 (2026-10-16) — `acquire_advisory_lock(..).ok()` on writes and `let Ok(_) = lock else { return }` on reads let a CLI revocation report success while the server kept accepting the revoked session.
+- **Rule**: In auth, persistence, sandbox, git, and sync code, an error must never be translated into "no change", "allowed", "skip this rule", or "continue with cached state". Propagate it (`?` / explicit `Err`) so the operation fails CLOSED.
+- **Patterns to interrogate on every touched line** (and their neighbors): `.ok()`, `let Ok(..) = .. else { return/continue }`, `if let Ok(..)` without an `else`, `unwrap_or_default()`, `unwrap_or(..)` on security-relevant values, `let _ = ..`, and `Option`-returning helpers whose `None` callers treat as "skip".
+- **Ask for each**: *If this call fails, what does the caller do next? Does any check get skipped, any deny rule get dropped, any stale authority get used, or any write proceed without its lock?*
+- **Mechanical gate (partial)**: `scripts/audit-fail-open.sh` (run by `scripts/verify.sh` and the pre-push hook) scans gitust-db/server/cli/sandbox/git/sync for `.ok()`, `let Ok(`, `if let Ok(`, `unwrap_or_default()`, `unwrap_or(true|false)`, `let _ =`, and `Err(_) => return/continue/{}`. It does NOT catch `let Some(..) = helper() else { continue }` over `Option`-returning helpers, `.is_ok()` filters, or `unwrap_or_else(|_| ..)` — reviewers must still check those by hand (the sandbox Hidden-rule drop fixed on 2026-10-16 was exactly such a `let Some .. else { continue }`). A marker covers exactly one code line plus `.`-continuation lines. Every hit needs an inline `// fail-open-ok: <reason>` (reason must explain why it cannot weaken auth/isolation/integrity) or must already be in the shrink-only `scripts/fail-open-baseline.txt`. **Adding a baseline entry to silence a new hit is a P1.** Reviewers must read every new `fail-open-ok:` reason and reject vague ones ("ignore error", "best effort" on a security path).
+
+### Check 16: Persisted-State Cache Coherence (stat/read TOCTOU)
+Origin: P1 (2026-10-16) — `open_persistent()` read the JSON and then `stat()`-ed the path separately, without the cross-process lock. A concurrent atomic rename paired stale content with a fresh `DiskStamp`, so every later sync was skipped and revoked sessions came back (and were re-persisted).
+- Any in-memory cache of a file shared across processes (`auth-db.json`, worktree metadata, lock-guarded state) must:
+  1. Load, parse, and record the version stamp inside the **same** cross-process lock that writers hold — including the **initial** load at startup, not only steady-state reloads.
+  2. Derive the stamp from the **same open file handle** the bytes were read from (`file.metadata()` / `fstat`), never from a second path-based `stat()`.
+  3. Treat "file was observed before and is now missing/unreadable" as an error, not as "unchanged".
+- **Probe**: hold the advisory lock in the test, start the open/reload in another thread, atomically rename a newer snapshot, release, and assert the reader sees the newer state (see `crates/gitust-db/src/tests_persistence.rs`).
+
+---
+
+## 2.5 Fix-Sweep Rule (Do Not Patch Only the Reported Line)
+
+When fixing any finding, before declaring it fixed:
+1. Name the **bug class** (e.g., "error swallowed on lock path", "stamp/content from different reads").
+2. `grep` the touched module **and its siblings** for every other instance of that class and fix or justify each one in the same change.
+3. Convert the reviewer's PoC into a regression test that fails on the old code path.
+4. If the class is new, add it to this checklist (Section 4) in the same step.
+
+Origin: the first fix for the 2026-10-16 startup race patched only the stamp read and left `.ok()` lock handling three lines below, which the next review flagged as a second P1.
+
 ---
 
 ## 3. Execution Steps & Output Format
@@ -138,11 +165,11 @@ This skill enforces a ruthless, non-rubber-stamping verification standard before
    - Inspect both uncommitted changes (`git status`, `git diff`) and surrounding callers/callees in touched crates.
    - **Never restrict findings solely to `+`/`-` diff lines** if the change exposes or interacts with a bug in adjacent code.
 2. **Walk the 4-Axis Audit Model & 14-Point Checklist**: Evaluate every applicable check against the actual code paths.
-3. **Run Verification Gates**:
-   - `find crates packages -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' \) -not -path '*/node_modules/*' -not -path '*/dist/*' -exec wc -l {} + | awk '$2 != "total" && $1 >= 600 { print "OVER_600:", $0; exit 1 }'`
-   - `cargo fmt --all -- --check`
-   - `cargo clippy --workspace --all-targets -- -D warnings`
-   - `cargo test --workspace`
+3. **Run Verification Gates** — `scripts/verify.sh` (exit code must be 0; do not pipe it through `grep`, which hides failures). It runs:
+   - the hard `<600`-line gate,
+   - `scripts/audit-fail-open.sh` (Check 15),
+   - `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
+   - `pnpm -r typecheck` and the embedded `packages/design-system/dist` freshness check.
 4. **Structured Finding Output Format**:
    Format every finding with exact file/line, severity (`P0` / `P1` / `P2`), verification status (`[Verified]` / `[Suspected]`), failure trace, and a ready-to-apply code diff:
 

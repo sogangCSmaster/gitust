@@ -160,6 +160,12 @@ pub(crate) fn resolve_rules(rules: Vec<PathRule>) -> Result<Vec<PathRule>, Sandb
     let mut resolved = Vec::with_capacity(rules.len());
     for rule in rules {
         let Some(path) = canonicalize_rule_path(&rule.path, rule.access) else {
+            // Dropping a deny rule would silently widen the sandbox: fail closed.
+            if rule.access == PathAccess::Hidden {
+                return Err(SandboxError::UnsupportedPath(
+                    rule.path.to_string_lossy().into_owned(),
+                ));
+            }
             continue;
         };
         let lossy = path.to_string_lossy();
@@ -180,8 +186,14 @@ fn canonicalize_rule_path(path: &Path, access: PathAccess) -> Option<PathBuf> {
         return None;
     }
     for ancestor in path.ancestors().skip(1) {
-        if ancestor == Path::new("/") || ancestor.as_os_str().is_empty() {
+        if ancestor.as_os_str().is_empty() {
             break;
+        }
+        if ancestor == Path::new("/") {
+            // Nothing below `/` exists, so no component can be a symlink: the lexical path is
+            // already canonical. Keep the deny rule (e.g. a non-existent `$HOME`) instead of
+            // failing every sandbox spawn on hosts without `/mnt`, `/media`, or a real HOME.
+            return lexical_absolute_path(path);
         }
         if let Ok(mut canonical_base) = fs::canonicalize(ancestor) {
             let suffix = path.strip_prefix(ancestor).ok()?;
@@ -195,6 +207,22 @@ fn canonicalize_rule_path(path: &Path, access: PathAccess) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Returns `path` unchanged if it is absolute and made only of normal components.
+fn lexical_absolute_path(path: &Path) -> Option<PathBuf> {
+    let mut components = path.components();
+    if components.next() != Some(Component::RootDir) {
+        return None;
+    }
+    let mut out = PathBuf::from("/");
+    for comp in components {
+        match comp {
+            Component::Normal(part) => out.push(part),
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 /// Builds a Seatbelt profile. Seatbelt applies the last matching rule, so emitting rules in

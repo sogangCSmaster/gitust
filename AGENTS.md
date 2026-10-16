@@ -169,6 +169,11 @@ Phase 2부터는 **사내 GitHub로 실제 사용**하는 것을 목표로, GitH
 - 이 프로젝트는 1인 개발 체제로 진행되므로 **불필요한 피처 브랜치(Feature Branch)나 PR을 분리하지 않고 항상 `main` 브랜치에서 직접 작업**합니다.
 - **사용자가 직접적으로 `git commit` 또는 `git push`를 요청하지 않는 한 절대 임의로 커밋·푸시하지 않습니다.**
 - 각 Step의 개발이 끝나면 7.4의 검증과 7.5의 리뷰 에이전트(Subagent) 감사를 거쳐 지적 사항을 모두 해결한 상태로 워킹 트리에 유지하고, **사용자의 명시적인 요청이 있을 때만 `git commit` / `git push`를 수행**합니다.
+- **"커밋/푸시해줘" 요청은 게이트 생략 허가가 아닙니다.** 요청을 받으면 반드시 다음 순서로 진행합니다.
+  1. `scripts/verify.sh` 실행 (종료 코드 0 필수, `grep` 파이프로 실패를 숨기지 않음).
+  2. 아직 7.5 Gate A/B를 통과하지 않은 변경이 있으면 두 리뷰 Subagent를 먼저 구동하고, P0/P1을 모두 해결한 뒤 결과(Verdict)를 사용자에게 보고.
+  3. 그 다음에만 commit/push. 게이트를 생략해야 할 사정이 있으면 push 전에 사용자에게 명시적으로 묻습니다.
+- 저장소 pre-push hook(`.githooks/pre-push` → `scripts/verify.sh`)을 사용합니다. 새 클론에서는 `git config core.hooksPath .githooks`로 활성화하며, `--no-verify` 사용을 금지합니다.
 
 ### 7.4 Verification Gates (기능 완료 조건)
 기능을 구현하기 전에 통과해야 할 테스트를 먼저 작성하고, 아래 해당 항목을 통과해야 완료로 봅니다.
@@ -178,6 +183,8 @@ Phase 2부터는 **사내 GitHub로 실제 사용**하는 것을 목표로, GitH
 - **동기화**: 미러 결과가 원본 GitHub 저장소의 ref·커밋과 일치하는지 비교 검증합니다.
 - **백업/복구**: Phase 3부터 백업에서 실제로 복구하는 리허설 테스트를 둡니다.
 - **성능**: 6장 수치를 주장하는 변경은 벤치마크 결과를 함께 남깁니다.
+- **리뷰 PoC의 회귀 테스트화**: Gate A/B에서 `[Verified]`로 보고된 모든 P0/P1은 해당 PoC를 저장소 테스트로 옮겨, 수정 전 코드에서 실패하고 수정 후 통과함을 확인합니다. 같은 버그 유형의 다른 위치도 함께 찾아 고칩니다(`adversarial-audit` 2.5 Fix-Sweep Rule).
+- **Fail-closed**: 인증·영속화·샌드박스·Git·동기화 경로에서 오류를 "변경 없음/허용/건너뜀"으로 바꾸지 않습니다. `scripts/audit-fail-open.sh`가 이를 기계적으로 검사합니다.
 
 ### 7.5 Mandatory Per-Step Dual Subagent Review Gate (아키텍처 감사 + 독립 외부 해킹 Red-Team Subagent)
 각 Step이나 작업 개발이 끝날 때마다 **`git commit` / `git push` 전에 반드시 아래 두 개의 전용 스킬과 독립 Subagent(`invoke_subagent`)를 분리 구동하여 교차 감사**를 수행하고, 발견된 P0/P1 이슈를 모두 수정해야 합니다. 형식적인 고무도장(Rubber-stamp) 통과를 엄격히 금지합니다.

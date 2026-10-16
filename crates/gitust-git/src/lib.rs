@@ -337,13 +337,32 @@ impl GitEngine {
         }
         let repo = self.acquire_repo()?;
         let path = Self::common_git_dir(&repo).join("gitust-worktree-service.lock");
-        let lock = fs::File::options()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .map_err(|e| io_err(&path, &e))?;
+        let mut opts = fs::File::options();
+        opts.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let lock = opts.open(&path).map_err(|e| io_err(&path, &e))?;
+        let meta = lock.metadata().map_err(|e| io_err(&path, &e))?;
+        if !meta.is_file() {
+            return Err(io_err(
+                &path,
+                &std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "worktree service lock path is not a regular file",
+                ),
+            ));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if meta.permissions().mode() & 0o777 != 0o600 {
+                lock.set_permissions(fs::Permissions::from_mode(0o600))
+                    .map_err(|e| io_err(&path, &e))?;
+            }
+        }
         match lock.try_lock() {
             Ok(()) => {
                 let inner = Arc::new(WorktreeServiceLockInner(lock));

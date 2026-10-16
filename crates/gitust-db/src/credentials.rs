@@ -97,7 +97,7 @@ impl AuthStore {
 
         let now = Utc::now();
         let (maybe_user_id, phc_to_verify) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             let uid = guard
                 .username_index
                 .get(&norm_id)
@@ -128,7 +128,7 @@ impl AuthStore {
         let password_valid = verify_password_argon2(password, &phc_to_verify);
 
         let (response, snapshot) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             let check_now = Utc::now();
             let acct_key = maybe_user_id.map(|u| scoped_account_rate_limit_key(scope, u));
 
@@ -218,7 +218,7 @@ impl AuthStore {
     pub fn issue_oauth_session(&self, user_id: UserId) -> Result<LoginSessionResponse, AuthError> {
         let now = Utc::now();
         let (response, snapshot) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             let user = guard
                 .users
                 .get(&user_id)
@@ -266,7 +266,7 @@ impl AuthStore {
         raw_session_token: &str,
     ) -> Result<AuthenticatedPrincipal, AuthError> {
         let candidate_hash = hash_token_sha256(raw_session_token);
-        let guard = self.read_state();
+        let guard = self.read_state()?;
 
         let Some(session) = guard.sessions_by_hash.get(&candidate_hash) else {
             return Err(AuthError::Unauthenticated);
@@ -318,7 +318,7 @@ impl AuthStore {
         let token_prefix = raw_token.chars().take(15).collect::<String>();
 
         let (metadata, snapshot) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             let active_caller = Self::verify_active_user_locked(&guard, caller)?;
 
             let pat = StoredPat {
@@ -350,7 +350,7 @@ impl AuthStore {
     /// Immediately rejects deactivated accounts (`AccountDeactivated`) or revoked/expired PATs.
     pub fn authenticate_pat(&self, raw_pat: &str) -> Result<AuthenticatedPrincipal, AuthError> {
         let candidate_hash = hash_token_sha256(raw_pat);
-        let guard = self.read_state();
+        let guard = self.read_state()?;
 
         let Some(&pat_id) = guard.pat_hash_index.get(&candidate_hash) else {
             return Err(AuthError::Unauthenticated);
@@ -387,7 +387,7 @@ impl AuthStore {
         pat_id: PatId,
     ) -> Result<PersonalAccessTokenView, AuthError> {
         let (view, snapshot) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             let active_caller = Self::verify_active_user_locked(&guard, caller)?;
 
             let Some(pat) = guard.pats_by_id.get_mut(&pat_id) else {
@@ -426,7 +426,7 @@ impl AuthStore {
         let (canonical_key, fingerprint_sha256) = canonicalize_openssh_pubkey(public_key_openssh)?;
 
         let (view, snapshot) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             let active_caller = Self::verify_active_user_locked(&guard, caller)?;
 
             if guard
@@ -470,7 +470,7 @@ impl AuthStore {
         let (_canonical_key, fingerprint_sha256) = canonicalize_openssh_pubkey(public_key_openssh)
             .map_err(|_| AuthError::Unauthenticated)?;
 
-        let guard = self.read_state();
+        let guard = self.read_state()?;
         let Some(&key_id) = guard.ssh_fingerprint_index.get(&fingerprint_sha256) else {
             return Err(AuthError::Unauthenticated);
         };
@@ -498,7 +498,7 @@ impl AuthStore {
         ssh_key_id: SshKeyId,
     ) -> Result<SshPublicKeyView, AuthError> {
         let (view, snapshot) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             let active_caller = Self::verify_active_user_locked(&guard, caller)?;
 
             let Some(key_rec) = guard.ssh_keys_by_id.get_mut(&ssh_key_id) else {

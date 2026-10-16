@@ -19,7 +19,7 @@ import {
   VirtualFileTree,
 } from "../index";
 import type { LiveCommitSummary } from "./live-repo-client";
-import type { ActionLogEntry } from "./mock-data";
+import type { ActionLogLine } from "../index";
 import { PrimitivesTab } from "./PrimitivesTab";
 import type { WorkbenchTab } from "./WorkbenchApp";
 
@@ -52,7 +52,7 @@ export interface WorkbenchTabViewsProps {
   activeJobId: string;
   onSelectJob: (id: string) => void;
   onRerunAllActionJobs: () => void;
-  actionLogs: ActionLogEntry[];
+  actionLogs: ActionLogLine[];
   enterpriseUsers: EnterpriseUser[];
   onToggleEnterpriseUserRole: (id: number) => void;
   onToggleEnterpriseUserStatus: (id: number) => void;

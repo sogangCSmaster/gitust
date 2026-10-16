@@ -12,13 +12,15 @@
 
 mod credentials;
 mod crypto;
+mod disk_lock;
 mod invites;
 mod models;
 mod persistence;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_persistence;
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -35,7 +37,7 @@ pub use crypto::hash_token_sha256;
 pub use models::{IssuedInviteLink, IssuedPersonalAccessToken, LoginSessionResponse};
 
 use crypto::{hash_password_argon2, validate_repository_name, validate_username};
-use models::{AuthState, PersistedSnapshot, StoredUser};
+use models::{AuthState, StoredUser};
 use persistence::DiskStamp;
 
 /// Maximum failed login attempts allowed per identifier or account within the rate-limit window.
@@ -78,16 +80,8 @@ impl AuthStore {
     /// Opens or creates an on-disk persistent `AuthStore` at `path`.
     pub fn open_persistent(path: impl AsRef<Path>) -> Result<Self, AuthError> {
         let path_buf = path.as_ref().to_path_buf();
-        let state = if path_buf.exists() {
-            let bytes = fs::read(&path_buf)
-                .map_err(|e| AuthError::StorageError(format!("failed to read auth db: {e}")))?;
-            let snap: PersistedSnapshot = serde_json::from_slice(&bytes)
-                .map_err(|e| AuthError::StorageError(format!("corrupt auth db json: {e}")))?;
-            AuthState::from_snapshot(snap)
-        } else {
-            AuthState::default()
-        };
-        let initial_stamp = DiskStamp::of_path(&path_buf);
+        let (snapshot, initial_stamp) = persistence::load_initial_snapshot_locked(&path_buf)?;
+        let state = snapshot.map_or_else(AuthState::default, AuthState::from_snapshot);
 
         Ok(Self {
             state: Arc::new(RwLock::new(state)),
@@ -109,7 +103,7 @@ impl AuthStore {
         let clean_email = email.trim().to_ascii_lowercase();
 
         {
-            let guard = self.read_state();
+            let guard = self.read_state()?;
             if !guard.users.is_empty() {
                 return Err(AuthError::AdminAlreadyBootstrapped);
             }
@@ -123,7 +117,7 @@ impl AuthStore {
         let password_hash = hash_password_argon2(password)?;
 
         let (profile, snapshot) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             if !guard.users.is_empty() {
                 return Err(AuthError::AdminAlreadyBootstrapped);
             }
@@ -194,7 +188,7 @@ impl AuthStore {
         target_user_id: UserId,
     ) -> Result<UserPublicProfile, AuthError> {
         let (profile, snapshot) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             Self::verify_active_admin_locked(&guard, caller)?;
 
             let active_admin_count = guard
@@ -268,7 +262,7 @@ impl AuthStore {
         let clean_name = validate_repository_name(name)?;
 
         let (repo, snapshot) = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             let active_caller = Self::verify_active_user_locked(&guard, caller)?;
 
             if active_caller.role != EnterpriseRole::SiteAdmin
@@ -293,15 +287,13 @@ impl AuthStore {
         Ok(repo)
     }
 
-    #[must_use]
-    pub fn repository_exists(&self, repo_id: RepoId) -> bool {
-        self.read_state().repositories.contains_key(&repo_id)
+    pub fn repository_exists(&self, repo_id: RepoId) -> Result<bool, AuthError> {
+        Ok(self.read_state()?.repositories.contains_key(&repo_id))
     }
 
     /// Returns a snapshot of the authoritative [`EnterpriseSecurityPolicy`] stored in [`AuthStore`].
-    #[must_use]
-    pub fn security_policy(&self) -> EnterpriseSecurityPolicy {
-        self.read_state().policy.clone()
+    pub fn security_policy(&self) -> Result<EnterpriseSecurityPolicy, AuthError> {
+        Ok(self.read_state()?.policy.clone())
     }
 
     /// Verifies whether `caller` is permitted to access `repo_id`.
@@ -311,7 +303,7 @@ impl AuthStore {
         caller: &AuthenticatedPrincipal,
         repo_id: RepoId,
     ) -> Result<RepositoryRecord, AuthError> {
-        let guard = self.read_state();
+        let guard = self.read_state()?;
         let active_caller = Self::verify_active_user_locked(&guard, caller)?;
 
         let Some(repo) = guard.repositories.get(&repo_id) else {
@@ -333,7 +325,7 @@ impl AuthStore {
         &self,
         caller: &AuthenticatedPrincipal,
     ) -> Result<AuthenticatedPrincipal, AuthError> {
-        let guard = self.read_state();
+        let guard = self.read_state()?;
         if guard.users.is_empty() {
             return Ok(caller.clone());
         }
@@ -344,7 +336,7 @@ impl AuthStore {
         &self,
         caller: &AuthenticatedPrincipal,
     ) -> Result<Vec<UserPublicProfile>, AuthError> {
-        let guard = self.read_state();
+        let guard = self.read_state()?;
         Self::verify_active_admin_locked(&guard, caller)?;
         let mut users: Vec<UserPublicProfile> = guard
             .users
@@ -363,7 +355,7 @@ impl AuthStore {
     ) -> Result<(), AuthError> {
         let candidate_hash = hash_token_sha256(raw_session_token);
         let snapshot = {
-            let mut guard = self.write_state();
+            let mut guard = self.write_state()?;
             let active_caller = Self::verify_active_user_locked(&guard, caller)?;
             let Some(session) = guard.sessions_by_hash.get_mut(&candidate_hash) else {
                 return Err(AuthError::InvalidToken);
@@ -387,7 +379,7 @@ impl AuthStore {
         &self,
         caller: &AuthenticatedPrincipal,
     ) -> Result<Vec<PersonalAccessTokenView>, AuthError> {
-        let guard = self.read_state();
+        let guard = self.read_state()?;
         let active_caller = Self::verify_active_user_locked(&guard, caller)?;
         let mut pats: Vec<PersonalAccessTokenView> = guard
             .pats_by_id
@@ -404,7 +396,7 @@ impl AuthStore {
         &self,
         caller: &AuthenticatedPrincipal,
     ) -> Result<Vec<SshPublicKeyView>, AuthError> {
-        let guard = self.read_state();
+        let guard = self.read_state()?;
         let active_caller = Self::verify_active_user_locked(&guard, caller)?;
         let mut keys: Vec<SshPublicKeyView> = guard
             .ssh_keys_by_id

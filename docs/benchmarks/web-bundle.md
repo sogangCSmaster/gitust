@@ -95,3 +95,11 @@ command and environment give 70,482 initial gzip9 bytes (+47) and 75,262 cumulat
 bytes for the first Overview (+114). At gzip6 the totals are 70,528 and 75,317 bytes.
 The optional push hint and scope copy add no new chunk. The initial 50,000-byte target
 remains unmet; these emitted-byte measurements do not establish interaction latency.
+
+## Secondary default-branch management, 2026-10-18
+
+Based on `74b271b76b86325bb509274c7b83ea9e536f16ae`, removing the redundant primary-only
+UI conditions yields 70,467 initial gzip9 bytes (-15) and 75,235 cumulative bytes
+for the first Overview (-27), using the same maintained command and environment.
+The existing default-branch form stays lazy. The 50,000-byte initial target remains
+unmet; these are emitted-byte measurements, not interaction or network timing.

@@ -73,8 +73,6 @@ export const RepositoryDefaultBranch: Component<{
   onCleanup(clear);
   const supported = () =>
     props.repository.canChangeDefaultBranch === true &&
-    props.repository.capability === "workbench" &&
-    props.repository.isDefault &&
     props.liveMode &&
     props.actions;
   return (

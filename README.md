@@ -97,7 +97,7 @@ For an existing account, use **Manage existing member** to find its exact userna
 
 Use the compact [branch selector](docs/operations/branch-browsing.md) in Files or Changes to read a branch at its identified commit. Other branches remain browsable when the default branch has no commit; refreshing the list preserves the selected snapshot.
 
-SiteAdmins can change a registered bare primary's [default branch](docs/operations/default-branch.md) from Overview. New clones and omitted-base HTTP/MCP tasks use the selected branch; existing tasks keep their original approval target.
+SiteAdmins can change a registered bare primary or `--git-write-repo` secondary's [default branch](docs/operations/default-branch.md) from Overview. New clones use the selected branch. On the primary, omitted-base HTTP/MCP tasks also use it; existing tasks keep their original approval target.
 
 The upstream URL configures synchronization and publication. Starting the server does not automatically mirror or publish commits. Private outbound GitHub authentication currently uses SSH keys/agent and a preconfigured `known_hosts`, rather than HTTPS credential helpers.
 

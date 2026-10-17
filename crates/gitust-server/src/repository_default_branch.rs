@@ -1,4 +1,4 @@
-//! Default-branch management never expands the configured primary's write scope.
+//! Symbolic HEAD management uses the selected registered repository's write scope.
 use crate::{
     auth::{extract_principal, extract_principal_async},
     repository_reads::{id, response},
@@ -46,16 +46,15 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Changed
             "default branch request too large".into(),
         )
     })?;
-    let guard = state
-        .repo_mutation_lock
-        .clone()
-        .try_lock_owned()
-        .map_err(|_| {
-            (
-                StatusCode::CONFLICT,
-                "another repository mutation is in progress".into(),
-            )
-        })?;
+    let repository = state
+        .read_repository(repo_id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "repository is not hosted".into()))?;
+    let guard = repository.mutation.clone().try_lock_owned().map_err(|_| {
+        (
+            StatusCode::CONFLICT,
+            "another repository mutation is in progress".into(),
+        )
+    })?;
     tokio::task::spawn_blocking(move || {
         let _guard = guard;
         let _inventory = state.repository_registry.clone();
@@ -66,7 +65,7 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Changed
             }
             let rows = state
                 .auth_store
-                .authorized_repository_catalog(&current, &[state.repo_access])
+                .authorized_repository_catalog(&current, &[repository.access])
                 .map_err(map_auth_err)?;
             if rows.len() != 1 || !rows[0].can_rename {
                 return Err(map_auth_err(AuthError::ForbiddenRepositoryAccess));
@@ -74,13 +73,13 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Changed
             Ok(())
         };
         authorize()?;
-        let repository = state
-            .read_repository(repo_id)
-            .ok_or_else(|| (StatusCode::NOT_FOUND, "repository is not hosted".into()))?;
-        if !repository.is_default || repository.access.registration.is_none() {
+        if !(repository.is_default || repository.git_write)
+            || repository.access.registration.is_none()
+        {
             return Err((
                 StatusCode::FORBIDDEN,
-                "default branch changes require the registered primary repository".into(),
+                "default branch changes require a registered repository enabled for Git writes"
+                    .into(),
             ));
         }
         let request: ChangeRequest = serde_json::from_slice(&body).map_err(|_| {
@@ -93,6 +92,12 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Changed
             .engine
             .lock_worktree_service()
             .map_err(map_git_err)?;
+        if !repository.is_default {
+            repository
+                .engine
+                .validate_ordinary_git_service()
+                .map_err(map_git_err)?;
+        }
         let mut denied = None;
         let changed = repository.engine.change_default_branch_with_gate(
             &request.target_ref,

@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "base_commit": "74b271b76b86325bb509274c7b83ea9e536f16ae",
+  "scope": "SiteAdmin default branch management for explicitly writable bare secondary repositories",
+  "source_sha256": [
+    {
+      "path": "packages/design-system/src/showcase/RepositoryDefaultBranch.tsx",
+      "sha256": "643c4abf4ddc98c74e5d59244109730b510d67e9e39d96ee18d8b54dbfaa0845"
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-workspace.ts",
+      "sha256": "697c7e76076c3c123bcc8480a473c6503ead06757122b91ec9088015ca67608f"
+    },
+    {
+      "path": "packages/design-system/tests/repository-default-branch.test.tsx",
+      "sha256": "47f537be0f51ae000603d96d3fa2be9eacdba41656a65ddd9bb4fcffb0729049"
+    },
+    {
+      "path": "crates/gitust-server/src/repository_default_branch.rs",
+      "sha256": "17cf145627bc625745fd5d823f894560042ba2c3d875c2e750d3cdcca3ec3a58"
+    },
+    {
+      "path": "crates/gitust-server/src/repository_reads.rs",
+      "sha256": "99acfb08bdfb63ae91f1d9404f968a740f89953205da991172ed634430a4e2a0"
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_default.rs",
+      "sha256": "38b9a6066aed635ba0c48524c413385102eb3c2cff6fb962aa27f638797ff825"
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_default_secondary.rs",
+      "sha256": "2037a67e1d73255fba5c641e7a74760aaa2ba0c8bc5dc3263fe1d37f539b8165"
+    },
+    {
+      "path": "scripts/default-branch-rehearsal.py",
+      "sha256": "cb16940ca93aea6bde5c148c5b8bc8b67a2f8bbe4002e2dd75b4a6d948a988b7"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "768047c2c6537713d36a64111aae56cd35005a7c755def84188b7cf3e630fb8d"
+    }
+  ],
+  "binary_sha256": "0e3f529de8273abfe2eb70e6ae1109e83f6a34af27890a0f22f57ef4251cf6ea",
+  "binary_provenance": "Locally built base commit plus the listed candidate source and fresh embedded UI; not a clean committed-candidate build",
+  "verification": {
+    "command": "scripts/verify.sh",
+    "exit": 0,
+    "log_sha256": "2c05504d06e827f5870fe716536dafdd7589ce79717c5990209dfecb06e6ab2b",
+    "rust_passed": 431,
+    "git_ignored": 2,
+    "frontend_passed": 298,
+    "frontend_files": 39,
+    "python_passed": 20
+  },
+  "independent_source_review": {
+    "verdict": "CLEAR FOR INTEGRATION",
+    "p0": 0,
+    "p1": 0,
+    "p2": 0,
+    "record_sha256": "4035e2dfad39d0940c758f87dba57cb250fb94cee94929af6ad9cec663832d79",
+    "scope": "server4, UI3 and operator/contract6; final integrated evidence reviewed separately"
+  },
+  "operating": {
+    "report_sha256": "dfdd5e4023c5bec9012838228fdc40b6d4b70e3f8cd82fafd36a8e432ef2b7e9",
+    "actual_repositories": 3,
+    "platform": "Darwin",
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "checks": {
+      "passed": true,
+      "default_head_only_changed": true,
+      "registered_identity_preserved": true,
+      "denied_and_stale_requests_unchanged": true,
+      "read_only_git_state_preserved": true,
+      "existing_task_target_preserved": true,
+      "omitted_base_uses_current_default": true,
+      "restart_default_preserved": true,
+      "git_http_advertises_default": true,
+      "fresh_clone_uses_default": true,
+      "existing_clone_fetch_matches_git": true,
+      "git_fsck": true,
+      "secondary_head_only_changed": true,
+      "secondary_requires_site_admin": true,
+      "secondary_clone_and_fetch_match_git": true,
+      "secondary_annotated_tag_preserved": true,
+      "owned_services_reaped": true,
+      "private_fixture_removed": true
+    },
+    "runtime_source_sha256": {
+      "scripts/default-branch-rehearsal.py": "cb16940ca93aea6bde5c148c5b8bc8b67a2f8bbe4002e2dd75b4a6d948a988b7",
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+      "scripts/multi-repository-rehearsal.py": "f2d35dfa03cdf03500580587711bb020473463fb04d5782b430267bc9c7fdc36",
+      "scripts/empty-repository-rehearsal.py": "6cbc45f77607c8e8d867035207acd1e7476bd015866f4c31749fa2904bc0dc1a"
+    }
+  },
+  "native": {
+    "proof_sha256": "f33b2cbffbf04811398b93bbcad90d81f868d1350659172d212713586f264645",
+    "version": 1,
+    "viewports": [
+      {
+        "buttons": [
+          {
+            "height": 36,
+            "label": "New default branch"
+          },
+          {
+            "height": 32,
+            "label": "Refresh"
+          },
+          {
+            "height": 32,
+            "label": "Cancel"
+          },
+          {
+            "height": 32,
+            "label": "Change default"
+          },
+          {
+            "height": 32,
+            "label": "Dismiss"
+          }
+        ],
+        "dialogScrollWidth": 382,
+        "dialogWidth": 382,
+        "scrollWidth": 1440,
+        "titleHeight": 18,
+        "titleLineHeight": "18px",
+        "width": 1440
+      },
+      {
+        "buttons": [
+          {
+            "height": 36,
+            "label": "New default branch"
+          },
+          {
+            "height": 32,
+            "label": "Refresh"
+          },
+          {
+            "height": 32,
+            "label": "Cancel"
+          },
+          {
+            "height": 32,
+            "label": "Change default"
+          },
+          {
+            "height": 32,
+            "label": "Dismiss"
+          }
+        ],
+        "dialogScrollWidth": 382,
+        "dialogWidth": 382,
+        "scrollWidth": 768,
+        "titleHeight": 18,
+        "titleLineHeight": "18px",
+        "width": 768
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "label": "New default branch"
+          },
+          {
+            "height": 44,
+            "label": "Refresh"
+          },
+          {
+            "height": 44,
+            "label": "Cancel"
+          },
+          {
+            "height": 44,
+            "label": "Change default"
+          },
+          {
+            "height": 44,
+            "label": "Dismiss"
+          }
+        ],
+        "dialogScrollWidth": 286,
+        "dialogWidth": 286,
+        "scrollWidth": 320,
+        "titleHeight": 18,
+        "titleLineHeight": "18px",
+        "width": 320
+      }
+    ],
+    "changed_secondary_to_release": true,
+    "catalog_shows_release": true,
+    "success_focus": "Change default branch",
+    "return_reopens_current_default": true,
+    "escape_restores_trigger": true,
+    "readonly_has_no_management": true,
+    "native_git_selected_HEAD_matches": true,
+    "primary_and_readonly_defaults_preserved": true,
+    "physical_devices": false,
+    "clipboard_mutated": false,
+    "fixture_only": true,
+    "owned_service_removed": true,
+    "owned_tab_closed": true,
+    "viewport_reset": true,
+    "screenshots": [
+      {
+        "name": "changed-1440.jpg",
+        "sha256": "d1d0607dd6a6999f7e4ee9745ef043523458bcd02f89efdcd0fc691fdc84684e"
+      },
+      {
+        "name": "changed-320.jpg",
+        "sha256": "04a517f2ca4862d4f3c9ad324e3704af866f657a7220c78c5dc2e045bbce440b"
+      },
+      {
+        "name": "dialog-1440.jpg",
+        "sha256": "7aa3390f9b1d89a784db7e3b4157ba1ac4f7836ef479e9b323ba4ce1df086ec7"
+      },
+      {
+        "name": "dialog-320.jpg",
+        "sha256": "746c35a89e63b8d173cf7952e00a0dac68cad20c594b26175d5056b18bf7ad68"
+      },
+      {
+        "name": "dialog-768.jpg",
+        "sha256": "d5e703923c4889d0ea0f3ee2756071fadde45f789c07a2f6da465936cbdb4545"
+      }
+    ]
+  },
+  "bundle": {
+    "initial_gzip9": 70467,
+    "first_overview_cumulative_gzip9": 75235,
+    "delta_initial": -15,
+    "delta_overview": -27,
+    "target_bytes": 50000,
+    "target_met": false,
+    "measurement_sha256": "be4fa611dad996bfa0b76974c1280c0e43d4c01250ec539dea7af2267acbdaad"
+  },
+  "baseline_hosted_ci": {
+    "commit": "74b271b76b86325bb509274c7b83ea9e536f16ae",
+    "run_id": 39073344548,
+    "attempt": 1,
+    "conclusion": "success",
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39073344548",
+    "platforms": [
+      "ubuntu-22.04",
+      "macos-15"
+    ],
+    "metadata_sha256": "0eac241bf551cc170e934293e003f5641418693e3efafb99961d08ea0ae258ae",
+    "named_required_steps_checked": 20
+  },
+  "limits": [
+    "Current candidate hosted CI is pending its commit and push. Baseline CI is not later-candidate evidence.",
+    "Physical devices, intended IDE sessions, separate installation and full alpha acceptance remain open.",
+    "Actual external GitHub product publication remains user-deferred; no deployment.",
+    "Automatic Gate B stays stopped. No stopped historical probe was retried or reconstructed.",
+    "External host Git writers require operator coordination; the existing core symbolic HEAD contract is unchanged."
+  ]
+}

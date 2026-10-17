@@ -28,6 +28,11 @@ const secondary = {
   is_default: false,
   can_change_default_branch: false,
 };
+const writableSecondary = {
+  ...secondary,
+  can_change_default_branch: true,
+  can_push: true,
+};
 const topic = {
   name: "topic",
   ref_name: "refs/heads/topic",
@@ -60,13 +65,15 @@ afterEach(() => {
 const setup = async (
   patch: (init: RequestInit) => Promise<Response>,
   head: string | null = primary.head_commit,
+  repository = primary,
 ) => {
-  let row = { ...primary, head_commit: head };
+  let row = { ...repository, head_commit: head };
+  const other = repository.id === primary.id ? secondary : primary;
   let page = { branches: [topic], next_cursor: null as string | null };
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "PATCH") return patch(init);
     if (url.includes("/branches?")) return response(page);
-    return response({ repositories: [row, secondary] });
+    return response({ repositories: [row, other] });
   });
   vi.stubGlobal("fetch", fetcher);
   let workspace!: ReturnType<typeof createRepositoryWorkspace>;
@@ -274,6 +281,53 @@ it("keeps Next available for a page with no eligible candidates and retains sele
   ).toBe(true);
 });
 
+it("changes a supported browse repository by its UUID and hides management without a positive hint", async () => {
+  const pending = deferred<Response>();
+  const state = await setup(
+    () => pending.promise,
+    secondary.head_commit,
+    writableSecondary,
+  );
+  expect(screen.getByText("Git hosting")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Worktrees/ })).toBeNull();
+  await open();
+  await choose();
+  await submit();
+  const patch = state.fetcher.mock.calls.find(
+    ([, init]) => init?.method === "PATCH",
+  )!;
+  expect(patch[0]).toBe(`/api/v1/repos/${secondary.id}/default-branch`);
+  expect(JSON.parse(patch[1]!.body as string)).toEqual({
+    target_ref: topic.ref_name,
+    expected_current_ref: "refs/heads/main",
+    expected_target_commit: topic.commit_sha,
+  });
+  expect(state.workspace.selected()?.branch).toBe("main");
+  state.setRow({ branch: topic.name, head_commit: topic.commit_sha });
+  pending.resolve(
+    response({
+      id: secondary.id,
+      branch: topic.name,
+      head_commit: topic.commit_sha,
+    }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(
+    screen.getByRole("button", { name: "Change default branch" }).textContent,
+  ).toContain(topic.name);
+  expect(state.clearView).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: /Files/ })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Worktrees/ })).toBeNull();
+  for (const hint of [false, undefined]) {
+    state.setRow({ can_change_default_branch: hint });
+    await state.workspace.refresh();
+    expect(
+      screen.queryByRole("button", { name: "Change default branch" }),
+    ).toBeNull();
+    expect(screen.getByText("Git hosting")).toBeTruthy();
+  }
+});
+
 it.each(["ABA", "logout", "replacement"])(
   "ignores a late successful PATCH body after %s without changing a new selection or credential",
   async (mode) => {
@@ -288,6 +342,8 @@ it.each(["ABA", "logout", "replacement"])(
             return body.promise;
           },
         }) as Response,
+      secondary.head_commit,
+      writableSecondary,
     );
     await open();
     await choose();
@@ -304,7 +360,7 @@ it.each(["ABA", "logout", "replacement"])(
     const count = state.fetcher.mock.calls.length;
     body.resolve(
       JSON.stringify({
-        id: primary.id,
+        id: secondary.id,
         branch: "topic",
         head_commit: topic.commit_sha,
       }),

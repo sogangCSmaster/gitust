@@ -50,6 +50,11 @@ authorization for a later request. Missing hints default to false. The web shows
 Clone explains the caller's current scope. A primary-repository Developer can
 still use the separate owned-agent-branch workflow when `can_push` is false.
 
+SiteAdmins can also change an opted-in bare secondary's [default branch](default-branch.md)
+from Overview. The separate `can_change_default_branch` hint controls this entry;
+ordinary push permission does not grant it. The change updates only that
+repository's symbolic HEAD and does not add workbench capabilities.
+
 Git hosting on a secondary does not start its managed worktrees, automatic Checks,
 MCP execution, synchronization or approval/publication workflow. Those operations
 continue to use the configured primary. UUID and registration anchors remain

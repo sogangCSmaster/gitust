@@ -871,3 +871,37 @@ the existing full suite. These are distinct evidence scopes, not a completed new
 regression or Gate B. Exact-candidate hosted CI, physical devices, intended IDE sessions,
 separate installation and full acceptance remain open. Actual GitHub product publication
 stays deferred; the prior `9844321` checkpoint passed both hosted platform jobs.
+
+### Writable-secondary default branches, 2026-10-18
+
+Based on `74b271b76b86325bb509274c7b83ea9e536f16ae`, the existing compact default-branch
+dialog now supports configured registered bare `--git-write-repo` secondaries for
+active SiteAdmins. The server selects the requested UUID's access binding, mutation
+lock and engine, retains service ownership and revalidates the secondary hosting
+layout. Ordinary Maintainer push permission does not grant this setting. Read-only
+repositories and primary-only workbench/execution routing retain their scope.
+
+The same existing request/response and symbolic HEAD comparison contract is used;
+no core ref-CAS implementation was changed. UI UUID, current-ref, selected SHA,
+session and dialog/selection epochs remain enforced. Native 320/768/1440px checks
+confirmed one-line dialog titles, no horizontal overflow, equal adjacent action
+heights (44/32/32px), successful change, keyboard focus restoration and the hidden
+entry on read-only repositories. The selected secondary HEAD was independently
+confirmed with native Git. Only temporary owned services and browser tabs were used
+and removed; physical devices were not tested.
+
+The combined candidate passed `scripts/verify.sh`: Rust 431, frontend 298 across 39
+files and Python 20, with two existing ignored Git tests. The three-repository
+normal-use rehearsal passed 18 required checks, including exact selected HEAD,
+unchanged primary tasks/creation targets, readonly refs, raw annotated tags,
+restart, advertisement, fresh clone, fetch, strict fsck and cleanup. The initial
+bundle remains above its 50 kB goal at 70,467 gzip9 bytes; first Overview is 75,235.
+[Evidence](evidence/secondary-default-branch-local-2026-10-18.json) separates source,
+binary, operating, browser and measurement records.
+
+The preceding `74b271b` [CI run](https://github.com/sogangCSmaster/gitust/actions/runs/39073344548)
+succeeded on Ubuntu and macOS, including all 20 named required steps (the Linux
+prerequisite step is intentionally skipped on macOS). The later default-branch
+candidate still needs its own hosted run. Actual GitHub product publication stays
+user-deferred; automatic Gate B and previously interrupted procedures were not
+resumed. Full alpha acceptance and deployment are not claimed.

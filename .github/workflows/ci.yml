@@ -247,7 +247,7 @@ jobs:
           backend = {"Linux": "linux_bubblewrap", "macOS": "macos_seatbelt"}[os.environ["RUNNER_OS"]]
           binary_sha = hashlib.sha256(Path("target/debug/gitust").read_bytes()).hexdigest()
           if (report["source_commit"] != expected or report["runtime_worktree_dirty"] is not False
-              or report["binary_sha256"] != binary_sha or report["actual_repositories"] != 2
+              or report["binary_sha256"] != binary_sha or report["actual_repositories"] != 3
               or report["sandbox_backends"] != [backend] or report["external_github_publication"] is not False):
               raise SystemExit("The default-branch rehearsal has invalid source or scope evidence")
           checks = ["passed", "default_head_only_changed", "registered_identity_preserved",
@@ -255,6 +255,8 @@ jobs:
                     "existing_task_target_preserved", "omitted_base_uses_current_default",
                     "restart_default_preserved", "git_http_advertises_default",
                     "fresh_clone_uses_default", "existing_clone_fetch_matches_git", "git_fsck",
+                    "secondary_head_only_changed", "secondary_requires_site_admin",
+                    "secondary_clone_and_fetch_match_git", "secondary_annotated_tag_preserved",
                     "owned_services_reaped", "private_fixture_removed"]
           if not all(report[key] is True for key in checks):
               raise SystemExit("The default-branch rehearsal is incomplete")

@@ -1,6 +1,8 @@
 use super::*;
 #[path = "tests_repository_default_auth.rs"]
 mod authentication;
+#[path = "tests_repository_default_secondary.rs"]
+mod secondary;
 use std::{path::Path, process::Command};
 pub(super) fn git(path: &Path, args: &[&str]) -> String {
     let mut command = Command::new("git");

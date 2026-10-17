@@ -206,7 +206,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 can_invite_to_group: authorization.can_invite_to_group,
                 can_manage_group_members: authorization.can_manage_group_members,
                 can_change_default_branch: authorization.can_rename
-                    && context.is_default
+                    && (context.is_default || context.git_write)
                     && context
                         .engine
                         .inspect_changeable_default_branch()

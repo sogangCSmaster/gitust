@@ -219,8 +219,6 @@ export const createRepositoryWorkspace = (options: {
       options.liveMode() &&
       repository?.id === intent.repoId &&
       repository.canChangeDefaultBranch === true &&
-      repository.capability === "workbench" &&
-      repository.isDefault &&
       (!original ||
         (activeDefaultKey === intent.key &&
           `refs/heads/${repository.branch}` === intent.currentRef)) &&
@@ -237,8 +235,6 @@ export const createRepositoryWorkspace = (options: {
         !repository?.canChangeDefaultBranch ||
         !token ||
         !options.liveMode() ||
-        !repository.isDefault ||
-        repository.capability !== "workbench" ||
         !client.isCurrentSession()
       )
         return null;

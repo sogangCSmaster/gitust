@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Change a disposable bare primary's default without retargeting an existing task."""
+"""Change primary and opted-in secondary defaults without retargeting an existing task."""
 import argparse
 import hashlib
 import importlib.util
@@ -39,6 +39,7 @@ class Rehearsal:
         process = subprocess.Popen([
             str(self.f.binary), "serve", "--bind", f"127.0.0.1:{port}",
             "--repo", str(self.f.repos[0]), "--read-only-repo", str(self.f.repos[1]),
+            "--git-write-repo", str(self.f.repos[2]),
             "--auth-db", str(self.f.auth), "--sync-github", str(upstream),
             "--trusted-single-user-sandbox"], env=self.h.clean_environment(),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -68,8 +69,14 @@ class Rehearsal:
                         "--email", "operator@company.internal", "--auth-db", str(self.f.auth)],
                        env={"GITUST_ADMIN_PASSWORD": self.f.password})
         self.ids, self.anchors = [], []
+        self.f.repos.append(self.f.root / "git-write.git")
         for index, repo in enumerate(self.f.repos):
-            self.h.command(self.creation.create_arguments(self.f, index),
+            arguments = self.creation.create_arguments(self.f, index) if index < 2 else [
+                str(self.f.binary), "repository", "create", "--repo", str(repo),
+                "--auth-db", str(self.f.auth), "--admin-username", "operator",
+                "--name", "writable-secondary", "--owner-team-id", self.f.teams[0],
+                "--private", "true", "--default-branch", "main"]
+            self.h.command(arguments,
                            env={"GITUST_ADMIN_PASSWORD": self.f.password})
             pair = self.creation.anchors(repo)
             self.ids.append(json.loads(pair[0])["repo_id"])
@@ -100,6 +107,36 @@ class Rehearsal:
         self.h.git(self.client, "tag", "-a", "preserved-tag", "-m", "Preserve the tag object")
         self.git_http(self.client, "push", "origin", "HEAD:refs/heads/develop", "refs/tags/preserved-tag")
         self.require(self.main != self.develop, "fixture must distinguish default branch contents")
+        self.secondary_seed()
+
+    def secondary_seed(self):
+        self.secondary_client = self.f.root / "secondary-existing-clone"
+        self.git_http(self.f.root, "clone", self.url + f"/git/{self.ids[2]}.git",
+                      str(self.secondary_client))
+        self.h.git(self.secondary_client, "config", "user.name", "Gitust Secondary Default Rehearsal")
+        self.h.git(self.secondary_client, "config", "user.email", "secondary-default@company.internal")
+        marker = self.secondary_client / "README.md"
+        marker.write_text("# Secondary main\n")
+        self.h.git(self.secondary_client, "add", "README.md")
+        self.h.git(self.secondary_client, "commit", "-m", "test: secondary main")
+        self.secondary_main = self.h.git(self.secondary_client, "rev-parse", "HEAD")
+        self.git_http(self.secondary_client, "push", "origin", "HEAD:refs/heads/main")
+        self.h.git(self.secondary_client, "checkout", "-b", "release")
+        marker.write_text("# Secondary release\n")
+        self.h.git(self.secondary_client, "commit", "-am", "test: secondary release")
+        self.secondary_release = self.h.git(self.secondary_client, "rev-parse", "HEAD")
+        self.h.git(self.secondary_client, "tag", "-a", "secondary-tag", "-m", "Keep raw annotated tag")
+        self.secondary_tag = self.h.git(self.secondary_client, "rev-parse", "refs/tags/secondary-tag")
+        self.git_http(self.secondary_client, "push", "origin", "HEAD:refs/heads/release", "refs/tags/secondary-tag")
+        self.require(len({self.main, self.develop, self.secondary_main, self.secondary_release}) == 4,
+                     "repositories and branches need independent commit identities")
+        invite = self.admin.request("POST", "/api/v1/admin/invites", {
+            "target_email": "maintainer@company.internal", "assigned_role": "Maintainer",
+            "team_ids": [self.f.teams[0]]}, expected=201)
+        password = secrets.token_urlsafe(24)
+        self.h.Client(self.url).request("POST", "/api/v1/auth/invites/redeem", {
+            "raw_token": invite["raw_token"], "username": "maintainer", "password": password}, expected=201)
+        self.maintainer, _ = self.f.login(self.url, "maintainer", password)
 
     def worktree(self, task):
         path = self.f.repos[0] / "gitust-worktrees" / task["worktree_id"]
@@ -195,6 +232,40 @@ class Rehearsal:
                      "default change peeled the annotated tag object")
         print("PASS actual default mutation: denied callers, symbolic HEAD, unchanged refs and original task target", flush=True)
 
+    def secondary_mutation(self):
+        route = f"/api/v1/repos/{self.ids[2]}/default-branch"
+        before = [self.git_state(repo) for repo in self.f.repos]
+        tasks = self.admin.request("GET", "/api/v1/swarm/worktrees")
+        jobs = self.admin.request("GET", "/api/v1/repo/automatic-runs")
+        origins = [self.origin(task).read_bytes() for task in [self.existing, self.default_task]]
+        for client, status in [(self.h.Client(self.url), 401), (self.member, 403), (self.maintainer, 403)]:
+            self.change("main", "release", self.secondary_release, client=client, route=route, status=status)
+        self.change("develop", "release", self.secondary_release, route=route, status=409)
+        self.change("main", "release", self.secondary_main, route=route, status=409)
+        self.require([self.git_state(repo) for repo in self.f.repos] == before,
+                     "denied or stale secondary default request changed a repository")
+        catalog = {row["id"]: row for row in self.admin.request("GET", "/api/v1/repos")["repositories"]}
+        self.require(catalog[self.ids[2]]["can_change_default_branch"] is True
+                     and catalog[self.ids[2]]["capability"] == "browse"
+                     and catalog[self.ids[2]]["is_default"] is False,
+                     "writable secondary must support default management without becoming the primary")
+        member_rows = self.maintainer.request("GET", "/api/v1/repos")["repositories"]
+        self.require(all(row["can_change_default_branch"] is False for row in member_rows),
+                     "ordinary push permission must not grant default management")
+        result = self.change("main", "release", self.secondary_release, route=route)
+        self.require(result == {"id": self.ids[2], "branch": "release", "head_commit": self.secondary_release},
+                     "secondary default response selected the wrong repository or commit")
+        after = [self.git_state(repo) for repo in self.f.repos]
+        self.require(after[:2] == before[:2] and after[2] == ("refs/heads/release", before[2][1]),
+                     "secondary default change must change only the selected symbolic HEAD")
+        self.require([self.creation.anchors(repo) for repo in self.f.repos] == self.anchors
+                     and self.admin.request("GET", "/api/v1/swarm/worktrees") == tasks
+                     and self.admin.request("GET", "/api/v1/repo/automatic-runs") == jobs
+                     and [self.origin(task).read_bytes() for task in [self.existing, self.default_task]] == origins,
+                     "secondary default change altered identity, primary tasks, jobs or creation targets")
+        self.secondary_after = after[2]
+        print("PASS secondary default: explicit hosting capability, SiteAdmin authority and three-repository isolation", flush=True)
+
     def restart_and_clone(self):
         self.f.stop(self.process)
         self.start()
@@ -202,7 +273,10 @@ class Rehearsal:
         primary = catalog[self.ids[0]]
         self.require(primary["branch"] == "develop" and primary["head_commit"] == self.develop
                      and primary["can_change_default_branch"] is True
-                     and catalog[self.ids[1]]["can_change_default_branch"] is False,
+                     and catalog[self.ids[1]]["can_change_default_branch"] is False
+                     and catalog[self.ids[2]]["branch"] == "release"
+                     and catalog[self.ids[2]]["head_commit"] == self.secondary_release
+                     and catalog[self.ids[2]]["can_change_default_branch"] is True,
                      "restart lost default metadata or advertised unsupported management")
         self.require(self.git_state(self.f.repos[1]) == self.secondary_before,
                      "restart changed the read-only repository's Git state")
@@ -222,7 +296,29 @@ class Rehearsal:
         self.require(self.h.git(self.client, "rev-parse", "origin/main") == self.checked
                      and self.h.git(self.client, "rev-parse", "origin/develop") == self.develop,
                      "existing clone fetch lost independent target branch updates")
-        for repo in [*self.f.repos, self.client, clone,
+        secondary_url = self.url + f"/git/{self.ids[2]}.git"
+        advertised = self.git_http(self.f.root, "ls-remote", "--symref", secondary_url, "HEAD")
+        self.require("ref: refs/heads/release\tHEAD" in advertised.splitlines()
+                     and self.secondary_release + "\tHEAD" in advertised.splitlines(),
+                     "secondary Git advertisement did not retain its new default")
+        secondary_clone = self.f.root / "secondary-new-clone"
+        self.git_http(self.f.root, "clone", secondary_url, str(secondary_clone))
+        self.git_http(self.secondary_client, "remote", "set-url", "origin", secondary_url)
+        self.git_http(self.secondary_client, "fetch", "origin")
+        self.require(self.h.git(secondary_clone, "symbolic-ref", "HEAD") == "refs/heads/release"
+                     and self.h.git(secondary_clone, "rev-parse", "HEAD") == self.secondary_release
+                     and (secondary_clone / "README.md").read_text() == "# Secondary release\n"
+                     and self.h.git(self.secondary_client, "rev-parse", "origin/main") == self.secondary_main
+                     and self.h.git(self.secondary_client, "rev-parse", "origin/release") == self.secondary_release,
+                     "secondary clone or fetch does not match its independent Git state")
+        for repo in [self.f.repos[2], self.secondary_client, secondary_clone]:
+            self.require(self.h.git(repo, "rev-parse", "refs/tags/secondary-tag") == self.secondary_tag
+                         and self.h.git(repo, "cat-file", "-t", self.secondary_tag) == "tag",
+                         "secondary default change or transport altered the annotated tag object")
+        self.require(self.git_state(self.f.repos[2]) == self.secondary_after
+                     and [self.creation.anchors(repo) for repo in self.f.repos] == self.anchors,
+                     "restart changed secondary Git state or registered identities")
+        for repo in [*self.f.repos, self.client, clone, self.secondary_client, secondary_clone,
                      self.worktree(self.existing), self.worktree(self.default_task)]:
             self.h.git(repo, "fsck", "--full", "--strict")
         self.f.stop(self.process)
@@ -231,14 +327,17 @@ class Rehearsal:
     def execute(self):
         self.setup()
         self.mutation()
+        self.secondary_mutation()
         self.restart_and_clone()
-        return {"version": 1, "passed": True, "actual_repositories": 2,
+        return {"version": 2, "passed": True, "actual_repositories": 3,
                 "default_head_only_changed": True, "registered_identity_preserved": True,
                 "denied_and_stale_requests_unchanged": True, "existing_task_target_preserved": True,
                 "read_only_git_state_preserved": True,
                 "omitted_base_uses_current_default": True, "restart_default_preserved": True,
                 "git_http_advertises_default": True, "fresh_clone_uses_default": True,
                 "existing_clone_fetch_matches_git": True, "git_fsck": True,
+                "secondary_head_only_changed": True, "secondary_requires_site_admin": True,
+                "secondary_clone_and_fetch_match_git": True, "secondary_annotated_tag_preserved": True,
                 "external_github_publication": False, "platform": os.uname().sysname,
                 "sandbox_backends": sorted(self.backends)}
 

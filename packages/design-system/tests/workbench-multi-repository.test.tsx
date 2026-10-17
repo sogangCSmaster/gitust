@@ -113,7 +113,7 @@ it("opens a real browse-only repository without exposing primary worktree action
   expect(
     within(nav).queryByRole("button", { name: "Actions", exact: true }),
   ).toBeNull();
-  expect(await screen.findByText("Browse only", { exact: true })).toBeTruthy();
+  expect(await screen.findByText("Read only", { exact: true })).toBeTruthy();
   expect(
     screen.queryByRole("button", { name: "Rename repository" }),
   ).toBeNull();

@@ -79,7 +79,7 @@ or starts its worktrees, automatic jobs or synchronization. Change this inventor
 
 `GET /api/v1/repos` lists only configured repositories the current account can access, using
 one auth snapshot for current memberships and pinned bindings. Metadata-only auth rows are
-excluded. Each item contains `id`, `name`, `branch`, `head_commit`, `capability`, `is_default` and `can_rename`.
+excluded. Each item contains `id`, `name`, `branch`, `head_commit`, `capability`, `is_default` and `can_rename`, plus the current `can_clone` hint.
 The primary advertises `workbench`; secondary items advertise `browse`. An account may have
 no visible default repository or an empty catalog. Reads use `/api/v1/repos/UUID/commits`,
 `tree`, `blob` and `diff`, retaining the existing object-read response formats and limits.
@@ -104,14 +104,16 @@ authority is created by viewing the screen.
 Authorized primary-repository Git clients can clone an empty repository and make
 its first ordinary push through the existing Smart HTTP transport. A push to another
 branch does not retarget HEAD. Object reads of the missing HEAD still return 404;
-explicit reads of another existing branch work normally. Secondary Git transport
-remains unavailable. Import still requires an existing commit on its explicit
+explicit reads of another existing branch work normally. Configured secondary
+repositories also support authenticated clone/fetch, including an unborn default,
+while receive-pack and push remain disabled. Import still requires an existing commit on its explicit
 default branch. Use the separate offline [repository create](repository-create.md)
 command to prepare and register a fresh bare repository without source commits.
 
-Secondary browsing does not enable writes, managed worktrees, Actions, MCP/OAuth or Git
-transport for those UUIDs. Existing `/api/v1/repo/*`, worktree and Git endpoints continue to
-use the primary. Capability labels describe these supported operations; authorization always
+Secondary reads do not enable writes, managed worktrees, Actions or MCP/OAuth for
+those UUIDs. Existing `/api/v1/repo/*`, worktree and Git receive-pack endpoints continue to
+use the primary; UUID upload-pack routes select the actual configured repository.
+See the [read-only Git contract](read-only-git.md). Capability labels describe supported operations; authorization always
 comes from current server-side account, registration and team checks.
 
 Back up all configured repositories with their shared auth database while every writer is
@@ -147,7 +149,7 @@ changes are not reversed; synchronization is not an all-ref rollback transaction
 An active SiteAdmin may change a configured registered repository's display name while
 it is served. This works for the primary and read-only secondary entries; it does not
 change the UUID, registration nonce, owner team, privacy, creation time, host path, Git
-refs or clone URLs. A secondary still has only its existing browse capability.
+refs or clone URLs. A secondary retains its read-only browse and clone/fetch capabilities.
 
 `PATCH /api/v1/repos/UUID` accepts only `{"name":"project-name"}` (at most 4 KiB of
 JSON) and returns `200 {"id":"UUID","name":"project-name"}` with `no-store`.

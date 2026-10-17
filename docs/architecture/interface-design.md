@@ -12,7 +12,8 @@ an Apple product or an official Apple design.
 - **Repository:** The searchable live list contains authorized hosted repositories,
   excluding metadata-only ACL records. The primary workbench has Overview,
   Worktrees, Files, Changes and live Actions diagnostics for SiteAdmins. A secondary
-  repository is labelled **Browse only** and offers Overview, Files and Changes;
+  repository is labelled **Read only** and offers Overview, Files, Changes and
+  authenticated clone/fetch;
   primary worktree actions, history, synchronization and their commands are absent.
   Actions opens the exact retained run in Activity and has no execution controls.
   A visible back action returns to Repositories. Hosting configuration remains an

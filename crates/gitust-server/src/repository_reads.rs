@@ -127,6 +127,7 @@ struct CatalogEntry {
     capability: &'static str,
     is_default: bool,
     can_rename: bool,
+    can_clone: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     is_private: Option<bool>,
     can_change_visibility: bool,
@@ -192,6 +193,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 },
                 is_default: context.is_default,
                 can_rename: authorization.can_rename,
+                can_clone: true,
                 is_private: authorization
                     .metadata
                     .as_ref()

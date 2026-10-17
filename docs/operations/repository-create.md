@@ -36,10 +36,10 @@ administrator session after preparation and before registration/publication.
 ## Serve and make the first commit
 
 Configure the result explicitly as the primary `--repo`, or as a registered
-`--read-only-repo` for browsing. Restart the service to change its inventory; create
+`--read-only-repo` for browsing and clone/fetch. Restart the service to change its inventory; create
 does not edit a running server's configuration. Primary Git transport uses the same
-registered UUID before and after its first commit. Secondary repositories continue
-to lack Git transport and worktree writes.
+registered UUID before and after its first commit. Secondary repositories support
+read-only Smart HTTP, but not push or worktree writes.
 
 The catalog and primary summary show the actual default branch with
 `head_commit: null`. An authorized Git client can clone the primary, commit locally

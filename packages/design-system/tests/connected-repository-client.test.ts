@@ -118,6 +118,36 @@ it("accepts visibility only as explicit booleans without inferring older metadat
   expect(states.at(-1)?.repositories).toEqual([]);
 });
 
+it("retains optional clone capability and rejects malformed transport hints", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        response([
+          { ...repo, can_clone: false },
+          { ...secondary, can_clone: true },
+        ]),
+      )
+      .mockResolvedValueOnce(response([repo, secondary]))
+      .mockResolvedValueOnce(response([{ ...secondary, can_clone: "true" }])),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories.map((row) => row.canClone)).toEqual([
+    false,
+    true,
+  ]);
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toHaveLength(2);
+  expect(
+    states.at(-1)?.repositories.every((row) => row.canClone === undefined),
+  ).toBe(true);
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+  expect(states.at(-1)?.error).toContain("invalid repository metadata");
+});
+
 it("reads an optional default-branch capability without granting it to older catalogs", async () => {
   vi.stubGlobal(
     "fetch",

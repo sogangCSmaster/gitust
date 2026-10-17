@@ -47,7 +47,7 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
    Restore the empty primary and its auth checkpoint while the original repository
    and auth file are unavailable, then authenticate and serve its preserved identity.
    Restart, verify the same identities and run strict Git `fsck` on server/client
-   fixtures. This uses local HTTP only and does not enable secondary transport.
+   fixtures. This uses local HTTP only; secondary push remains denied.
 7. Take one stopped checkpoint of a registered primary and read-only secondary,
    including their Git data, managed worktrees and shared auth snapshot. Make all
    originals unavailable, restore into a different directory, and start the
@@ -58,7 +58,13 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
    must still require fresh verification before approval. The report must match
    the tested source and actual binary hash. This is a stopped disposable
    installation rehearsal, without external GitHub publication.
-8. Kill a disposable fixture service during an actual automatic Check and require
+8. Clone distinct primary and secondary repositories using session and Basic PAT
+   authentication. Compare native Git commits and raw annotated-tag objects,
+   fetch an offline secondary update after restart, deny secondary push for both
+   administrator and owner, and verify scope changes, revoked credentials and
+   inactive accounts. Require unchanged primary refs, stable registration and
+   strict server/client `fsck`, then remove private fixtures before success.
+9. Kill a disposable fixture service during an actual automatic Check and require
    a fresh service to refuse the unresolved execution fence. Stop only the
    fixture's authenticated process groups, require explicit operator recovery,
    and prove ordinary execution resumes without restoring verification authority.

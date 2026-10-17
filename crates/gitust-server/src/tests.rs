@@ -546,3 +546,8 @@ mod tests_repository_branches;
 mod tests_repository_visibility;
 #[path = "tests_repository_visibility_auth.rs"]
 mod tests_repository_visibility_auth;
+
+#[path = "tests_git_http_secondary.rs"]
+mod tests_git_http_secondary;
+#[path = "tests_git_http_secondary_auth.rs"]
+mod tests_git_http_secondary_auth;

@@ -264,7 +264,7 @@ class Rehearsal:
         after = [(self.git(repo, "show-ref"), self.git(repo, "worktree", "list", "--porcelain"))
                  for repo in self.repos]
         self.require(before == after, "rejected secondary mutations changed repository refs or worktrees")
-        self.admin.request("GET", f"/git/{self.ids[1]}.git/info/refs?service=git-upload-pack",
+        self.admin.request("GET", f"/git/{self.ids[1]}.git/info/refs?service=git-receive-pack",
                            expected=404)
         revoked, _ = self.login(self.url, "operator", self.password)
         revoked.request("POST", "/api/v1/auth/logout", expected=204)

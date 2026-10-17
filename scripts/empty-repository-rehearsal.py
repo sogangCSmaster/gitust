@@ -207,7 +207,7 @@ def execute(fixture):
     blob = fixture.admin.request("GET", f"/api/v1/repos/{fixture.ids[0]}/blob?rev={head}&path=README.md")
     fixture.require(blob["commit_sha"] == head and blob["content"] == (clone / "README.md").read_text(),
                     "created repository browser reads a different committed file")
-    fixture.admin.request("GET", f"/git/{fixture.ids[1]}.git/info/refs?service=git-upload-pack",
+    fixture.admin.request("GET", f"/git/{fixture.ids[1]}.git/info/refs?service=git-receive-pack",
                           expected=404)
     before = [anchors(repo) for repo in fixture.repos]
     refs = fixture.git(fixture.repos[0], "for-each-ref", "--format=%(refname) %(objectname)")
@@ -235,7 +235,7 @@ def execute(fixture):
             "unborn_registration_restored_without_original": True,
             "unborn_default_did_not_hide_other_branches": True,
             "first_ordinary_push_and_fetch": True, "independent_git_read_oracles": True,
-            "secondary_transport_denied": True, "populated_retry_rejected_unchanged": True,
+            "secondary_push_denied": True, "populated_retry_rejected_unchanged": True,
             "restart_identity_preserved": True, "git_fsck": True,
             "uuid_branch_pages_match_git": True,
             "unborn_default_exposes_existing_branches": True, "secondary_branch_reads": True,

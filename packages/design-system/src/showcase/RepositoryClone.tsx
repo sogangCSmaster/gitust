@@ -20,7 +20,10 @@ import {
   TextFieldLabel,
 } from "../components/ui/text-field";
 import { Icon } from "../components/workspace/icon";
-import type { ConnectedRepository } from "./connected-repository-client";
+import {
+  canCloneRepository,
+  type ConnectedRepository,
+} from "./connected-repository-client";
 
 export interface RepositoryCloneTarget {
   repoId: string;
@@ -66,8 +69,7 @@ export const RepositoryClone: Component<{
     return (
       own &&
       props.liveMode &&
-      props.repository.capability === "workbench" &&
-      props.repository.isDefault &&
+      canCloneRepository(props.repository) &&
       own.repoId === props.repository.id &&
       own.isCurrent()
     );
@@ -89,12 +91,7 @@ export const RepositoryClone: Component<{
   });
   onCleanup(close);
   const open = () => {
-    if (
-      target() ||
-      !props.liveMode ||
-      props.repository.capability !== "workbench" ||
-      !props.repository.isDefault
-    )
+    if (target() || !props.liveMode || !canCloneRepository(props.repository))
       return;
     const own = props.begin?.();
     if (!own || own.repoId !== props.repository.id || !own.isCurrent()) return;
@@ -143,8 +140,7 @@ export const RepositoryClone: Component<{
       <Show
         when={
           props.liveMode &&
-          props.repository.capability === "workbench" &&
-          props.repository.isDefault &&
+          canCloneRepository(props.repository) &&
           props.begin &&
           cloneUrl(props.repository.id)
         }
@@ -173,6 +169,12 @@ export const RepositoryClone: Component<{
                 <DialogDescription>
                   Use your Gitust username and a personal access token as the
                   Git password.
+                  <Show when={props.repository.capability === "browse"}>
+                    <span class="mt-2 block">
+                      Clone and fetch only. Push is disabled for this
+                      repository.
+                    </span>
+                  </Show>
                 </DialogDescription>
               </DialogHeader>
               <TextField value={own().url}>

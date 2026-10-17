@@ -58,6 +58,7 @@ const setup = async (
 ) => {
   let serverName = primary.name;
   let serverHead = initialHead;
+  let cloneHints: { primary?: boolean; secondary?: boolean } = {};
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "PATCH") return patch(url, init);
     return new Response(
@@ -68,8 +69,9 @@ const setup = async (
             name: serverName,
             head_commit: serverHead,
             can_rename: canRename,
+            can_clone: cloneHints.primary,
           },
-          secondary,
+          { ...secondary, can_clone: cloneHints.secondary },
         ],
       }),
     );
@@ -125,6 +127,9 @@ const setup = async (
     },
     setServerName: (value: string) => {
       serverName = value;
+    },
+    setCloneHints: (primary?: boolean, secondary?: boolean) => {
+      cloneHints = { primary, secondary };
     },
   };
 };
@@ -390,4 +395,65 @@ it("expires Clone intents across selection ABA, eventless token replacement and 
   await Promise.resolve();
   expect(screen.queryByText("Copied clone URL.")).toBeNull();
   expect(fetcher.mock.calls.length).toBe(requests);
+});
+
+it("uses explicit secondary clone access, explains disabled push and expires pending copies when that access changes", async () => {
+  const pending = deferred<void>();
+  const withdrawn = deferred<void>();
+  const writeText = vi
+    .fn()
+    .mockReturnValueOnce(pending.promise)
+    .mockReturnValueOnce(withdrawn.promise);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+  const { workspace, fetcher, setCloneHints } = await setup(vi.fn());
+  expect(screen.getByRole("button", { name: "Clone repository" })).toBeTruthy();
+  workspace.open(workspace.state().repositories[1]!);
+  expect(screen.queryByRole("button", { name: "Clone repository" })).toBeNull();
+  setCloneHints(false, true);
+  await workspace.refresh();
+  expect(workspace.state().repositories).toHaveLength(2);
+  workspace.open(workspace.state().repositories[0]!);
+  expect(workspace.clone()).toBeNull();
+  expect(screen.queryByRole("button", { name: "Clone repository" })).toBeNull();
+  workspace.open(workspace.state().repositories[1]!);
+  const trigger = screen.getByRole("button", { name: "Clone repository" });
+  trigger.focus();
+  await fireEvent.click(trigger);
+  const input = (await screen.findByRole("textbox", {
+    name: "Clone URL",
+  })) as HTMLInputElement;
+  expect(input.value).toBe(`${window.location.origin}/git/${secondary.id}.git`);
+  expect(
+    screen.getByText(
+      "Clone and fetch only. Push is disabled for this repository.",
+    ),
+  ).toBeTruthy();
+  const requests = fetcher.mock.calls.length;
+  await fireEvent.click(screen.getByRole("button", { name: "Copy clone URL" }));
+  expect(writeText).toHaveBeenCalledExactlyOnceWith(input.value);
+  workspace.open(workspace.state().repositories[0]!);
+  workspace.open(workspace.state().repositories[1]!);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  pending.resolve();
+  await Promise.resolve();
+  expect(screen.queryByText("Copied clone URL.")).toBeNull();
+  expect(fetcher.mock.calls.length).toBe(requests);
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Clone repository" }),
+  );
+  await screen.findByRole("dialog");
+  await fireEvent.click(screen.getByRole("button", { name: "Copy clone URL" }));
+  expect(writeText).toHaveBeenCalledTimes(2);
+  setCloneHints(false, false);
+  await workspace.refresh();
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(workspace.clone()).toBeNull();
+  expect(screen.queryByRole("button", { name: "Clone repository" })).toBeNull();
+  expect(workspace.canWorkbench()).toBe(false);
+  withdrawn.resolve();
+  await Promise.resolve();
+  expect(screen.queryByText("Copied clone URL.")).toBeNull();
 });

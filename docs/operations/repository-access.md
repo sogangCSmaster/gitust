@@ -4,8 +4,9 @@ A SiteAdmin can change a configured, explicitly registered repository between
 **Team only** and **Signed-in users** from its Overview. This changes the existing
 `is_private` ACL metadata. Repository UUID, owning team, registration binding,
 filesystem paths, Git refs, task targets and approval records remain unchanged.
-The primary and additional browse-only repositories support this metadata change;
-additional repositories do not gain Git transport, worktrees or execution.
+The primary and additional read-only repositories support this metadata change.
+Additional repositories support authenticated clone/fetch, with the same current
+scope checks; this operation does not enable push, worktrees or execution.
 
 - **Team only** (`is_private: true`) permits the owning team and SiteAdmins.
 - **Signed-in users** (`is_private: false`) permits all active authenticated users,

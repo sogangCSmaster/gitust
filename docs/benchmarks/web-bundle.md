@@ -65,3 +65,13 @@ access dialog is 98,204 cumulative bytes. At gzip6 those totals are 70,333, 74,4
 and 98,265 bytes. The initial target remains unmet; these are transfer-size
 measurements rather than latency claims. The form's select implementation remains
 an optional dependency downloaded on demand.
+
+## Secondary clone/fetch candidate, 2026-10-18
+
+The [read-only transport candidate](../operations/evidence/read-only-git-local-2026-10-18.json)
+is based on `691fdd24e73f7ddfcce91904a5b1492df5cc2a0b`. The same maintained measurement
+command and environment give 70,350 initial gzip9 bytes (+66) and 74,532 cumulative
+bytes for the first Overview, which already contains the compact Clone dialog.
+At gzip6 these totals are 70,395 and 74,579 bytes. No additional Clone chunk is
+required. The initial 50,000-byte target remains unmet; these measurements do not
+establish startup or interaction latency.

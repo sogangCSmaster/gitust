@@ -7,184 +7,18 @@ use axum::extract::{Path, Query, Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use gitust_core::{AuthError, AuthenticatedPrincipal, EnterpriseRole, RepoId, WorktreeStatus};
-use gitust_db::AuthStore;
 use gitust_git::{inspect_receive_pack_updates, SmartHttpService, MAX_SMART_HTTP_BODY_BYTES};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::git_http_auth::{
+    extract_git_http_principal, extract_git_http_principal_async, git_auth_err_response,
+};
 use crate::state::{check_repo_bola, internal_err, map_auth_err, map_git_err, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct InfoRefsQuery {
     pub service: Option<String>,
-}
-
-fn decode_standard_base64(input: &str) -> Option<Vec<u8>> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() || !trimmed.len().is_multiple_of(4) {
-        return None;
-    }
-    let mut out = Vec::with_capacity((trimmed.len() / 4) * 3);
-    let bytes = trimmed.as_bytes();
-    for chunk in bytes.chunks_exact(4) {
-        let mut vals = [0u8; 4];
-        let mut pad = 0usize;
-        for (i, &b) in chunk.iter().enumerate() {
-            vals[i] = match b {
-                b'A'..=b'Z' => b - b'A',
-                b'a'..=b'z' => b - b'a' + 26,
-                b'0'..=b'9' => b - b'0' + 52,
-                b'+' => 62,
-                b'/' => 63,
-                b'=' if i >= 2 => {
-                    pad += 1;
-                    0
-                }
-                _ => return None,
-            };
-        }
-        if pad == 1 && chunk[3] != b'=' {
-            return None;
-        }
-        out.push((vals[0] << 2) | (vals[1] >> 4));
-        if pad < 2 {
-            out.push((vals[1] << 4) | (vals[2] >> 2));
-        }
-        if pad == 0 {
-            out.push((vals[2] << 6) | vals[3]);
-        }
-    }
-    Some(out)
-}
-
-fn extract_git_credentials(
-    headers: &HeaderMap,
-) -> Result<(Option<String>, String), (StatusCode, String)> {
-    let raw = headers
-        .get(header::AUTHORIZATION)
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                "Missing Authorization header (Basic or Bearer PAT required)".to_owned(),
-            )
-        })?
-        .to_str()
-        .map_err(|_| {
-            (
-                StatusCode::UNAUTHORIZED,
-                "Authorization header is not valid ASCII".to_owned(),
-            )
-        })?
-        .trim();
-
-    if let Some(bearer) = raw
-        .strip_prefix("Bearer ")
-        .or_else(|| raw.strip_prefix("bearer "))
-    {
-        let tok = bearer.trim();
-        if tok.is_empty() {
-            return Err((StatusCode::UNAUTHORIZED, "Empty Bearer token".to_owned()));
-        }
-        return Ok((None, tok.to_owned()));
-    }
-
-    if let Some(b64) = raw
-        .strip_prefix("Basic ")
-        .or_else(|| raw.strip_prefix("basic "))
-    {
-        let decoded = decode_standard_base64(b64).ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                "Malformed Basic authorization base64".to_owned(),
-            )
-        })?;
-        let cred_str = String::from_utf8(decoded).map_err(|_| {
-            (
-                StatusCode::UNAUTHORIZED,
-                "Basic authorization is not valid UTF-8".to_owned(),
-            )
-        })?;
-        let (user_part, pass_part) = match cred_str.split_once(':') {
-            Some((u, p)) => (u.trim(), p.trim()),
-            None => ("", cred_str.trim()),
-        };
-        let token = if !pass_part.is_empty() {
-            pass_part
-        } else if !user_part.is_empty() {
-            user_part
-        } else {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                "Empty Basic authorization credentials".to_owned(),
-            ));
-        };
-        let explicit_user = if !pass_part.is_empty()
-            && !user_part.is_empty()
-            && !matches!(
-                user_part.to_ascii_lowercase().as_str(),
-                "x-access-token" | "git" | "token" | "oauth2" | "pat"
-            ) {
-            Some(user_part.to_owned())
-        } else {
-            None
-        };
-        return Ok((explicit_user, token.to_owned()));
-    }
-
-    Err((
-        StatusCode::UNAUTHORIZED,
-        "Unsupported Authorization scheme (expected Basic or Bearer)".to_owned(),
-    ))
-}
-
-pub(crate) fn extract_git_http_principal(
-    headers: &HeaderMap,
-    auth_store: &AuthStore,
-) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
-    let (explicit_user, token) = extract_git_credentials(headers)?;
-    let principal = if token.starts_with("gitust_pat_") {
-        auth_store.authenticate_pat(&token)
-    } else {
-        auth_store.authenticate_session(&token)
-    }
-    .map_err(map_auth_err)?;
-    if explicit_user
-        .as_ref()
-        .is_some_and(|expected| !principal.username.eq_ignore_ascii_case(expected))
-    {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            "Basic username does not match authenticated token owner".into(),
-        ));
-    }
-    Ok(principal)
-}
-pub(crate) async fn extract_git_http_principal_async(
-    headers: &HeaderMap,
-    auth_store: &AuthStore,
-) -> Result<AuthenticatedPrincipal, Response> {
-    let headers = headers.clone();
-    let store = auth_store.clone();
-    tokio::task::spawn_blocking(move || extract_git_http_principal(&headers, &store))
-        .await
-        .map_err(|e| internal_err(e).into_response())?
-        .map_err(|(status, message)| git_auth_err_response(status, message))
-}
-
-fn git_auth_err_response(status: StatusCode, msg: String) -> Response {
-    if status == StatusCode::UNAUTHORIZED {
-        (
-            status,
-            [(
-                header::WWW_AUTHENTICATE,
-                "Basic realm=\"Gitust On-Premise Git\"",
-            )],
-            msg,
-        )
-            .into_response()
-    } else {
-        (status, msg).into_response()
-    }
 }
 
 async fn resolve_and_authorize_repo(
@@ -211,6 +45,14 @@ async fn resolve_and_authorize_repo(
             }
         };
 
+    if target_repo_id != state.repo_id {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "repository is not served by this instance".to_owned(),
+        )
+            .into_response());
+    }
+
     let store = state.auth_store.clone();
     let default_repo = state.repo_id;
     let repo_access = state.repo_access;
@@ -228,14 +70,6 @@ async fn resolve_and_authorize_repo(
     .map_err(|e| internal_err(e).into_response())?
     .map_err(IntoResponse::into_response)?;
 
-    if target_repo_id != state.repo_id {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "repository is not served by this instance".to_owned(),
-        )
-            .into_response());
-    }
-
     Ok(target_repo_id)
 }
 
@@ -246,6 +80,11 @@ pub(crate) async fn git_info_refs_handler(
     Query(query): Query<InfoRefsQuery>,
     headers: HeaderMap,
 ) -> Response {
+    if query.service.as_deref().and_then(SmartHttpService::parse)
+        == Some(SmartHttpService::UploadPack)
+    {
+        return crate::git_http_read::advertise(state, repo, headers).await;
+    }
     let caller = match extract_git_http_principal_async(&headers, &state.auth_store).await {
         Ok(c) => c,
         Err(resp) => return resp,
@@ -300,54 +139,7 @@ pub(crate) async fn git_upload_pack_handler(
     Path(repo): Path<String>,
     req: Request,
 ) -> Response {
-    let (parts, request_body) = req.into_parts();
-    let pre_caller = match extract_git_http_principal_async(&parts.headers, &state.auth_store).await
-    {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
-    if let Err(resp) = resolve_and_authorize_repo(&state, &pre_caller, &repo).await {
-        return resp;
-    }
-
-    // fail-open-ok: oversized upload-pack body immediately fails closed with 413 PAYLOAD_TOO_LARGE.
-    let Ok(body) = axum::body::to_bytes(request_body, MAX_SMART_HTTP_BODY_BYTES).await else {
-        return (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            format!("upload-pack body exceeds {MAX_SMART_HTTP_BODY_BYTES} bytes"),
-        )
-            .into_response();
-    };
-
-    // Re-authenticate after body streaming to defeat Slow-Loris mid-body account/PAT revocation TOCTOU.
-    let caller = match extract_git_http_principal_async(&parts.headers, &state.auth_store).await {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
-    if let Err(resp) = resolve_and_authorize_repo(&state, &caller, &repo).await {
-        return resp;
-    }
-
-    let engine = state.git_engine.clone();
-    let out = match tokio::task::spawn_blocking(move || engine.smart_http_upload_pack(&body)).await
-    {
-        Ok(Ok(bytes)) => bytes,
-        Ok(Err(e)) => return map_git_err(e).into_response(),
-        Err(e) => return internal_err(e).into_response(),
-    };
-
-    (
-        StatusCode::OK,
-        [
-            (
-                header::CONTENT_TYPE,
-                SmartHttpService::UploadPack.result_content_type(),
-            ),
-            (header::CACHE_CONTROL, "no-cache"),
-        ],
-        out,
-    )
-        .into_response()
+    crate::git_http_read::upload(state, repo, req).await
 }
 
 /// `POST /git/{repo}/git-receive-pack`

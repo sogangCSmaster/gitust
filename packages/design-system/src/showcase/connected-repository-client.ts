@@ -16,7 +16,11 @@ export interface ConnectedRepository {
   canChangeDefaultBranch?: boolean;
   isPrivate?: boolean;
   canChangeVisibility?: boolean;
+  canClone?: boolean;
 }
+export const canCloneRepository = (repository: ConnectedRepository) =>
+  repository.canClone ??
+  (repository.capability === "workbench" && repository.isDefault);
 export interface ConnectedRepositoryState {
   repositories: ConnectedRepository[];
   loading: boolean;
@@ -60,7 +64,8 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
           Number(Object.hasOwn(raw, "can_rename")) +
           Number(Object.hasOwn(raw, "can_change_default_branch")) +
           Number(Object.hasOwn(raw, "is_private")) +
-          Number(Object.hasOwn(raw, "can_change_visibility")) ||
+          Number(Object.hasOwn(raw, "can_change_visibility")) +
+          Number(Object.hasOwn(raw, "can_clone")) ||
       (Object.hasOwn(raw, "can_rename") &&
         typeof raw.can_rename !== "boolean") ||
       (Object.hasOwn(raw, "can_change_default_branch") &&
@@ -69,6 +74,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
         typeof raw.is_private !== "boolean") ||
       (Object.hasOwn(raw, "can_change_visibility") &&
         typeof raw.can_change_visibility !== "boolean") ||
+      (Object.hasOwn(raw, "can_clone") && typeof raw.can_clone !== "boolean") ||
       typeof raw.id !== "string" ||
       !uuid.test(raw.id) ||
       /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(raw.id) ||
@@ -105,6 +111,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       isPrivate:
         typeof raw.is_private === "boolean" ? raw.is_private : undefined,
       canChangeVisibility: raw.can_change_visibility === true,
+      canClone: typeof raw.can_clone === "boolean" ? raw.can_clone : undefined,
     };
   });
 };

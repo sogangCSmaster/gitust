@@ -222,8 +222,9 @@ class Rehearsal:
         for actor in [client, self.f.members[1][0]]:
             actor.request("POST", "/api/v1/swarm/worktrees", {
                 "repo_id": self.f.ids[1], "branch": "agent/no-secondary-write", "base_branch": "main",
-                "prompt_summary": "Must remain browse only"}, expected=404)
-            actor.request("GET", "/git/" + self.f.ids[1] + ".git/info/refs?service=git-upload-pack", expected=404)
+                "prompt_summary": "Must remain read only"}, expected=404)
+            actor.request("GET", "/git/" + self.f.ids[1] + ".git/info/refs?service=git-receive-pack", expected=404)
+            actor.request("GET", "/git/" + self.f.ids[1] + ".git/info/refs?service=git-upload-pack")
         for index, repo in enumerate(self.restored):
             actor, repo_id = self.f.members[index][0], self.f.ids[index]
             sha = self.h.git(repo, "rev-parse", "HEAD")

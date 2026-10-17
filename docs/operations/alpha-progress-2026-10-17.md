@@ -677,3 +677,54 @@ target remains unmet, with no latency claim. This local candidate's hosted resul
 must be observed at its own revision. Native IDE, separate-installation and
 deployment acceptance remain open, and actual GitHub product publication remains
 deferred at the user's request. Gate B remains stopped.
+
+The [fixed-source access-scope CI record](evidence/alpha-ci-691fdd2-2026-10-18.json)
+observes [run 39055998585](https://github.com/sogangCSmaster/gitust/actions/runs/39055998585),
+attempt 1, for `691fdd24e73f7ddfcce91904a5b1492df5cc2a0b`. Ubuntu 22.04 and macOS 15
+both completed successfully. Required steps 1–18 succeeded except the intentional
+macOS Linux-prerequisite skip at step 6. Subsequent development was not part of
+that tested source revision.
+
+## Read-only secondary Git candidate, 2026-10-18
+
+The [local checkpoint](evidence/read-only-git-local-2026-10-18.json) binds a
+candidate based on `691fdd2` to a final combined Rust/API/UI binary. Configured
+secondary UUIDs now support authenticated upload-pack clone/fetch. Original
+session/PAT credentials, the original user and current pinned registration/ACL
+are checked before and after Git; service ownership survives cancellation until
+blocking work finishes. Existing primary aliases and receive-pack behavior remain
+unchanged. Secondary receive-pack stays disabled for every role.
+
+Full final mechanical gates passed frontend270/37 files, Python19, CLI33, core2,
+DB40, Git133 with two existing ignored benchmarks, sandbox30, server161 and sync1,
+plus fmt, Clippy, typechecks, bundle freshness, fail-closed and line checks.
+Independent source reviews cover backend8, frontend5 and operator/CI5 separately;
+final combined Gate A remains mandatory before checkpointing. The permanent
+native regressions cover distinct repository objects, raw annotated tags,
+secondary push denial, current credentials/ACLs across body and Git waits, and
+service ownership after cancellation. The prior binary's secondary404 and old
+reader assertions demonstrate feature absence rather than an old security bypass.
+
+The final operator performed real session/Basic-PAT clones, tag-identity checks,
+denied secondary pushes, private/shared-scope changes, revoked outside-team fetch,
+an offline secondary update followed by restart/fetch, PAT revocation and account
+deactivation. It preserved primary refs and registration anchors and passed strict
+server/client `fsck`. Updated catalog, empty-creation and stopped-relocation
+operators also passed against the same reviewed Rust source, with their earlier
+embedded UI explicitly distinguished from final browser evidence.
+
+Native SiteAdmin checks at 320/768/1440px verified the compact Clone dialog, no
+document/dialog overflow, matching action heights of 44/32/32px, keyboard open,
+URL focus and Escape restoration. The list and Overview now say **Read only**;
+the dialog explicitly limits secondary operation to clone/fetch. Native Git used
+the actual displayed UUID URL and confirmed distinct content, raw tags, fetch,
+push denial and strict `fsck`. No actual clipboard mutation was tested. Owned
+tabs/services/fixtures were removed and the viewport restored.
+
+The maintained measurement reports 70,350 initial gzip9 bytes (+66) and 74,532
+cumulative bytes for Overview and Clone. The 50,000-byte target remains unmet;
+no latency claim is made. The new read-only Git operator is CI step 18 and crash
+recovery moves to 19. This candidate's hosted Linux/macOS result must be observed
+after its exact source push. Physical devices, intended IDE-client sessions,
+separate installation and final alpha/deployment acceptance remain open. Actual
+GitHub product publication remains deferred, and Gate B remains stopped.

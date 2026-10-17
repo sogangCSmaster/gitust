@@ -83,8 +83,8 @@ framework and has not been tested against actual power loss.
 
 After success, add `--read-only-repo /absolute/path/to/imported.git` to a stopped
 server's configuration and restart it to include the repository in the catalog.
-Its team ACL applies to UUID-scoped reads. The existing primary `--repo` retains
-write/MCP/Git transport responsibilities. The final repository's identity and
+Its team ACL applies to UUID-scoped reads and Smart HTTP clone/fetch. The existing
+primary `--repo` retains write/MCP/Git push responsibilities. The final repository's identity and
 registration receipt plus the matching AuthStore are sufficient to serve it;
 the sibling import journal is needed for retrying the original import, not for
 normal startup. Back up all required repository/AuthStore pairs as described in

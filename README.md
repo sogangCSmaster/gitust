@@ -83,13 +83,13 @@ Open [localhost:3000](http://127.0.0.1:3000) and sign in. There is no public sig
 
 To enable server-side command execution, add `--trusted-single-user-sandbox` on a **trusted single-user installation**. Execution also requires a SiteAdmin. The current OS sandbox is not a multi-tenant security boundary. Network access is disabled inside runs; prepare tools and dependencies before executing builds.
 
-Add repeated `--read-only-repo /absolute/path/to/another/repository` arguments to browse other existing repositories registered against the same auth database. The server supports up to 32 configured repositories in total; secondary repositories expose Files and Changes through UUID-scoped reads. Worktrees, execution, MCP, synchronization and Git transport remain on the primary `--repo`. See [registration and read-only repositories](docs/operations/repository-registration.md).
+Add repeated `--read-only-repo /absolute/path/to/another/repository` arguments for other existing repositories registered against the same auth database. The server supports up to 32 configured repositories in total; secondary repositories expose Files, Changes and authenticated Smart HTTP clone/fetch through their UUID. Push, worktrees, execution, MCP and synchronization remain on the primary `--repo`. See [registration and read-only repositories](docs/operations/repository-registration.md) and the [secondary Git contract](docs/operations/read-only-git.md).
 
 To prepare a new registered bare repository from an existing Git source, use the offline [`repository import`](docs/operations/repository-import.md) command. It preserves a fixed import identity through retries and never overwrites an existing destination; serving it still requires explicit configuration.
 
 For a fresh repository without source commits, use offline [`repository create`](docs/operations/repository-create.md). It registers a new bare repository with an explicit default branch; serving it and making the first authorized push remain separate steps.
 
-SiteAdmins can rename the display name of a configured registered repository from its overview. Its UUID, team/privacy settings, host path and Git URLs stay unchanged; secondary repositories remain browse-only.
+SiteAdmins can rename the display name of a configured registered repository from its overview. Its UUID, team/privacy settings, host path and Git URLs stay unchanged; secondary repositories remain read-only.
 
 Use the compact [branch selector](docs/operations/branch-browsing.md) in Files or Changes to read a branch at its identified commit. Other branches remain browsable when the default branch has no commit; refreshing the list preserves the selected snapshot.
 

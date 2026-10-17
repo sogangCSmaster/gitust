@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, untrack } from "solid-js";
 import type { WorkbenchTab } from "./WorkbenchApp";
 import {
   createConnectedRepositoryClient,
+  canCloneRepository,
   type ConnectedRepository,
   type ConnectedRepositoryState,
 } from "./connected-repository-client";
@@ -142,8 +143,7 @@ export const createRepositoryWorkspace = (options: {
     if (
       !options.liveMode() ||
       !repository ||
-      repository.capability !== "workbench" ||
-      !repository.isDefault ||
+      !canCloneRepository(repository) ||
       !token ||
       !client.isCurrentSession()
     )
@@ -157,8 +157,7 @@ export const createRepositoryWorkspace = (options: {
         return (
           options.liveMode() &&
           current?.id === repoId &&
-          current.capability === "workbench" &&
-          current.isDefault &&
+          canCloneRepository(current) &&
           epoch === currentEpoch &&
           token === getLiveToken() &&
           client.isCurrentSession()

@@ -187,7 +187,7 @@ jobs:
           checks = ["passed", "cli_created_registered_bare_repositories", "empty_retry_preserved_pair",
                     "unborn_registration_restored_without_original",
                     "unborn_default_did_not_hide_other_branches", "first_ordinary_push_and_fetch",
-                    "independent_git_read_oracles", "secondary_transport_denied",
+                    "independent_git_read_oracles", "secondary_push_denied",
                     "populated_retry_rejected_unchanged", "restart_identity_preserved", "git_fsck",
                     "uuid_branch_pages_match_git", "unborn_default_exposes_existing_branches",
                     "secondary_branch_reads", "max_cursor_http_round_trip"]
@@ -294,6 +294,38 @@ jobs:
                     "sandbox_backends", "actual_repositories", "external_github_publication", *checks]}
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
               output.write("### Repository access scope\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
+      - name: Verify read-only secondary Git clone and fetch
+        run: |
+          python3 scripts/read-only-git-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-read-only-git.json"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-read-only-git.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          binary_sha = hashlib.sha256(Path("target/debug/gitust").read_bytes()).hexdigest()
+          if (report["source_commit"] != expected or report["runtime_worktree_dirty"] is not False
+              or report["binary_sha256"] != binary_sha or report["actual_repositories"] != 2
+              or report["external_github_publication"] is not False):
+              raise SystemExit("The read-only Git rehearsal has invalid source or scope evidence")
+          checks = ["passed", "primary_and_secondary_clone_match_git", "session_and_basic_pat_auth",
+                    "secondary_push_denied", "annotated_tag_objects_preserved",
+                    "current_private_and_shared_acl", "outside_team_revoked_fetch_denied",
+                    "unknown_or_unconfigured_denied", "offline_update_fetch_and_restart",
+                    "registered_identity_preserved", "primary_refs_unchanged",
+                    "revoked_and_deactivated_denied", "git_fsck",
+                    "owned_services_reaped", "private_fixture_removed"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("The read-only Git rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "actual_repositories", "external_github_publication", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### Read-only secondary Git\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY
 
       - name: Reject unsafe service restart after an interrupted command

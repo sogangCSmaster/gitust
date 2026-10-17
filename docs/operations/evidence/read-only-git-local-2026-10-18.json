@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "scope": "Configured secondary authenticated Smart HTTP clone/fetch and compact Clone UI; full roadmap/alpha remain incomplete.",
+  "baseline_commit": "691fdd24e73f7ddfcce91904a5b1492df5cc2a0b",
+  "source_manifests": {
+    "backend": "ac092f58201c08bd3073b9e9ab9274b607da3da92a5dfc87e6c532f7c08d2d2f",
+    "frontend_before_copy_refinement": "509d6363fa2c6c75a2d319b887eb3817a141277117ff317763f1166add00f2eb",
+    "final_dist": "de398932b36658ed473c2865227d303ddfbdd0c45c87c87b63a87179ab10912d"
+  },
+  "source_paths": [
+    {
+      "path": "crates/gitust-server/src/git_http.rs",
+      "base_sha256": "b446c524c55a6b6d8f4fd94ee8c50ceb8aee8b7c9c7000e2c907a330252d86ea",
+      "sha256": "aec8c14b3e76fd2d98f97bfe046b8078aafa9e9576d1d33a94ffca9f4ed33e78",
+      "lines": 316
+    },
+    {
+      "path": "crates/gitust-server/src/git_http_auth.rs",
+      "base_sha256": null,
+      "sha256": "3ee1a4dfe244d44e15f086567e27d78223ee7f7a6af6902748d05be75f139ed0",
+      "lines": 174
+    },
+    {
+      "path": "crates/gitust-server/src/git_http_read.rs",
+      "base_sha256": null,
+      "sha256": "3a040a294eddd1f28a36ea36ed9c1d8db2adfc6c8be5246b4492d95178d6a02e",
+      "lines": 176
+    },
+    {
+      "path": "crates/gitust-server/src/lib.rs",
+      "base_sha256": "4053c6a7ab41dfbe1c0824d9212980ccb1bf90c760f02c439ead63d079085e39",
+      "sha256": "b07cbc1a95ff8f5e1a598190aeb2fb7d7e66e78722ed9b72651886bd1457c64c",
+      "lines": 345
+    },
+    {
+      "path": "crates/gitust-server/src/repository_reads.rs",
+      "base_sha256": "0e35da2615ff8d48fb4be8767c49b736c28d32b87e40738c133f188c6c55b303",
+      "sha256": "6da350ed44ed37eeb63bd45e58bd521fa4ed87f6ffa25481da8dcbebaa1113d3",
+      "lines": 352
+    },
+    {
+      "path": "crates/gitust-server/src/tests.rs",
+      "base_sha256": "45c4cf5c8f3971b2c31ff9f109939966a88cfd4d716bf07741797f36969f7c1a",
+      "sha256": "0ee76c4467cd7d553bbde859e513c4fb99db4822dbe605f1e94aca89a5c08864",
+      "lines": 553
+    },
+    {
+      "path": "crates/gitust-server/src/tests_git_http_secondary.rs",
+      "base_sha256": null,
+      "sha256": "e5b0b169b2ecb0cbf0f6a833b02f5b50b3ea62abfdd2ba7074053751ee53ae50",
+      "lines": 224
+    },
+    {
+      "path": "crates/gitust-server/src/tests_git_http_secondary_auth.rs",
+      "base_sha256": null,
+      "sha256": "cdaef6fb63da5096b18d075cac1acdbdd8967653adf1dc17f082aef4375ae8d0",
+      "lines": 344
+    },
+    {
+      "path": "packages/design-system/src/showcase/connected-repository-client.ts",
+      "base_sha256": "e8926bd6b54d714c1da7b217eafa003f89bd4cdd1ca702b9736c73058f289722",
+      "sha256": "f6bd9ff909c9c08d07ecb62e624352d9d4130220e4029b4f6e700768aa3a2e48",
+      "lines": 352
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-workspace.ts",
+      "base_sha256": "7d3c18bcb25a6d15fbcc16ac2801ea5282ff479f48b1028d5a9efbc32f44b2e4",
+      "sha256": "09163c5d1ec0c6c1b5c845715473d2117ff9a3e7a3286289e1282483a7d3196a",
+      "lines": 333
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryClone.tsx",
+      "base_sha256": "c6ff492f7a3b3658acfc0c9f6e74fd69eee73e8574cdcc60f7b4b7624e680e67",
+      "sha256": "20d71fee385d948fe45eda2ddb224beb314641b205fcf57a8f45354741ad102a",
+      "lines": 221
+    },
+    {
+      "path": "packages/design-system/tests/connected-repository-client.test.ts",
+      "base_sha256": "4b1b0f00daad302f0fff16fd23f4baf87912a35697df18fcb5354e17debeb5be",
+      "sha256": "2ca21e352b5d91f7b3bd8aaaed2586edb37fcc52776a0fd56feeff9203d434b5",
+      "lines": 362
+    },
+    {
+      "path": "packages/design-system/tests/repository-rename.test.tsx",
+      "base_sha256": "28645cb8cd39e982a5cff5fc6503cdaec3f8fd4d2eadc53b5256b33f4c1152e1",
+      "sha256": "b05fce15e0252c94415544de8a440ed39b23b15a0ab54680de16b4dba126dac4",
+      "lines": 459
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryOverview.tsx",
+      "base_sha256": "721ebd92f5e51f6ecbb19ec020470feadbc4497509b69ff6eb6fd75e6d604739",
+      "sha256": "fd079e764fa574d6b25b55138123a8df1d360b25501f24f98e79e692930a26ea",
+      "lines": 169
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryViews.tsx",
+      "base_sha256": "05d43c7db58a7bc1b4de9d724bf22125c3b22722db54ac7f935fb7785b812d27",
+      "sha256": "41cd3bae6eb3a31db1fab1d5adff70cbe77e73a2bbb46a37ed7f2af763e224b5",
+      "lines": 186
+    },
+    {
+      "path": "packages/design-system/tests/workbench-multi-repository.test.tsx",
+      "base_sha256": "dae85304cad78b7fc32a0572fb2c0292aa6e6f841a7c5c0025ebd3bd0603cf0c",
+      "sha256": "093580dad61216d66d75662c8864638a7bd1c18bb59b52853df8897d1f0f40bb",
+      "lines": 488
+    },
+    {
+      "path": "scripts/read-only-git-rehearsal.py",
+      "base_sha256": null,
+      "sha256": "54db1f32d1fad450a6d282b20ebd61eae0cd451edc1d57371fe776a4fef7cca2",
+      "lines": 223
+    },
+    {
+      "path": "scripts/multi-repository-rehearsal.py",
+      "base_sha256": "d62ca6024aba21bb16d5fca327797a1c984255aa454329b81abb508997775bd5",
+      "sha256": "f2d35dfa03cdf03500580587711bb020473463fb04d5782b430267bc9c7fdc36",
+      "lines": 363
+    },
+    {
+      "path": "scripts/multi-repository-backup-rehearsal.py",
+      "base_sha256": "0c38735841d4faf35474643406081d1085a9fc8175fe5a0e2ef238ef3e40abc7",
+      "sha256": "4065b4910ca037c3524e12f09c114948506b651bd44ff595eb1011f3d370eeb9",
+      "lines": 342
+    },
+    {
+      "path": "scripts/empty-repository-rehearsal.py",
+      "base_sha256": "08ec888087f00cacbda8021ff933c8346328f6494d08c364dd1cf2a5203cde55",
+      "sha256": "6cbc45f77607c8e8d867035207acd1e7476bd015866f4c31749fa2904bc0dc1a",
+      "lines": 274
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "base_sha256": "72f10ac9cef42c61c479d0bf5246b8aafb014390302c8da1c899176cdf467bef",
+      "sha256": "3077e5b58dcc3700d282f52ed5946776307960e9892de1ecda906e1b110a0a7e",
+      "lines": 359
+    }
+  ],
+  "final_bundle_changed_paths": 31,
+  "combined_binary_sha256": "adfb127f6376de90343ecfe9092396c710de2bdf5833c281acd0ade04aefec22",
+  "mechanical_verification": {
+    "exit_code": 0,
+    "log_sha256": "2aa4c8a465d92c5900c7f4d665d277ee79241753185586d47e4d2df9ae91d7b5",
+    "frontend_tests": 270,
+    "frontend_files": 37,
+    "python_tests": 19,
+    "rust_passed": {
+      "cli": 33,
+      "core": 2,
+      "db": 40,
+      "git": 133,
+      "sandbox": 30,
+      "server": 161,
+      "sync": 1
+    },
+    "existing_ignored_git_benchmarks": 2,
+    "fmt_clippy_typecheck_bundle_fail_open_and_line_gates": true,
+    "global_source_line_max": 598
+  },
+  "feature_absence_before": {
+    "artifact_sha256": "cda570e80b1fde7561007fe76d1836cf517369859406a1d40ae5323bafa37d3f",
+    "exit_code": 1,
+    "secondary_upload_actual": 404,
+    "expected": 200,
+    "interpretation": "New feature absent on previous fixed binary; not an old authorization vulnerability."
+  },
+  "operating_rehearsal": {
+    "artifact_sha256": "59cc703d8780f2e11b16c285a61974bdcfe0f8d1d47588b645dc9a16a08b35ea",
+    "exit_code": 0,
+    "report": {
+      "version": 1,
+      "passed": true,
+      "actual_repositories": 2,
+      "primary_and_secondary_clone_match_git": true,
+      "session_and_basic_pat_auth": true,
+      "secondary_push_denied": true,
+      "annotated_tag_objects_preserved": true,
+      "current_private_and_shared_acl": true,
+      "outside_team_revoked_fetch_denied": true,
+      "unknown_or_unconfigured_denied": true,
+      "offline_update_fetch_and_restart": true,
+      "registered_identity_preserved": true,
+      "primary_refs_unchanged": true,
+      "revoked_and_deactivated_denied": true,
+      "git_fsck": true,
+      "external_github_publication": false,
+      "platform": "Darwin",
+      "source_commit": "691fdd24e73f7ddfcce91904a5b1492df5cc2a0b",
+      "runtime_worktree_dirty": true,
+      "binary_sha256": "adfb127f6376de90343ecfe9092396c710de2bdf5833c281acd0ade04aefec22",
+      "runtime_source_sha256": {
+        "scripts/read-only-git-rehearsal.py": "54db1f32d1fad450a6d282b20ebd61eae0cd451edc1d57371fe776a4fef7cca2",
+        "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+        "scripts/multi-repository-rehearsal.py": "f2d35dfa03cdf03500580587711bb020473463fb04d5782b430267bc9c7fdc36"
+      },
+      "owned_services_reaped": true,
+      "private_fixture_removed": true
+    }
+  },
+  "existing_operator_rehearsals": [
+    {
+      "scenario": "multi-repository",
+      "artifact_sha256": "27a54e1a1371364d218a6a41c609d22efda420d23f8c87ea1024f8fd11993130",
+      "exit_code": 0,
+      "binary_sha256": "9d6a6e5061562b3872427be9937dcd4b9d2ecee3b23b79455ff6301cc03105ce",
+      "scope": "Same reviewed Rust source with prior691 embedded UI; actual API/operator regression, not final combined browser evidence."
+    },
+    {
+      "scenario": "empty-repository",
+      "artifact_sha256": "e502fb39594b2b4ada0ff8ac86d3a68f3b34c9d2211971e6e1758b2b86971d27",
+      "exit_code": 0,
+      "binary_sha256": "9d6a6e5061562b3872427be9937dcd4b9d2ecee3b23b79455ff6301cc03105ce",
+      "scope": "Same reviewed Rust source with prior691 embedded UI; actual API/operator regression, not final combined browser evidence."
+    },
+    {
+      "scenario": "multi-repository-backup",
+      "artifact_sha256": "187f82af13e7c5be9e70d394214a51b7a15ec5afff7d33539eef59c8fba75676",
+      "exit_code": 0,
+      "binary_sha256": "9d6a6e5061562b3872427be9937dcd4b9d2ecee3b23b79455ff6301cc03105ce",
+      "scope": "Same reviewed Rust source with prior691 embedded UI; actual API/operator regression, not final combined browser evidence."
+    }
+  ],
+  "native_browser": {
+    "artifact_sha256": "8fb7f1d3fb0b91090c491e0dfbf7b48f08a6ac823bcfc17d29b38106694d4ccf",
+    "displayed_url_native_git_proof_sha256": "e42c9fb90177cb6a2caa4961da85efbbcc347efb6c967c6d81462d555934baf0",
+    "role": "SiteAdmin",
+    "widths_css_px": [
+      320,
+      768,
+      1440
+    ],
+    "document_or_dialog_horizontal_overflow": false,
+    "action_button_heights_css_px": [
+      44,
+      32,
+      32
+    ],
+    "keyboard_open_url_focus_and_escape_trigger_restore": true,
+    "actual_clipboard_write_tested": false,
+    "owned_tab_closed_and_viewport_reset": true,
+    "owned_service_reaped_and_private_fixture_removed": true,
+    "screenshots": [
+      {
+        "name": "secondary-clone-320.jpg",
+        "sha256": "04d1de40b014dcf1babcf18d1915d1dca97e64390fc18a574a18ab3ac3b7dbf8",
+        "width": 320,
+        "height": 760
+      },
+      {
+        "name": "secondary-clone-768.jpg",
+        "sha256": "b29b3f766035fb7b5c7df88fac704babd0b08715ec8807aea6441c7184d68e9e",
+        "width": 768,
+        "height": 900
+      },
+      {
+        "name": "secondary-clone-1440.jpg",
+        "sha256": "5e823aa30a7a0e437290bcd4d4c0c9c27ac28ef269e07b247db28d9b35b13ad2",
+        "width": 1440,
+        "height": 900
+      }
+    ]
+  },
+  "bundle": {
+    "measurement_sha256": "e4aece5b94e3969ce5b7fe1ba5601bee98c6580625302843ca2a51e975698670",
+    "environment": {
+      "node": "v24.18.1",
+      "vite": "6.4.4",
+      "zlib": "1.3.1-e00f703",
+      "platform": "darwin",
+      "os_release": "25.5.0",
+      "arch": "arm64",
+      "cpu": "Apple M4 Pro"
+    },
+    "initial_gzip9": 70350,
+    "first_overview_and_clone_cumulative_gzip9": 74532,
+    "initial_gzip6": 70395,
+    "first_overview_cumulative_gzip6": 74579,
+    "baseline_initial_gzip9": 70284,
+    "target_bytes": 50000,
+    "target_met": false,
+    "latency_claimed": false
+  },
+  "independent_source_reviews": {
+    "backend_source": {
+      "artifact_sha256": "c8aebed153ba34a264bfd64b4f5d4e5426a72234deb626e944bf4c070ee0f0a5",
+      "verdict": "CLEAR FOR INTEGRATION",
+      "unresolved_P0_P1_P2": 0
+    },
+    "frontend_source": {
+      "artifact_sha256": "74beded7ab04bbee2f0e8e09f24014d99b9691b1c68c9be48b9621e03bb0974a",
+      "verdict": "CLEAR FOR INTEGRATION",
+      "unresolved_P0_P1_P2": 0
+    },
+    "operator_ci_source": {
+      "artifact_sha256": "855057e310c6a906abd1b930c2586a733ce0e2b08d92963c02aa3d7703e769c8",
+      "verdict": "CLEAR FOR INTEGRATION",
+      "unresolved_P0_P1_P2": 0
+    }
+  },
+  "source_baseline_hosted_ci": "alpha-ci-691fdd2-2026-10-18.json",
+  "candidate_hosted_ci": "Pending source commit and push; baseline CI does not validate this candidate.",
+  "limits": [
+    "Secondary receive-pack/push remains disabled even for SiteAdmin; no secondary worktrees, execution, MCP, Checks or synchronization.",
+    "macOS local runtime evidence only for this candidate; hosted Linux/macOS follow exact source push.",
+    "Physical devices, intended IDE-agent sessions, separately provisioned installation and final-candidate alpha acceptance remain open.",
+    "Product publication to actual GitHub is deferred by the user; local Git/native HTTP proofs are not external publication.",
+    "Initial 50000-byte gzip target remains unmet.",
+    "Gate B remains stopped; source pushes and CI are not deployment."
+  ]
+}

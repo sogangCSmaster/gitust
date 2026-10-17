@@ -58,7 +58,7 @@ MCP worktree discard never removes a merged task or its human approval evidence,
 
 ## Repository browsing
 
-The operator-configured catalog is bounded to 32 repositories. UUID-routed commit, tree, blob and diff reads select the actual opened repository and check its current binding, team access and original credential again after Git work. Additional repositories retain independent service ownership; MCP, Git transport, execution, approval and synchronization still target the primary repository. Metadata-only records do not create a Git service. See [registration and read-only repositories](../operations/repository-registration.md).
+The operator-configured catalog is bounded to 32 repositories. UUID-routed commit, tree, blob, diff and Smart HTTP clone/fetch select the actual opened repository and check its current binding, team access and original credential again after Git work. Additional repositories retain independent service ownership; Git push, MCP, execution, approval and synchronization still target the primary repository. Metadata-only records do not create a Git service. See [registration and read-only repositories](../operations/repository-registration.md).
 
 Git file paths retain valid leading/trailing spaces. The workbench shows a changed-file selector and loads each diff with immutable head/base SHAs and a literal path. Binary and metadata-only changes are distinguished from an unchanged commit. Partial diff/tree results retain a visible truncation notice. Cross-tab session changes clear live identity/data/request epochs; live worktrees can never fall back to simulated demo mutations.
 

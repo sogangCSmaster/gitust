@@ -54,3 +54,14 @@ through **Reload application**. The failed import is not described as an immedia
 in-place retry. These checks establish the boundary and recovery behavior; no
 startup latency, input latency, physical-device or network-throughput target is
 claimed. See the evidence record for native browser scope and independent reviews.
+
+## Repository access-scope candidate, 2026-10-18
+
+The subsequent [access-scope feature](../operations/evidence/repository-access-local-2026-10-18.json)
+is based on `1fee2f7d77dba8e57de30022cdf256b3edc6aef1` and uses the same measurement
+environment and complete-closure method. It adds 253 initial gzip9 bytes: the
+initial catalog is 70,284 bytes, first Overview is 74,405 cumulative bytes and first
+access dialog is 98,204 cumulative bytes. At gzip6 those totals are 70,333, 74,455
+and 98,265 bytes. The initial target remains unmet; these are transfer-size
+measurements rather than latency claims. The form's select implementation remains
+an optional dependency downloaded on demand.

@@ -1,0 +1,737 @@
+{
+  "schema_version": 1,
+  "scope": "Local registered repository access-scope candidate; full product/alpha and external publication are not complete.",
+  "baseline_commit": "1fee2f7d77dba8e57de30022cdf256b3edc6aef1",
+  "backend_isolated_baseline": "ada787a8ab49b0b6493815b3088c7fa3a7f4498c",
+  "backend_compatible_primary_baseline": "1fee2f7d77dba8e57de30022cdf256b3edc6aef1",
+  "source_manifests": {
+    "backend": "edf4cbdfe6eb6534cc2b298ac6fefbb673a5b4693cd944c12cb9752ce828b356",
+    "frontend": "cc7f3ffe2b5321ed420373e1484fa92b0ff5186ec7e05042c59930ed7211482d",
+    "dist": "2b9403beab5f0482f77c26ec1895023d2ba893e7cd8c238f79412c36ad3dbceb"
+  },
+  "source_paths": [
+    {
+      "path": "crates/gitust-db/src/credentials.rs",
+      "base_sha256": "a33ba6e3d75bd466a99a3b3ddbe3213021a72f67640517d2d4ccbf6da4bf8ddc",
+      "sha256": "6b5692ee9f47eea0fe830a9c935c7646f57f99b981d4f60c7a7da6881bf4b753",
+      "lines": 532
+    },
+    {
+      "path": "crates/gitust-db/src/lib.rs",
+      "base_sha256": "c23bd3ddb64703130211da5bd198ddf336bc245b832661c33e61d37c4bfe2c69",
+      "sha256": "047b312d2d23baac68592514631e7ac68e20a2b734bb5e909791e341ac2a1542",
+      "lines": 438
+    },
+    {
+      "path": "crates/gitust-db/src/persistence.rs",
+      "base_sha256": "2272dbedc0b74167e46c1ddd87a511c0e101fb4e07a72ba1f39bdbd7c01bb70e",
+      "sha256": "52c5e9ec30b5e7bc991b749b313dc8bb7afa735ac409329b0fc42ac8045481e3",
+      "lines": 417
+    },
+    {
+      "path": "crates/gitust-db/src/repository_registration.rs",
+      "base_sha256": "9420d673e98f05dccbd82c914a732edfada7b0515634bda84ec6121ba374a4cb",
+      "sha256": "865e59948ad6275d8565bfd436a32ff902dab046afce77e23c350ff9e707646e",
+      "lines": 361
+    },
+    {
+      "path": "crates/gitust-db/src/repository_visibility.rs",
+      "base_sha256": null,
+      "sha256": "43fa1410c48fb8bf517862a1e94e19169c0216a449833f45e1c227864001135c",
+      "lines": 91
+    },
+    {
+      "path": "crates/gitust-db/src/tests_repository_visibility.rs",
+      "base_sha256": null,
+      "sha256": "cf738fc38349c9ce14fae51562d5f36b04ee55b0187ad6693694a12fe2395dff",
+      "lines": 231
+    },
+    {
+      "path": "crates/gitust-server/src/auth.rs",
+      "base_sha256": "6f6a06a8ac9a888d06865bcafdd863583d014f550bdfe835dcd64eb38e4b6a3e",
+      "sha256": "f6ca46196119ecf4dd65355cd38a3335044d9d909a3b71423b37745eee4b1b7b",
+      "lines": 472
+    },
+    {
+      "path": "crates/gitust-server/src/lib.rs",
+      "base_sha256": "6ddec59bb4597e1b4c380e1432a750a793e1119b1ad23ee2304ec0ff5c050b33",
+      "sha256": "4053c6a7ab41dfbe1c0824d9212980ccb1bf90c760f02c439ead63d079085e39",
+      "lines": 343
+    },
+    {
+      "path": "crates/gitust-server/src/repository_reads.rs",
+      "base_sha256": "6a572dc20451aeb00dfe579a91b3cd477e47ac40852cf41d7c5c616e3a644765",
+      "sha256": "0e35da2615ff8d48fb4be8767c49b736c28d32b87e40738c133f188c6c55b303",
+      "lines": 350
+    },
+    {
+      "path": "crates/gitust-server/src/repository_visibility.rs",
+      "base_sha256": null,
+      "sha256": "921b8ad944d431d71f6313b3c400b3de31eb5e116665d32c77031ccfb5e721f1",
+      "lines": 129
+    },
+    {
+      "path": "crates/gitust-server/src/tests.rs",
+      "base_sha256": "cd6ba09a6e93d306afbfd1755331ae893629f24fb41d7777466a10add63dfc34",
+      "sha256": "45c4cf5c8f3971b2c31ff9f109939966a88cfd4d716bf07741797f36969f7c1a",
+      "lines": 548
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_visibility.rs",
+      "base_sha256": null,
+      "sha256": "b713fd37e34d2bf090a1337bb9bf56a0c3148d8fbb9d4362fc1b4db284a4bbd5",
+      "lines": 331
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_visibility_auth.rs",
+      "base_sha256": null,
+      "sha256": "6ea99387e92e4604c795a8d0b6c05dc8b6b414e356759b322420d86f921b824a",
+      "lines": 221
+    },
+    {
+      "path": "packages/design-system/src/showcase/connected-repository-client.ts",
+      "base_sha256": "efe4775ee2fff905e6ddca7ac3425ec3fa642ab0f9d53a9668059221ede88e8e",
+      "sha256": "e8926bd6b54d714c1da7b217eafa003f89bd4cdd1ca702b9736c73058f289722",
+      "lines": 345
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-workspace.ts",
+      "base_sha256": "5b1529d9c66989f331e08d2025ebc9af7fdc9db0a76446aa52af3ff1a86a65e9",
+      "sha256": "7d3c18bcb25a6d15fbcc16ac2801ea5282ff479f48b1028d5a9efbc32f44b2e4",
+      "lines": 334
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryOverview.tsx",
+      "base_sha256": "c25290f3ccf2f9b9b03636234bf9770164207624681d4e5984b240624f6ec08e",
+      "sha256": "721ebd92f5e51f6ecbb19ec020470feadbc4497509b69ff6eb6fd75e6d604739",
+      "lines": 169
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-visibility.ts",
+      "base_sha256": null,
+      "sha256": "fa027d4b3753f02616c1159c30024fa77f6c969b6dcee53903def35928d72825",
+      "lines": 105
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryVisibility.tsx",
+      "base_sha256": null,
+      "sha256": "5905d0ab8c5058ea82c6fc7b843220d5eae234edc50331d60e82364703a3870c",
+      "lines": 144
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryVisibilityForm.tsx",
+      "base_sha256": null,
+      "sha256": "27b7cc215f9d12892f008284c3c8f79ab21172f2be5f6d3a5662345f0b7a63ec",
+      "lines": 140
+    },
+    {
+      "path": "packages/design-system/tests/connected-repository-client.test.ts",
+      "base_sha256": "5ef75809094e9a061e5147bfdc1eef9eb2808aeed6707a896cf35f7680a489a8",
+      "sha256": "4b1b0f00daad302f0fff16fd23f4baf87912a35697df18fcb5354e17debeb5be",
+      "lines": 332
+    },
+    {
+      "path": "packages/design-system/tests/repository-visibility.test.tsx",
+      "base_sha256": null,
+      "sha256": "efd22fdb298db955576a2521e0f0b69cc42c732f3f7c3f59bfae6902f17a7217",
+      "lines": 275
+    }
+  ],
+  "author_evidence_sha256": {
+    "backend": "9f9e0b502180a65bfe99c72d857f620cbf53621ddd262d547f8aa9b854dc3f59",
+    "frontend": "e642821e8f73d9a32d19db29af9676a9fbd973ad994eaae5b1a5df31a12faa48"
+  },
+  "contract": {
+    "endpoint": "PATCH /api/v1/repos/{id}/visibility",
+    "request": [
+      "expected_is_private:boolean",
+      "is_private:boolean"
+    ],
+    "response": [
+      "id:UUID",
+      "is_private:boolean"
+    ],
+    "copy": "Team only means owning team + SiteAdmin. Signed-in users means all active authenticated accounts with existing role permissions; anonymous access stays disabled.",
+    "authority": "No optimistic visibility grant. Exact original UUID, target bool and session/selection epoch/dialog key required before confirmed metadata and catalog refresh.",
+    "unknown": "Missing is_private does not infer visibility; malformed bool invalidates catalog, old capability absent is false."
+  },
+  "persistence_boundary": "Original credential/current active account/SiteAdmin role, pinned registered binding and expected privacy share the write lock after OS lock wait/reload. Publication-not-attempted and unconfirmed-publication503 differ; directory fsync failure can leave changed disk. Strict conflicts remain409 and no-op re-confirms persistence.",
+  "verification": {
+    "command": "scripts/verify.sh",
+    "exit_code": 0,
+    "log_sha256": "bc1f2e7b1c02be3027ff57f24119fb15a47e3932c39f6afbc43f1624edac261e",
+    "python": 19,
+    "frontend": {
+      "tests": 268,
+      "files": 37
+    },
+    "rust": {
+      "cli": 33,
+      "core": 2,
+      "db": 40,
+      "git": 133,
+      "git_ignored": 2,
+      "sandbox": 30,
+      "server": 156,
+      "sync": 1
+    },
+    "new_feature_before_proof_sha256": "3ce079b355d3c8465a4142d83af8345495ab7f7e263b5f6e1d46e5f77cbcc072",
+    "before_proof_scope": "Prior route404 is feature absence, not an earlier authentication bypass.",
+    "frontend_before_final": {
+      "exit": 1,
+      "failed": 7,
+      "passed": 10,
+      "sha256": "28a7261566f838e72b7d3e863f5e40a38c078f1f6dc7ef39394256d4ca973087",
+      "kind": "Exact final tests in separate clean baseline archive: actual assertions, no compilation failure."
+    },
+    "frontend_focused_after": {
+      "exit": 0,
+      "tests": 17,
+      "sha256": "7ea78c7866cd4eb934492453cd57103815a7851423f317ab35c95afe1e4fa883"
+    }
+  },
+  "combined_embedded_binary": {
+    "sha256": "fb750f2c322dcbfd967511e8053591c735f95d9b54cc3718095af0ec753957d0",
+    "platform": "Darwin arm64",
+    "build_exit_code": 0,
+    "build_log_sha256": "210c9b36b548b7a63f64e26b51e88ea35b3918b81277473df4240951b65ef6fd",
+    "API_only_author_binary_is_not_this_combined_UI_binary": true
+  },
+  "actual_operating_rehearsal": {
+    "version": 1,
+    "passed": true,
+    "actual_repositories": 2,
+    "strict_current_value_cas": true,
+    "role_and_anonymous_denials": true,
+    "current_team_and_signed_in_scope": true,
+    "primary_and_secondary_metadata": true,
+    "outside_team_git_clone_fetch_and_revoke": true,
+    "refs_and_task_records_preserved": true,
+    "restored_scope_and_access": true,
+    "all_original_paths_unavailable": true,
+    "pending_requires_fresh_verification": true,
+    "git_fsck": true,
+    "external_github_publication": false,
+    "platform": "Darwin",
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "source_commit": "1fee2f7d77dba8e57de30022cdf256b3edc6aef1",
+    "runtime_worktree_dirty": true,
+    "binary_sha256": "fb750f2c322dcbfd967511e8053591c735f95d9b54cc3718095af0ec753957d0",
+    "runtime_source_sha256": {
+      "scripts/repository-visibility-rehearsal.py": "8fa7e6ccf9e6e5912c6f05f3b75ba75da32d34c18e11b58539bd934b185fee92",
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+      "scripts/multi-repository-rehearsal.py": "d62ca6024aba21bb16d5fca327797a1c984255aa454329b81abb508997775bd5",
+      "scripts/multi-repository-backup-rehearsal.py": "0c38735841d4faf35474643406081d1085a9fc8175fe5a0e2ef238ef3e40abc7",
+      "scripts/backup.py": "24b9e250e7c6b6097697ae3797aec4ebfca223e9ad4eb269b073815bea2275b6"
+    },
+    "owned_services_reaped": true,
+    "private_fixture_removed": true,
+    "report_sha256": "1cfb7be125c2791f537147604d8cd5d40b38482bdbda61ac94c2914d3996189c",
+    "log_sha256": "cafac4013d09d258801f978c8ab329f9391a4ed5d0f23a791f4e9c3efde1ce8a"
+  },
+  "native_browser": {
+    "observations": [
+      {
+        "accessText": "Team only",
+        "height": 760,
+        "overflow": false,
+        "title": "primary-renamed",
+        "view": "primary-overview-320",
+        "width": 320
+      },
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "label": "Refresh"
+          },
+          {
+            "height": 44,
+            "label": "Cancel"
+          },
+          {
+            "height": 44,
+            "label": "Save access"
+          }
+        ],
+        "dialog": {
+          "bottom": 551,
+          "height": 342,
+          "left": 16,
+          "right": 304,
+          "top": 209,
+          "width": 288,
+          "x": 16,
+          "y": 209
+        },
+        "height": 760,
+        "overflow": false,
+        "publicImpact": true,
+        "view": "access-dialog-320",
+        "width": 320
+      },
+      {
+        "height": 760,
+        "overflow": false,
+        "view": "access-saved-320",
+        "width": 320
+      },
+      {
+        "buttons": [
+          {
+            "height": 32,
+            "label": "Refresh"
+          },
+          {
+            "height": 32,
+            "label": "Cancel"
+          },
+          {
+            "height": 32,
+            "label": "Save access"
+          }
+        ],
+        "height": 1024,
+        "overflow": false,
+        "view": "access-dialog-768",
+        "width": 768
+      },
+      {
+        "buttons": [
+          {
+            "height": 32,
+            "label": "Refresh"
+          },
+          {
+            "height": 32,
+            "label": "Cancel"
+          },
+          {
+            "height": 32,
+            "label": "Save access"
+          }
+        ],
+        "height": 900,
+        "overflow": false,
+        "view": "secondary-dialog-1440",
+        "width": 1440
+      },
+      {
+        "height": 900,
+        "overflow": false,
+        "view": "secondary-saved-1440",
+        "width": 1440
+      }
+    ],
+    "primarySaved": {
+      "focus": "Change repository access",
+      "text": "Signed-in users"
+    },
+    "filesBefore": {
+      "branch": "main \u00b7 48ad2586",
+      "marker": true,
+      "snapshot": "Snapshot 48ad2586."
+    },
+    "primaryReturnedTeamOnly": true,
+    "filesAfter": {
+      "branch": "main \u00b7 48ad2586",
+      "marker": true,
+      "snapshot": "Snapshot 48ad2586."
+    },
+    "escapeFocus": "Change repository access",
+    "secondarySaved": {
+      "access": "Signed-in users",
+      "browseOnly": true,
+      "hasClone": false
+    },
+    "proof_sha256": "c88229a564b4a39b454865754a31dae5fc82c5219121a45c7cc232ea8c32d8ca",
+    "screenshots": [
+      {
+        "name": "repository-access-dialog-1440.jpg",
+        "sha256": "0f61fa62971ab7b6c98c4b8cf65207de6eb03bd592f39aec7bdf27a7317a0038",
+        "mime_type": "image/jpeg",
+        "width": 1440,
+        "height": 900
+      },
+      {
+        "name": "repository-access-dialog-320.jpg",
+        "sha256": "caf09dbb269969d69b2fda5e34fc16697705c7fadf6331f5a4a43009d75262c2",
+        "mime_type": "image/jpeg",
+        "width": 320,
+        "height": 760
+      },
+      {
+        "name": "repository-access-dialog-768.jpg",
+        "sha256": "b43fcfccf80a939c8d53653cd28dbd41399c15a45bacba82c0be3bbcd7fda439",
+        "mime_type": "image/jpeg",
+        "width": 768,
+        "height": 1024
+      },
+      {
+        "name": "repository-access-saved-320.jpg",
+        "sha256": "4ea6ed3674bde4fe812623c0aeaf0d4fe23e82652aac85977e4fd57f58317655",
+        "mime_type": "image/jpeg",
+        "width": 320,
+        "height": 760
+      },
+      {
+        "name": "repository-access-secondary-1440.jpg",
+        "sha256": "51323443a2ed09feed54b0f0ede3d2a2d3affcd70dd35a246c2afa9a1f0e8c32",
+        "mime_type": "image/jpeg",
+        "width": 1440,
+        "height": 900
+      }
+    ],
+    "owned_services_and_private_scratch_removed": true,
+    "owned_tab_closed": true,
+    "viewport_reset": true
+  },
+  "independent_git_and_catalog": {
+    "native_git_refs_and_symbolic_heads_unchanged": true,
+    "both_repository_strict_fsck_exit": 0,
+    "actual_catalog_primary_is_private": true,
+    "actual_catalog_secondary_is_private": false,
+    "secondary_remains_browse_only": true,
+    "scope": "Independent native Git and authenticated real HTTP after native browser scope saves; no secret or private fixture contents retained.",
+    "proof_sha256": "b3fb309d076af16ee2ff0d802c8df4f419741e286c4f5050bc8fa5cb82640bdd"
+  },
+  "bundle": {
+    "method": "Actual emitted complete static closure, each file compressed separately; optional dialog includes static dependencies. No latency measurement.",
+    "integrated_command": "pnpm --filter @gitust/design-system exec node scripts/measure-bundle.mjs",
+    "command_exit_code": 0,
+    "command_stdout_sha256": "0990a68baa70c5f9f5c17bd06a47d10996e5c25def9ee80dc7eef162bd5c8d95",
+    "command_stderr_bytes": 0,
+    "temporary_build_removed": true,
+    "measurement": {
+      "node": "v24.18.1",
+      "zlib": "1.3.1-e00f703",
+      "initial": {
+        "files": [
+          {
+            "path": "assets/index.js",
+            "bytes": 218939,
+            "sha256": "6a92fbe24a0f4cb50b55df99dae29b6a1b9c1c1f4934d78b2514746f10815cdf",
+            "gzip6": 70333,
+            "gzip9": 70284
+          }
+        ],
+        "gzip6": 70333,
+        "gzip9": 70284
+      },
+      "firstOverview": {
+        "files": [
+          {
+            "path": "assets/RepositoryOverview-DhyHXxo2.js",
+            "bytes": 13652,
+            "sha256": "32aea552185f28b5e3be17180e74f16c889d96d5fc4cd8513d62f9a40676c94d",
+            "gzip6": 4122,
+            "gzip9": 4121
+          },
+          {
+            "path": "assets/index.js",
+            "bytes": 218939,
+            "sha256": "6a92fbe24a0f4cb50b55df99dae29b6a1b9c1c1f4934d78b2514746f10815cdf",
+            "gzip6": 70333,
+            "gzip9": 70284
+          }
+        ],
+        "gzip6": 74455,
+        "gzip9": 74405
+      },
+      "firstVisibilityDialog": {
+        "files": [
+          {
+            "path": "assets/RFN6X5VH-YbkefD9u.js",
+            "bytes": 15831,
+            "sha256": "76653cfbc9f7f084ca5e5c8198d0138cd54edb356634e306b63c6de3150a9e5e",
+            "gzip6": 5148,
+            "gzip9": 5142
+          },
+          {
+            "path": "assets/RepositoryOverview-DhyHXxo2.js",
+            "bytes": 13652,
+            "sha256": "32aea552185f28b5e3be17180e74f16c889d96d5fc4cd8513d62f9a40676c94d",
+            "gzip6": 4122,
+            "gzip9": 4121
+          },
+          {
+            "path": "assets/RepositoryVisibilityForm-yquy2waE.js",
+            "bytes": 3841,
+            "sha256": "afd93c1b4630a89d06ec0e2144990b66caa1d8999086c83402da3362dee2d13f",
+            "gzip6": 1802,
+            "gzip9": 1802
+          },
+          {
+            "path": "assets/index.js",
+            "bytes": 218939,
+            "sha256": "6a92fbe24a0f4cb50b55df99dae29b6a1b9c1c1f4934d78b2514746f10815cdf",
+            "gzip6": 70333,
+            "gzip9": 70284
+          },
+          {
+            "path": "assets/select-BOzDQ5HV.js",
+            "bytes": 48651,
+            "sha256": "4ac41c7c61a12b1aad3773d4f0ed48cc10c83b0fea03ee7aacac7f26334e279c",
+            "gzip6": 16860,
+            "gzip9": 16855
+          }
+        ],
+        "gzip6": 98265,
+        "gzip9": 98204
+      },
+      "scripts": [
+        "assets/index.js"
+      ],
+      "preload": [],
+      "graph": {
+        "assets/index.js": {
+          "imports": [],
+          "dynamicImports": [
+            "assets/CommandPaletteContent-B8LjJ1DQ.js",
+            "assets/NewWorktreeForm-C3dmKhpz.js",
+            "assets/AgentSwarmView-BodDdN5b.js",
+            "assets/IssueListView-D1j1yMQX.js",
+            "assets/ActionsPipelineView-JBn8kmBT.js",
+            "assets/LiveActionsView-BHwa2kdd.js",
+            "assets/RepositoryChangesView-DG3vEWyy.js",
+            "assets/RepositoryFilesView-oDPL2gdM.js",
+            "assets/EnterpriseAdminView-DJqPur0p.js",
+            "assets/PrimitivesTab-Gmr6dbeP.js",
+            "assets/RepositoryBranchSelect-BdoiJsef.js",
+            "assets/RunHistoryContent-CbGARAGh.js",
+            "assets/RepositoryOverview-DhyHXxo2.js"
+          ]
+        },
+        "assets/CommandPaletteContent-B8LjJ1DQ.js": {
+          "imports": [
+            "assets/index.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/NewWorktreeForm-C3dmKhpz.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/collapsible-F7Y4ggeC.js",
+            "assets/select-BOzDQ5HV.js",
+            "assets/RFN6X5VH-YbkefD9u.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/AgentSwarmView-BodDdN5b.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/collapsible-F7Y4ggeC.js",
+            "assets/VerificationResultDetails-SZl-ZhPC.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/IssueListView-D1j1yMQX.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/checkbox-BEROD_h_.js",
+            "assets/VI7QYH27-JuzgiyP7.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/ActionsPipelineView-JBn8kmBT.js": {
+          "imports": [
+            "assets/index.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/LiveActionsView-BHwa2kdd.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/run-activity-presentation-CoT_KhBE.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/RepositoryChangesView-DG3vEWyy.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/collapsible-F7Y4ggeC.js",
+            "assets/select-BOzDQ5HV.js",
+            "assets/RepositoryFilesView-oDPL2gdM.js",
+            "assets/RFN6X5VH-YbkefD9u.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/RepositoryFilesView-oDPL2gdM.js": {
+          "imports": [
+            "assets/index.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/EnterpriseAdminView-DJqPur0p.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/switch-BcPls0Ng.js",
+            "assets/collapsible-F7Y4ggeC.js",
+            "assets/select-BOzDQ5HV.js",
+            "assets/RFN6X5VH-YbkefD9u.js",
+            "assets/VI7QYH27-JuzgiyP7.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/PrimitivesTab-Gmr6dbeP.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/switch-BcPls0Ng.js",
+            "assets/checkbox-BEROD_h_.js",
+            "assets/collapsible-F7Y4ggeC.js",
+            "assets/RFN6X5VH-YbkefD9u.js",
+            "assets/VI7QYH27-JuzgiyP7.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/checkbox-BEROD_h_.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/VI7QYH27-JuzgiyP7.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/switch-BcPls0Ng.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/RFN6X5VH-YbkefD9u.js",
+            "assets/VI7QYH27-JuzgiyP7.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/VI7QYH27-JuzgiyP7.js": {
+          "imports": [
+            "assets/index.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/RepositoryBranchSelect-BdoiJsef.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/select-BOzDQ5HV.js",
+            "assets/RFN6X5VH-YbkefD9u.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/RepositoryOverview-DhyHXxo2.js": {
+          "imports": [
+            "assets/index.js"
+          ],
+          "dynamicImports": [
+            "assets/RepositoryDefaultBranchForm-DFCzRGBN.js",
+            "assets/RepositoryVisibilityForm-yquy2waE.js"
+          ]
+        },
+        "assets/RunHistoryContent-CbGARAGh.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/VerificationResultDetails-SZl-ZhPC.js",
+            "assets/run-activity-presentation-CoT_KhBE.js",
+            "assets/collapsible-F7Y4ggeC.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/VerificationResultDetails-SZl-ZhPC.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/collapsible-F7Y4ggeC.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/run-activity-presentation-CoT_KhBE.js": {
+          "imports": [],
+          "dynamicImports": []
+        },
+        "assets/collapsible-F7Y4ggeC.js": {
+          "imports": [
+            "assets/index.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/RepositoryDefaultBranchForm-DFCzRGBN.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/select-BOzDQ5HV.js",
+            "assets/RFN6X5VH-YbkefD9u.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/RepositoryVisibilityForm-yquy2waE.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/select-BOzDQ5HV.js",
+            "assets/RFN6X5VH-YbkefD9u.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/select-BOzDQ5HV.js": {
+          "imports": [
+            "assets/index.js",
+            "assets/RFN6X5VH-YbkefD9u.js"
+          ],
+          "dynamicImports": []
+        },
+        "assets/RFN6X5VH-YbkefD9u.js": {
+          "imports": [
+            "assets/index.js"
+          ],
+          "dynamicImports": []
+        }
+      },
+      "target": 50000,
+      "targetMet": false
+    },
+    "initial_added_gzip9_bytes": 253,
+    "target_bytes": 50000,
+    "target_met": false,
+    "App_unchanged": true,
+    "App_lines": 598
+  },
+  "independent_source_reviews": [
+    {
+      "scope": "Backend13, excluding reviewer-authored UI",
+      "reviewer": "apple_ui_gate_a",
+      "artifact_sha256": "c4185b2317dfcd7dc5abb148ab32289a2a51360ed0f3108acd33c151875c8526",
+      "verdict": "CLEAR FOR INTEGRATION",
+      "outstanding_P0_P1_P2": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "scope": "Frontend8/dist, excluding reviewer-authored backend",
+      "reviewer": "apple_design_review_plan",
+      "artifact_sha256": "2160127af556611c1783d91eb3b23c35f776976591ba4e84caacbdccea18cdd0",
+      "verdict": "CLEAR FOR INTEGRATION",
+      "outstanding_P0_P1_P2": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "scope": "Root operator,CI,contract,roadmap source before native integration",
+      "reviewer": "apple_design_review_plan",
+      "artifact_sha256": "12424bcf6b25c8fee8384236baa6f13a03dfde5764def3f09f7810edc6f4b700",
+      "verdict": "SOURCE CLEAR",
+      "outstanding_P0_P1_P2": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "limits": [
+    "is_private=false permits active authenticated accounts under their existing roles, not anonymous or read-only access.",
+    "Scope changes do not erase copies or cancel already-authorized responses.",
+    "A503 after publication was attempted may leave the new disk value; refresh before any explicit retry.",
+    "Native browser session/ABA/conflict/failure combinations and physical devices were not separately exhausted; permanent tests cover those state boundaries.",
+    "A first local HTTP oracle failed because default tool sandbox denied loopback; the identical elevated oracle then passed. This is not a product defect.",
+    "The initial50000-byte target remains unmet; no latency, native IDE, separate-installation or deployment acceptance is claimed.",
+    "This local dirty candidate is separate from 1fee2f7 hosted CI. A new exact-source hosted result must be observed after push.",
+    "Gate B remains stopped and actual GitHub product publication remains deferred."
+  ]
+}

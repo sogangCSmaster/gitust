@@ -127,6 +127,9 @@ struct CatalogEntry {
     capability: &'static str,
     is_default: bool,
     can_rename: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_private: Option<bool>,
+    can_change_visibility: bool,
     can_change_default_branch: bool,
 }
 fn display_name(engine: &GitEngine, metadata: Option<&RepositoryRecord>) -> String {
@@ -189,6 +192,11 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 },
                 is_default: context.is_default,
                 can_rename: authorization.can_rename,
+                is_private: authorization
+                    .metadata
+                    .as_ref()
+                    .map(|metadata| metadata.is_private),
+                can_change_visibility: authorization.can_change_visibility,
                 can_change_default_branch: authorization.can_rename
                     && context.is_default
                     && context
@@ -236,6 +244,11 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 entry.name.clone_from(&metadata.name);
             }
             entry.can_rename = current.can_rename;
+            entry.is_private = current
+                .metadata
+                .as_ref()
+                .map(|metadata| metadata.is_private);
+            entry.can_change_visibility = current.can_change_visibility;
             entry.can_change_default_branch &= current.can_rename;
         }
         Ok(Catalog { repositories })

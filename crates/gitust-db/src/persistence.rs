@@ -67,6 +67,19 @@ impl DiskStamp {
     }
 }
 
+pub(crate) struct PersistenceFailure {
+    pub(crate) error: AuthError,
+    pub(crate) publication_attempted: bool,
+}
+impl From<AuthError> for PersistenceFailure {
+    fn from(error: AuthError) -> Self {
+        Self {
+            error,
+            publication_attempted: false,
+        }
+    }
+}
+
 pub(crate) struct PendingDiskWrite<'a> {
     snapshot: PersistedSnapshot,
     guard: AuthWriteGuard<'a>,
@@ -289,6 +302,14 @@ impl AuthStore {
         &self,
         pending: Option<PendingDiskWrite<'_>>,
     ) -> Result<(), AuthError> {
+        self.persist_snapshot_classified(pending)
+            .map_err(|failure| failure.error)
+    }
+
+    pub(crate) fn persist_snapshot_classified(
+        &self,
+        pending: Option<PendingDiskWrite<'_>>,
+    ) -> Result<(), PersistenceFailure> {
         let (Some(ref target_path), Some(mut pending_write)) = (&self.persistence_path, pending)
         else {
             return Ok(());
@@ -313,7 +334,7 @@ impl AuthStore {
 fn write_snapshot_atomically(
     target_path: &Path,
     snap: &PersistedSnapshot,
-) -> Result<Option<DiskStamp>, AuthError> {
+) -> Result<Option<DiskStamp>, PersistenceFailure> {
     ensure_private_parent_dir(target_path)?;
     let tmp_path = target_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
     let payload = serde_json::to_vec(snap)
@@ -321,8 +342,10 @@ fn write_snapshot_atomically(
     if payload.len() as u64 > MAX_AUTH_DB_BYTES {
         return Err(AuthError::StorageError(format!(
             "auth db snapshot exceeds the {MAX_AUTH_DB_BYTES}-byte limit"
-        )));
+        ))
+        .into());
     }
+    let mut publication_attempted = false;
     let written = (|| {
         let mut opts = fs::OpenOptions::new();
         opts.write(true).create_new(true);
@@ -346,6 +369,7 @@ fn write_snapshot_atomically(
             .map_err(|e| AuthError::StorageError(format!("failed to write temp auth db: {e}")))?;
         file.sync_all()
             .map_err(|e| AuthError::StorageError(format!("failed to fsync temp auth db: {e}")))?;
+        publication_attempted = true;
         fs::rename(&tmp_path, target_path).map_err(|e| {
             AuthError::StorageError(format!("failed to atomically replace auth db: {e}"))
         })?;
@@ -359,7 +383,10 @@ fn write_snapshot_atomically(
         // fail-open-ok: best-effort temp cleanup; the original write error is returned.
         let _ = fs::remove_file(&tmp_path);
     }
-    written
+    written.map_err(|error| PersistenceFailure {
+        error,
+        publication_attempted,
+    })
 }
 
 #[cfg(test)]

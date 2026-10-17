@@ -582,8 +582,9 @@ installation, native IDE and deployment acceptance remain open.
 The [fixed-source default-branch checkpoint](evidence/alpha-ci-ada787a-2026-10-18.json)
 records [run 39052238635](https://github.com/sogangCSmaster/gitust/actions/runs/39052238635),
 attempt 1, for `ada787a8ab49b0b6493815b3088c7fa3a7f4498c`. Ubuntu 22.04 and macOS 15
-both passed required steps 1–17, including the actual default-branch operator and
-execution-crash recovery. This result covers that source revision, rather than the
+both completed successfully, including the actual default-branch operator and
+execution-crash recovery. macOS intentionally skipped Linux-only step 6; every other
+required step succeeded. This result covers that source revision, rather than the
 later JavaScript import changes.
 
 ## Initial JavaScript import boundary candidate, 2026-10-18
@@ -617,3 +618,62 @@ and the viewport override was reset.
 This checkpoint claims no latency gain, final release acceptance, physical-device
 coverage, new IDE integration or deployment. Product GitHub publication is deferred
 at the user's request; local bare-remote evidence is not relabelled as GitHub proof.
+
+The [fixed-source initial-JavaScript checkpoint](evidence/alpha-ci-1fee2f7-2026-10-18.json)
+records [run 39054125386](https://github.com/sogangCSmaster/gitust/actions/runs/39054125386),
+attempt 1, for `1fee2f7d77dba8e57de30022cdf256b3edc6aef1`. Both Ubuntu 22.04 and macOS 15
+completed successfully. macOS intentionally skipped Linux-only step 6; every other
+required step succeeded. It verifies the import-boundary checkpoint and does not
+establish hosted success for the later access-scope implementation.
+
+## Registered repository access-scope candidate, 2026-10-18
+
+The [local access-scope checkpoint](evidence/repository-access-local-2026-10-18.json)
+binds a candidate based on `1fee2f7` to a rebuilt combined API/UI binary. The
+[contract](repository-access.md) changes registered ACL privacy metadata only.
+SiteAdmin authority, the original login/PAT, current account and role, registration
+binding and expected privacy are checked under the same auth write transaction.
+MCP-purpose credentials cannot perform the mutation. The two scopes retain existing
+role/ownership rules and anonymous denial; they are not a new read-only sharing
+mode. Later authorization checks use the new value, while existing copies and
+already-authorized responses are not revoked retroactively.
+
+Prepublication failure preserves the earlier snapshot; a rename/synchronization
+outcome that cannot be confirmed returns a distinct sanitized 503 and requires
+reading the current value. Strict expected-value conflicts remain 409, and matching
+no-ops still confirm persistence. The existing session/PAT policy and persistence
+error API remain compatible with earlier callers. Optional catalog hints do not
+replace mutation authorization, and legacy/older-server UI invents no privacy state.
+
+The combined mechanical gate passed frontend268 across 37 files, Python19,
+CLI33, core2, DB40, Git133 (two existing ignored benchmarks), sandbox30 and server156,
+plus formatting, Clippy, typechecks and bundle/line/fail-open checks. Permanent
+regressions cover current two-team access, strict concurrent comparisons, original
+credential revocation and persistence uncertainty. The new feature's prior-route
+404 and UI assertion failures are recorded as feature-absence evidence, not as a
+previous authentication vulnerability.
+
+The actual operator grants and revokes active outside-team/no-team reads, rejects
+anonymous and nonadministrator writes, and checks real outside-team Git clone,
+fetch and revoked fetch. Both repositories' refs, identity/binding, owner/origin,
+approval and completed-run records remain unchanged. A stopped two-repository
+snapshot restores with every original installation path unavailable; the changed
+privacy and actual per-team reads survive. Human approval and history survive,
+while a pending task still needs fresh verification before approval. This operator
+is added to both CI jobs before crash recovery.
+
+Native SiteAdmin controls exercised primary and browse-only access saves at
+320/768/1440px, matching action heights of 44/32/32px, six observed layouts without
+page overflow, keyboard selection and Escape focus restoration. An explicit main
+file snapshot and its actual content survive the metadata change. Independent Git
+and authenticated catalog reads confirm the observed values and unchanged refs.
+Owned services, fixtures and browser tab were removed and the viewport reset.
+Session/ABA/conflict/failure cases use permanent tests; physical devices and every
+dialog-failure variant were not separately exercised in the browser.
+
+The measured initial JavaScript is now 70,284 gzip9 bytes (+253), first Overview
+74,405 and first access dialog 98,204 cumulative bytes. The 50,000-byte initial
+target remains unmet, with no latency claim. This local candidate's hosted result
+must be observed at its own revision. Native IDE, separate-installation and
+deployment acceptance remain open, and actual GitHub product publication remains
+deferred at the user's request. Gate B remains stopped.

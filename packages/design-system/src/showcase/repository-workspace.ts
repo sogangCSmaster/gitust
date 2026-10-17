@@ -9,6 +9,10 @@ import { DEMO_REPOSITORY } from "./repository-demo";
 import { getLiveToken } from "./live-repo-client";
 import type { RepositoryRenameActions } from "./repository-rename-types";
 import type {
+  VisibilityActions,
+  VisibilityIntent,
+} from "./repository-visibility";
+import type {
   DefaultBranchActions,
   DefaultBranchIntent,
 } from "./repository-default-branch";
@@ -34,10 +38,13 @@ export const createRepositoryWorkspace = (options: {
   let renameKey = 0;
   let defaultKey = 0;
   let activeDefaultKey: number | undefined;
+  let visibilityKey = 0;
+  let activeVisibilityKey: number | undefined;
   const invalidateRename = () => {
     setSelectionEpoch((value) => value + 1);
     client.cancelRename();
     activeDefaultKey = undefined;
+    activeVisibilityKey = undefined;
   };
   const repositories = createMemo(() =>
     options.liveMode() ? state().repositories : [DEMO_REPOSITORY],
@@ -254,6 +261,60 @@ export const createRepositoryWorkspace = (options: {
       if (defaultCurrent(intent)) unavailable(intent.repoId);
     },
   };
+  const visibilityCurrent = (intent: VisibilityIntent, original = true) => {
+    const repository = selected();
+    const epoch = selectionEpoch();
+    return (
+      options.liveMode() &&
+      repository?.id === intent.repoId &&
+      repository.canChangeVisibility === true &&
+      typeof repository.isPrivate === "boolean" &&
+      (!original ||
+        (activeVisibilityKey === intent.key &&
+          repository.isPrivate === intent.expected)) &&
+      epoch === intent.epoch &&
+      intent.token === getLiveToken() &&
+      client.isCurrentSession()
+    );
+  };
+  const visibility: VisibilityActions = {
+    begin: () => {
+      const repository = selected();
+      const token = getLiveToken();
+      if (
+        !options.liveMode() ||
+        !repository?.canChangeVisibility ||
+        typeof repository.isPrivate !== "boolean" ||
+        !token ||
+        !client.isCurrentSession()
+      )
+        return null;
+      activeVisibilityKey = ++visibilityKey;
+      return {
+        repoId: repository.id,
+        name: repository.name,
+        token,
+        epoch: selectionEpoch(),
+        key: activeVisibilityKey,
+        expected: repository.isPrivate,
+      };
+    },
+    isCurrent: visibilityCurrent,
+    invalidateReads: client.invalidate,
+    confirmed: (intent, value) => {
+      if (!visibilityCurrent(intent)) return;
+      client.confirmVisibility(intent.repoId, value);
+      void client.refreshIfCurrent(() => visibilityCurrent(intent, false));
+    },
+    cancel: (intent) => {
+      if (activeVisibilityKey === intent.key) activeVisibilityKey = undefined;
+    },
+    refresh: (intent) =>
+      client.refreshIfCurrent(() => visibilityCurrent(intent)),
+    unavailable: (intent) => {
+      if (visibilityCurrent(intent)) unavailable(intent.repoId);
+    },
+  };
   return {
     state,
     selected,
@@ -268,5 +329,6 @@ export const createRepositoryWorkspace = (options: {
     refresh: client.refresh,
     refreshViews,
     defaultBranch,
+    visibility,
   };
 };

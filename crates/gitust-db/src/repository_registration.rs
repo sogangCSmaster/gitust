@@ -123,6 +123,7 @@ pub struct AuthorizedRepository {
     pub id: RepoId,
     pub metadata: Option<RepositoryRecord>,
     pub can_rename: bool,
+    pub can_change_visibility: bool,
 }
 
 pub struct RegisteredRepository {
@@ -199,6 +200,7 @@ impl AuthStore {
                     id: access.repo_id,
                     metadata: None,
                     can_rename: false,
+                    can_change_visibility: false,
                 }),
                 (Some(binding), Some(row))
                     if binding.valid_for(access.repo_id) && row.binding == Some(binding) =>
@@ -211,6 +213,7 @@ impl AuthStore {
                             id: access.repo_id,
                             metadata: Some(row.metadata.clone()),
                             can_rename: active.role == EnterpriseRole::SiteAdmin,
+                            can_change_visibility: active.role == EnterpriseRole::SiteAdmin,
                         });
                     }
                 }

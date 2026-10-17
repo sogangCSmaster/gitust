@@ -14,6 +14,8 @@ export interface ConnectedRepository {
   isDefault: boolean;
   canRename?: boolean;
   canChangeDefaultBranch?: boolean;
+  isPrivate?: boolean;
+  canChangeVisibility?: boolean;
 }
 export interface ConnectedRepositoryState {
   repositories: ConnectedRepository[];
@@ -56,11 +58,17 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       Object.keys(raw).length !==
         6 +
           Number(Object.hasOwn(raw, "can_rename")) +
-          Number(Object.hasOwn(raw, "can_change_default_branch")) ||
+          Number(Object.hasOwn(raw, "can_change_default_branch")) +
+          Number(Object.hasOwn(raw, "is_private")) +
+          Number(Object.hasOwn(raw, "can_change_visibility")) ||
       (Object.hasOwn(raw, "can_rename") &&
         typeof raw.can_rename !== "boolean") ||
       (Object.hasOwn(raw, "can_change_default_branch") &&
         typeof raw.can_change_default_branch !== "boolean") ||
+      (Object.hasOwn(raw, "is_private") &&
+        typeof raw.is_private !== "boolean") ||
+      (Object.hasOwn(raw, "can_change_visibility") &&
+        typeof raw.can_change_visibility !== "boolean") ||
       typeof raw.id !== "string" ||
       !uuid.test(raw.id) ||
       /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(raw.id) ||
@@ -94,6 +102,9 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       isDefault: raw.is_default,
       canRename: raw.can_rename === true,
       canChangeDefaultBranch: raw.can_change_default_branch === true,
+      isPrivate:
+        typeof raw.is_private === "boolean" ? raw.is_private : undefined,
+      canChangeVisibility: raw.can_change_visibility === true,
     };
   });
 };
@@ -311,6 +322,15 @@ export const createConnectedRepositoryClient = (
     reset,
     rename,
     cancelRename,
+    confirmVisibility: (id: string, isPrivate: boolean) => {
+      invalidate();
+      update({
+        ...state,
+        repositories: state.repositories.map((row) =>
+          row.id === id ? { ...row, isPrivate } : row,
+        ),
+      });
+    },
     confirmDefaultBranch: (id: string, branch: string, headCommit: string) => {
       invalidate();
       update({

@@ -19,7 +19,9 @@ mod models;
 mod oauth_session;
 mod persistence;
 mod repository_registration;
+mod repository_visibility;
 pub use repository_registration::{AuthorizedRepository, RegisteredRepository};
+pub use repository_visibility::RepositoryVisibilityError;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -30,6 +32,8 @@ mod tests_persistence;
 mod tests_repository_registration;
 #[cfg(test)]
 mod tests_repository_rename;
+#[cfg(test)]
+mod tests_repository_visibility;
 #[cfg(test)]
 mod tests_review_regressions;
 #[cfg(test)]

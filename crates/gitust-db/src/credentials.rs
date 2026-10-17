@@ -252,10 +252,18 @@ impl AuthStore {
         let candidate_hash = hash_token_sha256(raw_session_token);
         let guard = self.read_state()?;
 
-        let Some(session) = guard.sessions_by_hash.get(&candidate_hash) else {
+        Self::authenticate_session_hash_locked(&guard, &candidate_hash, allow_mcp)
+    }
+
+    pub(crate) fn authenticate_session_hash_locked(
+        guard: &AuthState,
+        candidate_hash: &[u8; 32],
+        allow_mcp: bool,
+    ) -> Result<AuthenticatedPrincipal, AuthError> {
+        let Some(session) = guard.sessions_by_hash.get(candidate_hash) else {
             return Err(AuthError::Unauthenticated);
         };
-        if session.token_sha256.ct_eq(&candidate_hash).unwrap_u8() != 1 {
+        if session.token_sha256.ct_eq(candidate_hash).unwrap_u8() != 1 {
             return Err(AuthError::Unauthenticated);
         }
 
@@ -341,13 +349,20 @@ impl AuthStore {
         let candidate_hash = hash_token_sha256(raw_pat);
         let guard = self.read_state()?;
 
-        let Some(&pat_id) = guard.pat_hash_index.get(&candidate_hash) else {
+        Self::authenticate_pat_hash_locked(&guard, &candidate_hash)
+    }
+
+    pub(crate) fn authenticate_pat_hash_locked(
+        guard: &AuthState,
+        candidate_hash: &[u8; 32],
+    ) -> Result<AuthenticatedPrincipal, AuthError> {
+        let Some(&pat_id) = guard.pat_hash_index.get(candidate_hash) else {
             return Err(AuthError::Unauthenticated);
         };
         let Some(pat) = guard.pats_by_id.get(&pat_id) else {
             return Err(AuthError::Unauthenticated);
         };
-        if pat.token_sha256.ct_eq(&candidate_hash).unwrap_u8() != 1 {
+        if pat.token_sha256.ct_eq(candidate_hash).unwrap_u8() != 1 {
             return Err(AuthError::Unauthenticated);
         }
 

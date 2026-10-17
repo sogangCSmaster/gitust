@@ -264,6 +264,38 @@ jobs:
               output.write("### Default branch management\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY
 
+      - name: Verify repository access scope and relocated recovery
+        run: |
+          python3 scripts/repository-visibility-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-repository-visibility.json"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-repository-visibility.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          backend = {"Linux": "linux_bubblewrap", "macOS": "macos_seatbelt"}[os.environ["RUNNER_OS"]]
+          binary_sha = hashlib.sha256(Path("target/debug/gitust").read_bytes()).hexdigest()
+          if (report["source_commit"] != expected or report["runtime_worktree_dirty"] is not False
+              or report["binary_sha256"] != binary_sha or report["actual_repositories"] != 2
+              or report["sandbox_backends"] != [backend] or report["external_github_publication"] is not False):
+              raise SystemExit("The repository visibility rehearsal has invalid source or scope evidence")
+          checks = ["passed", "strict_current_value_cas", "role_and_anonymous_denials",
+                    "current_team_and_signed_in_scope", "primary_and_secondary_metadata",
+                    "outside_team_git_clone_fetch_and_revoke", "refs_and_task_records_preserved",
+                    "restored_scope_and_access", "all_original_paths_unavailable",
+                    "pending_requires_fresh_verification", "git_fsck",
+                    "owned_services_reaped", "private_fixture_removed"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("The repository visibility rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "sandbox_backends", "actual_repositories", "external_github_publication", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### Repository access scope\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
       - name: Reject unsafe service restart after an interrupted command
         run: |
           python3 scripts/execution-crash-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-execution-crash.json"

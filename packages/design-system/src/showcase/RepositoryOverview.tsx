@@ -8,6 +8,8 @@ import { RepositoryClone, type RepositoryCloneTarget } from "./RepositoryClone";
 import { RepositoryRename } from "./RepositoryRename";
 import { RepositoryDefaultBranch } from "./RepositoryDefaultBranch";
 import type { DefaultBranchActions } from "./repository-default-branch";
+import { RepositoryVisibility } from "./RepositoryVisibility";
+import type { VisibilityActions } from "./repository-visibility";
 
 export const RepositoryOverview: Component<{
   repository: ConnectedRepository;
@@ -19,6 +21,7 @@ export const RepositoryOverview: Component<{
     refreshViews: () => unknown;
     clone: () => RepositoryCloneTarget | null;
     defaultBranch?: DefaultBranchActions;
+    visibility?: VisibilityActions;
   };
 }> = (props) => {
   const destinations: Array<{
@@ -108,6 +111,11 @@ export const RepositoryOverview: Component<{
               </span>
             )}
           </Show>
+          <RepositoryVisibility
+            repository={props.repository}
+            liveMode={props.liveMode}
+            actions={props.actions?.visibility}
+          />
         </div>
       </div>
       <Show when={props.repository.headCommit === null}>

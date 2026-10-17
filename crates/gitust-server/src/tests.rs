@@ -541,3 +541,8 @@ mod tests_sync_credentials;
 
 #[path = "tests_repository_branches.rs"]
 mod tests_repository_branches;
+
+#[path = "tests_repository_visibility.rs"]
+mod tests_repository_visibility;
+#[path = "tests_repository_visibility_auth.rs"]
+mod tests_repository_visibility_auth;

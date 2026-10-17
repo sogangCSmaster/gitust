@@ -90,6 +90,34 @@ it("uses the server rename hint and defaults old catalogs to read-only metadata"
   expect(states.at(-1)?.repositories).toEqual([]);
 });
 
+it("accepts visibility only as explicit booleans without inferring older metadata", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        response([{ ...repo, is_private: false, can_change_visibility: true }]),
+      )
+      .mockResolvedValueOnce(response([repo]))
+      .mockResolvedValueOnce(
+        response([
+          { ...repo, is_private: "false", can_change_visibility: true },
+        ]),
+      ),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]).toMatchObject({
+    isPrivate: false,
+    canChangeVisibility: true,
+  });
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]?.isPrivate).toBeUndefined();
+  expect(states.at(-1)?.repositories[0]?.canChangeVisibility).toBe(false);
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+});
+
 it("reads an optional default-branch capability without granting it to older catalogs", async () => {
   vi.stubGlobal(
     "fetch",

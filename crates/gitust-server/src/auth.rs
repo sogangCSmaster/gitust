@@ -79,6 +79,21 @@ fn extract_principal_for(
     auth_store: &AuthStore,
     allow_mcp: bool,
 ) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
+    let token = bearer_token(headers)?;
+
+    if token.starts_with("gitust_pat_") {
+        auth_store.authenticate_pat(token).map_err(map_auth_err)
+    } else if allow_mcp {
+        auth_store
+            .authenticate_mcp_session(token)
+            .map_err(map_auth_err)
+    } else {
+        auth_store.authenticate_session(token).map_err(map_auth_err)
+    }
+}
+
+/// Returns the original bearer credential for an authoritative in-transaction recheck.
+pub(crate) fn bearer_token(headers: &HeaderMap) -> Result<&str, (StatusCode, String)> {
     let Some(raw_header) = headers.get(header::AUTHORIZATION) else {
         return Err(map_auth_err(AuthError::Unauthenticated));
     };
@@ -90,15 +105,7 @@ fn extract_principal_for(
         return Err(map_auth_err(AuthError::Unauthenticated));
     };
 
-    if token.starts_with("gitust_pat_") {
-        auth_store.authenticate_pat(token).map_err(map_auth_err)
-    } else if allow_mcp {
-        auth_store
-            .authenticate_mcp_session(token)
-            .map_err(map_auth_err)
-    } else {
-        auth_store.authenticate_session(token).map_err(map_auth_err)
-    }
+    Ok(token)
 }
 
 /// Async wrapper around `extract_principal` that runs `AuthStore` lock/reload checks on the

@@ -30,6 +30,7 @@ mod repository_reads;
 mod repository_registry;
 mod repository_rename;
 mod repository_summary;
+mod repository_visibility;
 mod run_history;
 pub mod state;
 pub mod webui;
@@ -201,6 +202,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/repos/{id}/default-branch",
             axum::routing::patch(repository_default_branch::change),
+        )
+        .route(
+            "/api/v1/repos/{id}/visibility",
+            axum::routing::patch(repository_visibility::change),
         )
         .route("/api/v1/repos/{id}/commits", get(repository_reads::commits))
         .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))

@@ -4,9 +4,12 @@ use crate::state::{
     map_sandbox_err, set_worktree_status, AppState, RunStatusGuard, MAX_SANDBOX_COMMAND_BYTES,
 };
 use axum::http::StatusCode;
-use gitust_core::{AuthError, AuthenticatedPrincipal, CommitSha, EnterpriseRole, WorktreeStatus};
+use gitust_core::{
+    AuthError, AuthenticatedPrincipal, CommitSha, EnterpriseRole, SandboxRunId, WorktreeStatus,
+};
 use gitust_git::GitEngineError;
 use gitust_sandbox::SandboxExecutionResult;
+use std::sync::Arc;
 use tokio::sync::OwnedMutexGuard;
 use uuid::Uuid;
 
@@ -15,7 +18,12 @@ type ResultValue =
 enum Mode {
     Ordinary,
     Verification,
-    Automatic(CommitSha),
+    Automatic {
+        expected: CommitSha,
+        checks_oid: String,
+        run_id: SandboxRunId,
+        local: bool,
+    },
 }
 struct Execution {
     command: String,
@@ -53,8 +61,8 @@ pub(crate) async fn automatic(
     state: &AppState,
     caller: &AuthenticatedPrincipal,
     id: Uuid,
-    expected: CommitSha,
-    guard: OwnedMutexGuard<()>,
+    job: crate::automatic_run_model::Job,
+    guard: Arc<OwnedMutexGuard<()>>,
 ) -> ResultValue {
     execute(
         state,
@@ -63,7 +71,12 @@ pub(crate) async fn automatic(
         Execution {
             command: "true".into(),
             timeout_secs: None,
-            mode: Mode::Automatic(expected),
+            mode: Mode::Automatic {
+                expected: job.expected,
+                checks_oid: job.checks_oid,
+                run_id: job.run_id,
+                local: job.origin == crate::automatic_run_model::Origin::LocalOperator,
+            },
         },
         Some(guard),
     )
@@ -75,7 +88,7 @@ async fn execute(
     caller: &AuthenticatedPrincipal,
     id: Uuid,
     request: Execution,
-    held: Option<OwnedMutexGuard<()>>,
+    held: Option<Arc<OwnedMutexGuard<()>>>,
 ) -> ResultValue {
     let Execution {
         command,
@@ -83,7 +96,12 @@ async fn execute(
         mode,
     } = request;
     let verify = !matches!(mode, Mode::Ordinary);
-    let automatic = matches!(mode, Mode::Automatic(_));
+    let automatic = matches!(mode, Mode::Automatic { .. });
+    let strict_automatic = matches!(&mode, Mode::Automatic { local: false, .. });
+    let logical_run_id = match &mode {
+        Mode::Automatic { run_id, .. } => Some(*run_id),
+        _ => None,
+    };
     if !state.trusted_sandbox_exec {
         return Err((
             StatusCode::FORBIDDEN,
@@ -136,12 +154,17 @@ async fn execute(
     })?;
     let run_guard = match held {
         Some(guard) => guard,
-        None => runtime.exec_lock.clone().try_lock_owned().map_err(|_| {
-            (
-                StatusCode::CONFLICT,
-                "a sandbox run is already in progress for this worktree".to_owned(),
-            )
-        })?,
+        None => runtime
+            .exec_lock
+            .clone()
+            .try_lock_owned()
+            .map(Arc::new)
+            .map_err(|_| {
+                (
+                    StatusCode::CONFLICT,
+                    "a sandbox run is already in progress for this worktree".to_owned(),
+                )
+            })?,
     };
 
     if state.get_worktree_runtime(wt.id).is_none() {
@@ -170,8 +193,17 @@ async fn execute(
         if verify {
             let commit = engine.clean_worktree_commit(wt.id, &branch)?;
             let checks = engine.required_checks(&base)?;
-            if let Mode::Automatic(expected) = mode {
-                if expected != commit || !checks.as_ref().is_some_and(|checks| checks.auto_run) {
+            if let Mode::Automatic {
+                expected,
+                checks_oid,
+                ..
+            } = mode
+            {
+                if expected != commit
+                    || !checks
+                        .as_ref()
+                        .is_some_and(|checks| checks.auto_run && checks.blob_oid == checks_oid)
+                {
                     return Err(GitEngineError::VerificationInvalid(
                         "automatic checks target or policy changed".into(),
                     ));
@@ -198,9 +230,12 @@ async fn execute(
     let default_repo = state.repo_id;
     let execution_guard = tokio::task::spawn_blocking(move || {
         let guard = run_guard;
-        let current = store
-            .verify_active_principal(&active_caller)
-            .map_err(map_auth_err)?;
+        let current = if strict_automatic {
+            store.authorize_automatic_checks_actor(active_caller.user_id)
+        } else {
+            store.verify_active_principal(&active_caller)
+        }
+        .map_err(map_auth_err)?;
         if current.role != EnterpriseRole::SiteAdmin {
             return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
         }
@@ -211,16 +246,27 @@ async fn execute(
     })
     .await
     .map_err(internal_err)??;
-    let outcome = executor
-        .execute_with_checks(
-            wt.id,
-            &runtime.sandbox_spec,
-            &command,
-            checks
-                .as_ref()
-                .map_or(&[], |checks| checks.commands.as_slice()),
-        )
-        .await;
+    let commands: &[String] = checks
+        .as_ref()
+        .map_or(&[], |checks| checks.commands.as_slice());
+    let outcome = match logical_run_id {
+        Some(run_id) => {
+            executor
+                .execute_with_checks_for_run(
+                    run_id,
+                    wt.id,
+                    &runtime.sandbox_spec,
+                    &command,
+                    commands,
+                )
+                .await
+        }
+        None => {
+            executor
+                .execute_with_checks(wt.id, &runtime.sandbox_spec, &command, commands)
+                .await
+        }
+    };
     let checks_oid = checks.map(|checks| checks.blob_oid);
     match outcome {
         Ok(res) => {
@@ -283,9 +329,12 @@ async fn execute(
             let repo_id = wt.repo_id;
             let default_repo = state.repo_id;
             tokio::task::spawn_blocking(move || {
-                let current = store
-                    .verify_active_principal(&active_caller)
-                    .map_err(map_auth_err)?;
+                let current = if strict_automatic {
+                    store.authorize_automatic_checks_actor(active_caller.user_id)
+                } else {
+                    store.verify_active_principal(&active_caller)
+                }
+                .map_err(map_auth_err)?;
                 if current.role != EnterpriseRole::SiteAdmin {
                     return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
                 }

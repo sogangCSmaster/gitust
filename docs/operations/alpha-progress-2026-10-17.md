@@ -198,3 +198,24 @@ Earlier failed runs retain their recorded outcomes. These results do not cover l
 uncommitted repository-identity work or establish a standalone installation, an intended
 IDE session or actual GitHub publication. Crash recovery proves durable rejection and
 explicit recovery; it does not assert automatic termination of every orphaned command.
+
+## Repository identity checkpoint `80c1540`
+
+The [identity CI evidence](evidence/alpha-ci-80c1540-2026-10-17.json) records
+[run 39010142717](https://github.com/sogangCSmaster/gitust/actions/runs/39010142717),
+attempt 1, for source `80c15402144c1debe4e2a369ec796dce019c0809`. Both Ubuntu 22.04
+and macOS 15 passed all mechanical gates, 105 Git tests (two existing comparative
+benchmarks ignored), 82 server tests and 29 sandbox tests. Real OS regressions covered
+atomic identity publication, process restart, concurrent initialization, unsafe metadata
+rejection and relocation; Linux exercised `renameat2` with `RENAME_NOREPLACE`.
+
+Both hosts completed all ten operating tasks, including the new repository-ID check
+across restart and relocated restore, and execution-crash recovery with strict Git
+`fsck`. Source, clean-runtime and expected-backend report assertions all passed. The
+prior `42bae69` evidence remains unchanged. These results cover only `80c1540`, exclude
+later uncommitted scheduler work and do not establish standalone installation, intended
+IDE sessions or actual GitHub publication.
+
+The user explicitly deferred actual GitHub publication testing on 2026-10-17 while
+requesting continued development elsewhere in the roadmap. Local fixture upstreams
+remain the publication evidence boundary; this deferral does not close acceptance A4.

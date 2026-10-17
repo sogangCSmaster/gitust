@@ -7,7 +7,7 @@ async fn automatic_checks_follow_actual_smart_http_push_and_git_roundtrip() {
     let (tmp, state, app, token, wt, dir) = fixture().await;
     let repo = tmp.path().join("repo");
     policy(&repo, true, "printf pushed-check; grep pushed README.md");
-    let _service = crate::automatic_checks::start(&state).unwrap();
+    let _service = crate::automatic_checks::start(&state).await.unwrap();
     let api = app.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

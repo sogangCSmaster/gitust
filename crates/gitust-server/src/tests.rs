@@ -9,6 +9,10 @@ use tower::ServiceExt;
 mod tests_approval_target;
 #[path = "tests_auth.rs"]
 mod tests_auth;
+#[path = "tests_automatic_http_revocation.rs"]
+mod tests_automatic_http_revocation;
+#[path = "tests_automatic_store.rs"]
+mod tests_automatic_store;
 #[path = "tests_check_steps.rs"]
 mod tests_check_steps;
 #[path = "tests_external_review.rs"]
@@ -497,3 +501,8 @@ mod tests_automatic_checks;
 mod tests_automatic_git_http;
 #[path = "tests_webui_assets.rs"]
 mod webui_assets;
+
+#[path = "tests_automatic_intents.rs"]
+mod tests_automatic_intents;
+#[path = "tests_automatic_restart.rs"]
+mod tests_automatic_restart;

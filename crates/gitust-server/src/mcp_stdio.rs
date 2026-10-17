@@ -81,7 +81,7 @@ where
 {
     use tokio::io::AsyncWriteExt;
 
-    let _automatic_checks = crate::automatic_checks::start(&state)?;
+    let automatic_checks = crate::automatic_checks::start(&state).await?;
 
     let caller = AuthenticatedPrincipal {
         user_id: UserId::new(),
@@ -121,6 +121,7 @@ where
             writer.flush().await?;
         }
     }
+    automatic_checks.shutdown().await?;
     Ok(())
 }
 

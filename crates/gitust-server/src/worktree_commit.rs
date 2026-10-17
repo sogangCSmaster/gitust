@@ -123,6 +123,12 @@ pub(super) async fn commit_worktree(
                 .clone()
                 .try_lock_owned()
                 .map_err(|_| (StatusCode::CONFLICT, "repository is busy".into()))?;
+            let next = prepared.result();
+            let intent = crate::automatic_checks::prepare(
+                &state, &caller, wt.id, next.commit.clone(), Some(next.parent.clone()),
+                if matches!(authority, CommitAuthority::LocalOperator) { crate::automatic_run_model::Origin::LocalOperator }
+                else { crate::automatic_run_model::Origin::Mcp },
+            )?;
             let mut denied = None;
             let committed = state
                 .git_engine
@@ -141,9 +147,26 @@ pub(super) async fn commit_worktree(
                     Ok(())
                 });
             if let Some(error) = denied {
+                if let Some(intent) = intent {
+                    if let Err((status, _)) = crate::automatic_checks::reject(intent) {
+                        state.automatic_checks.mark_unavailable();
+                        tracing::warn!(%status, "commit rejected; automatic intent recovery is required");
+                    }
+                }
                 return Err(error);
             }
-            committed.map_err(map_git_err)
+            match committed {
+                Ok(committed) => Ok((committed, intent)),
+                Err(error) => {
+                    if let Some(intent) = intent {
+                        if let Err((status, _)) = crate::automatic_checks::confirm(&state, intent) {
+                            state.automatic_checks.mark_unavailable();
+                            tracing::warn!(%status, "Git commit failed; automatic intent recovery is required");
+                        }
+                    }
+                    Err(map_git_err(error))
+                }
+            }
         })();
         set_worktree_status(&state, wt.id, |task| {
             task.status = if result.is_ok() {
@@ -152,19 +175,19 @@ pub(super) async fn commit_worktree(
                 WorktreeStatus::Failed
             };
         });
-        let committed = result?;
+        let (committed, intent) = result?;
         // A trigger failure cannot undo the already accepted Git commit. Return its identity
         // and an explicit scheduling outcome so callers do not retry the mutation blindly.
-        let automatic_checks = match crate::automatic_checks::after_commit(
-            &state, &caller, wt.id, committed.commit.clone(),
-            matches!(authority, CommitAuthority::LocalOperator),
-        ) {
-            Ok(true) => "queued",
-            Ok(false) => "disabled",
-            Err((status, _)) => {
-                set_worktree_status(&state, wt.id, |task| task.status = WorktreeStatus::Failed);
-                tracing::warn!(worktree_id = %wt.id.0, %status, "commit accepted but automatic Checks could not be queued");
-                "unavailable"
+        let automatic_checks = match intent {
+            None => "disabled",
+            Some(intent) => match crate::automatic_checks::confirm(&state, intent) {
+                Ok(true) => "queued",
+                Ok(false) => "unavailable",
+                Err((status, _)) => {
+                    set_worktree_status(&state, wt.id, |task| task.status = WorktreeStatus::Failed);
+                    tracing::warn!(worktree_id = %wt.id.0, %status, "commit accepted but automatic Checks could not be queued");
+                    "unavailable"
+                }
             }
         };
         Ok(serde_json::json!({

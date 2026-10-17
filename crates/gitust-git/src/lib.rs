@@ -237,6 +237,16 @@ impl GitEngine {
         self
     }
 
+    /// Resolve common metadata for service-owned repository-local state.
+    pub fn repository_common_directory(&self) -> Result<PathBuf, GitEngineError> {
+        let _service = self.lock_worktree_service()?;
+        let repo = self.acquire_repo()?;
+        {
+            let common = Self::common_git_dir(&repo);
+            std::fs::canonicalize(&common).map_err(|error| io_err(&common, &error))
+        }
+    }
+
     #[must_use]
     pub fn repo_path(&self) -> &Path {
         &self.repo_path

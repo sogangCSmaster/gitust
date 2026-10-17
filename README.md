@@ -37,7 +37,7 @@ The current milestone is a trusted single-user self-hosted alpha: operate concur
 
 SSH Git serving, full pull-request collaboration, GitHub Actions compatibility, microVM execution, SSO, and multi-node scheduling are **planned**. Some additional workbench views are UI demonstrations. The [roadmap](docs/roadmap.md) separates implementation from plans.
 
-Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Local filesystem Git commits, untracked branches and startup replay are outside this first trigger implementation. See [verification behavior](docs/architecture/worktree-verification.md).
+Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Durable queued jobs can resume after current authority and Git state are rechecked; uncertain running jobs become interrupted and are never automatically replayed. Local filesystem Git commits and untracked branches remain outside these triggers. See [verification behavior](docs/architecture/worktree-verification.md) and [automatic-run recovery](docs/architecture/automatic-checks.md).
 
 ## Build from source
 

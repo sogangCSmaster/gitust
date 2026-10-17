@@ -10,6 +10,7 @@
 //! - Account deactivation immediately invalidates all sessions, PATs, SSH keys, and pending tokens.
 //! - Strict BOLA/IDOR ownership checks on all user resources and team repositories.
 
+mod automatic_checks;
 mod credentials;
 mod crypto;
 mod disk_lock;
@@ -19,6 +20,8 @@ mod oauth_session;
 mod persistence;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_automatic_actor;
 #[cfg(test)]
 mod tests_persistence;
 #[cfg(test)]

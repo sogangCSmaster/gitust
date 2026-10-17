@@ -31,6 +31,13 @@ pub struct PreparedWorktreeCommit {
     _service: WorktreeServiceLock,
 }
 
+impl PreparedWorktreeCommit {
+    /// Immutable identity of the object prepared before its ref compare-and-swap.
+    pub fn result(&self) -> &WorktreeCommit {
+        &self.result
+    }
+}
+
 impl GitEngine {
     /// Call from a blocking worker while retaining the caller's per-worktree operation guard.
     pub fn prepare_worktree_commit(

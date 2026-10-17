@@ -103,6 +103,10 @@ async fn gate_7_4_sandbox_isolation() {
     let executions = m.common_git_dir.join("gitust-active-executions");
     fs::create_dir_all(&executions).expect("mkdir executions");
     fs::write(executions.join("private.json"), "PRIVATE_EXECUTION_FENCE").expect("write fence");
+    let automatic = m.common_git_dir.join("gitust-automatic-runs");
+    fs::create_dir_all(&automatic).expect("mkdir automatic attempts");
+    let automatic_record = automatic.join("private.json");
+    fs::write(&automatic_record, "PRIVATE_AUTOMATIC_ATTEMPT").expect("write attempt");
     let spec = spec_for(&m);
     let exec = LocalSandboxExecutor::new(4).with_timeout_secs(10);
     let run = |cmd: String| {
@@ -156,6 +160,7 @@ async fn gate_7_4_sandbox_isolation() {
         format!("cat '{common}/logs/HEAD'"),
         format!("cat '{common}/gitust-active-executions/private.json'"),
         format!("cat '{common}/gitust-repository/identity.json'"),
+        format!("cat '{common}/gitust-automatic-runs/private.json'"),
         format!("cat '{}/index'", sibling.worktree_admin_dir.display()),
     ] {
         let res = run(probe.clone()).await;
@@ -166,8 +171,21 @@ async fn gate_7_4_sandbox_isolation() {
         );
         assert!(!res.stdout.contains("SECRET"), "{probe} leaked a secret");
         assert!(!res.stdout.contains("PRIVATE_EXECUTION_FENCE"));
+        assert!(!res.stdout.contains("PRIVATE_AUTOMATIC_ATTEMPT"));
         assert!(!res.stdout.contains(&repository_id.0.to_string()));
     }
+    let write_attempt = run(format!(
+        "printf changed > '{common}/gitust-automatic-runs/private.json'"
+    ))
+    .await;
+    assert_ne!(
+        write_attempt.exit_code, 0,
+        "private attempt must not be writable"
+    );
+    assert_eq!(
+        fs::read(&automatic_record).unwrap(),
+        b"PRIVATE_AUTOMATIC_ATTEMPT"
+    );
     let write_identity = run(format!(
         "printf changed > '{common}/gitust-repository/identity.json'"
     ))
@@ -425,6 +443,54 @@ async fn read_capped_drains_beyond_1mib_without_sigpipe() {
         res.output_truncated,
         "2MiB stdout must set output_truncated = true"
     );
+}
+
+#[tokio::test]
+async fn assigned_attempt_labels_do_not_reuse_or_remove_another_scratch_directory() {
+    use gitust_core::SandboxRunId;
+    let temp = TempDir::new().unwrap();
+    let workdir = temp.path().join("checkout");
+    let scratch = temp.path().join("scratch");
+    fs::create_dir_all(&workdir).unwrap();
+    let attempt = SandboxRunId::new();
+    let occupied = scratch.join(attempt.0.to_string());
+    fs::create_dir_all(&occupied).unwrap();
+    fs::write(occupied.join("keep"), "another execution").unwrap();
+    let spec = SandboxSpec {
+        workdir: workdir.clone(),
+        scratch_base: scratch,
+        rules: vec![PathRule::new(&workdir, PathAccess::ReadWrite)],
+    };
+    let executor = LocalSandboxExecutor::new(2);
+    let worktree = WorktreeId::new();
+    let command =
+        "test ! -e \"$HOME/prior\" && printf own > \"$HOME/prior\" && printf '%s' \"$HOME\"";
+    let (first, second) = tokio::join!(
+        executor.execute_with_checks_for_run(attempt, worktree, &spec, command, &[]),
+        executor.execute_with_checks_for_run(attempt, worktree, &spec, command, &[]),
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    assert_eq!((first.run_id, second.run_id), (attempt, attempt));
+    assert_eq!((first.exit_code, second.exit_code), (0, 0));
+    assert_ne!(
+        first.stdout, second.stdout,
+        "physical scratch must be independent"
+    );
+    assert_eq!(
+        fs::read_to_string(occupied.join("keep")).unwrap(),
+        "another execution"
+    );
+    assert_eq!(fs::read_dir(&spec.scratch_base).unwrap().count(), 1);
+    let nil: SandboxRunId =
+        serde_json::from_str("\"00000000-0000-0000-0000-000000000000\"").unwrap();
+    assert!(matches!(
+        executor
+            .execute_with_checks_for_run(nil, worktree, &spec, "touch should-not-exist", &[])
+            .await,
+        Err(SandboxError::Prepare { .. })
+    ));
+    assert!(!workdir.join("should-not-exist").exists());
 }
 
 /// Gate A P1 (2026-10-16): a Hidden rule whose only existing ancestor is `/` (non-existent

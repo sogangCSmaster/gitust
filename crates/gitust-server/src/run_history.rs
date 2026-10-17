@@ -26,13 +26,13 @@ type Failure = (StatusCode, String);
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RunRecord {
-    completed_at: DateTime<Utc>,
-    user_id: UserId,
+    pub(crate) completed_at: DateTime<Utc>,
+    pub(crate) user_id: UserId,
     verification_requested: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) automatic: bool,
-    checked_commit: Option<CommitSha>,
-    checks_blob_oid: Option<String>,
+    pub(crate) checked_commit: Option<CommitSha>,
+    pub(crate) checks_blob_oid: Option<String>,
     pub(crate) result: SandboxExecutionResult,
     history_truncated: bool,
 }
@@ -204,11 +204,16 @@ pub(crate) fn read(common: &Path, id: WorktreeId, branch: &str) -> Result<Vec<Ru
     }
     let history: History =
         serde_json::from_slice(&payload).map_err(|_| storage_error("invalid history JSON"))?;
+    let mut run_ids = std::collections::HashSet::new();
     if history.version != 1
         || history.worktree_id != id
         || history.branch != branch
         || history.records.len() > MAX_RECORDS
         || history.records.iter().any(|record| !record.valid(id))
+        || history
+            .records
+            .iter()
+            .any(|record| !run_ids.insert(record.result.run_id))
     {
         return Err(storage_error("history identity, version or count mismatch"));
     }
@@ -227,6 +232,21 @@ pub(crate) fn append(
     }
     let dir = directory(common, true)?.ok_or_else(|| storage_error("missing history directory"))?;
     let mut records = read(common, id, branch)?;
+    if let Some(existing) = records
+        .iter()
+        .find(|saved| saved.result.run_id == record.result.run_id)
+    {
+        let mut retry = record;
+        retry.completed_at = existing.completed_at;
+        if serde_json::to_vec(existing).map_err(storage_error)?
+            != serde_json::to_vec(&retry).map_err(storage_error)?
+        {
+            return Err(storage_error("run ID already contains a different outcome"));
+        }
+        return fs::File::open(&dir)
+            .and_then(|file| file.sync_all())
+            .map_err(storage_error);
+    }
     records.insert(0, record);
     records.truncate(MAX_RECORDS);
     let payload = serde_json::to_vec(&History {

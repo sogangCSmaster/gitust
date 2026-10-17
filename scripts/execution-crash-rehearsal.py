@@ -161,6 +161,14 @@ class CrashRehearsal:
             "paths": ["README.md"], "message": "test: trigger crash regression"})
         require(result.get("automatic_checks") == "queued", "automatic execution was not queued")
         wait_for(lambda: (checkout / started).is_file(), 10, "command did not start")
+        lifecycle_route = "/api/v1/swarm/worktrees/" + task["worktree_id"] + "/automatic-runs"
+        running = [row for row in client.request("GET", lifecycle_route) if row["phase"] == "running"]
+        require(len(running) == 1, "started command has no unique durable Running attempt")
+        attempt = running[0]
+        require(attempt["expected"] == result["commit"]
+                and attempt["user_id"] == login["user"]["id"]
+                and attempt["origin"] == "mcp" and attempt["purpose"] == "automatic_checks",
+                "durable automatic attempt has the wrong commit or actor binding")
         rows = self.ps()
         self.remember_groups(original, rows)
         require(self.groups, "no actual host execution group observed")
@@ -191,14 +199,23 @@ class CrashRehearsal:
         client.url = url
         row = next(row for row in client.request("GET", "/api/v1/swarm/worktrees")
                    if row["id"] == task["worktree_id"])
-        require(row["status"] == "pending" and row["verified_commit"] is None,
+        require(row["status"] == "failed" and row["verified_commit"] is None,
                 "recovery restored verification authority")
+        records = client.request("GET", lifecycle_route)
+        interrupted = [row for row in records if row["run_id"] == attempt["run_id"]]
+        require(len(interrupted) == 1 and interrupted[0]["phase"] == "interrupted"
+                and interrupted[0]["expected"] == attempt["expected"],
+                "uncertain execution was not retained as the same interrupted attempt")
+        require(not any(row["phase"] in ["prepared", "queued", "running"] for row in records),
+                "uncertain automatic attempt was rescheduled")
         result = client.tool("gitust_sandbox_exec", {
             "worktree_id": task["worktree_id"], "command": "true", "verify": False,
             "timeout_secs": 5})
         require(result["exit_code"] == 0 and result["network_isolated"],
                 "ordinary execution did not recover safely")
         require(not any(markers.iterdir()), "normal cleanup retained a fence")
+        require(not (checkout / started).exists() and not (checkout / delayed).exists(),
+                "interrupted automatic command was replayed")
         git(self.repo, "fsck", "--full", "--strict")
         return {"version": 1, "passed": True, "source_commit": git(Path(__file__).resolve().parent.parent,
                  "rev-parse", "HEAD"), "binary_sha256": self.helper.sha256(self.binary),
@@ -209,6 +226,8 @@ class CrashRehearsal:
                 "old_command_survived_sigkill": survived, "fresh_service_rejected": True,
                 "explicit_recovery_required": True, "verification_restored": False,
                 "post_recovery_execution_passed": True, "git_fsck": "passed",
+                "automatic_attempt_retained_as_interrupted": True,
+                "interrupted_automatic_attempt_replayed": False,
                 "external_connections": False}
 
 

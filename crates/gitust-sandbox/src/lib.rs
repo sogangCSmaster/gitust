@@ -196,6 +196,7 @@ impl SandboxSpec {
             "gitust-repository",
             "gitust-approvals",
             "gitust-check-runs",
+            "gitust-automatic-runs",
             ".gitust",
         ] {
             rules.push(PathRule::new(

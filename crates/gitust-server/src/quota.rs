@@ -158,3 +158,40 @@ impl Drop for RunStatusGuard {
         }
     }
 }
+
+/// Startup must not reconcile an intent still owned by an accepted blocking mutation.
+pub(crate) struct AutomaticRecoveryGuards {
+    _repo: tokio::sync::OwnedMutexGuard<()>,
+    _worktrees: Vec<tokio::sync::OwnedMutexGuard<()>>,
+}
+impl AppState {
+    pub(crate) fn try_begin_automatic_recovery(
+        &self,
+    ) -> Result<AutomaticRecoveryGuards, std::io::Error> {
+        let busy = || {
+            std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "repository operations are active; retry automatic Checks startup",
+            )
+        };
+        let repo = self
+            .repo_mutation_lock
+            .clone()
+            .try_lock_owned()
+            .map_err(|_| busy())?;
+        let locks: Vec<_> = self
+            .worktree_runtime
+            .read()
+            .values()
+            .map(|runtime| runtime.exec_lock.clone())
+            .collect();
+        let mut worktrees = Vec::with_capacity(locks.len());
+        for lock in locks {
+            worktrees.push(lock.try_lock_owned().map_err(|_| busy())?);
+        }
+        Ok(AutomaticRecoveryGuards {
+            _repo: repo,
+            _worktrees: worktrees,
+        })
+    }
+}

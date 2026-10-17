@@ -34,8 +34,9 @@ In progress. Implemented portions:
 - Required Checks from committed merge-target configuration during explicit verification.
 - Opt-in automatic Checks after accepted managed-worktree MCP commits and Git HTTP pushes, with bounded latest-update coalescing and diagnostic history. Automatic success does not grant approval; explicit manual verification remains required.
 - Per-command verification outcomes, measured durations, skipped checks and expandable command-specific stdout/stderr in HTTP/MCP and the workbench; stored output is bounded separately for history.
+- Durable managed-worktree automatic-run intents, latest-update coalescing, lifecycle records and conservative restart recovery. Queued work is reauthorized; uncertain running work is interrupted without replay. See the [execution contract](architecture/automatic-checks.md).
 - Bounded durable history of completed HTTP/MCP runs, with a SiteAdmin-only read API and no restoration of approval authority.
-- Durable execution fences reject replacement service ownership and further mutations after an unconfirmed run. Explicit operator recovery is required; this prevents overlap but does not implement automatic orphan termination or a durable scheduler.
+- Durable execution fences reject replacement service ownership and further mutations after an unconfirmed run. Explicit operator recovery is required; this prevents overlap but does not implement automatic orphan termination.
 - A live workbench history viewer for the latest five completed runs, including per-command outcomes, captured output and execution metadata, separate from current verification authority.
 - A live worktree-to-diff review entry that pins head/base commits across file switches, refuses unknown targets and keeps tree/blob snapshots consistent. The follow-up passed local checks and Gate A; its Gate B exception was approved before automatic Gate B reviews were stopped by the user.
 - Bounded task display labels in creation metadata, preserved on restart and relocation for new tasks. Legacy records retain a generic recovered label; labels do not restore verification authority.
@@ -44,7 +45,7 @@ In progress. Implemented portions:
 
 Remaining work:
 
-- Durable automatic-run scheduling/restart recovery and start/timeout/cancellation records; non-managed branch triggers and the live Actions workflow screen.
+- Non-managed branch triggers and the live Actions workflow screen.
 - Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is approximately 65 kB gzip after deferring optional views and tooltip dependencies. Measure the complete initial static-import closure, not just an arbitrarily split entry file.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.

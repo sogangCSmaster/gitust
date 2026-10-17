@@ -137,42 +137,38 @@ fn extract_git_credentials(
     ))
 }
 
+pub(crate) fn extract_git_http_principal(
+    headers: &HeaderMap,
+    auth_store: &AuthStore,
+) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
+    let (explicit_user, token) = extract_git_credentials(headers)?;
+    let principal = if token.starts_with("gitust_pat_") {
+        auth_store.authenticate_pat(&token)
+    } else {
+        auth_store.authenticate_session(&token)
+    }
+    .map_err(map_auth_err)?;
+    if explicit_user
+        .as_ref()
+        .is_some_and(|expected| !principal.username.eq_ignore_ascii_case(expected))
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Basic username does not match authenticated token owner".into(),
+        ));
+    }
+    Ok(principal)
+}
 pub(crate) async fn extract_git_http_principal_async(
     headers: &HeaderMap,
     auth_store: &AuthStore,
 ) -> Result<AuthenticatedPrincipal, Response> {
-    let (explicit_user, token) = match extract_git_credentials(headers) {
-        Ok(pair) => pair,
-        Err((status, msg)) => return Err(git_auth_err_response(status, msg)),
-    };
+    let headers = headers.clone();
     let store = auth_store.clone();
-    let auth_res = tokio::task::spawn_blocking(move || {
-        if token.starts_with("gitust_pat_") {
-            store.authenticate_pat(&token)
-        } else {
-            store.authenticate_session(&token)
-        }
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
-
-    match auth_res {
-        Ok(principal) => {
-            if let Some(expected_user) = explicit_user {
-                if !principal.username.eq_ignore_ascii_case(&expected_user) {
-                    return Err(git_auth_err_response(
-                        StatusCode::UNAUTHORIZED,
-                        "Basic username does not match authenticated token owner".to_owned(),
-                    ));
-                }
-            }
-            Ok(principal)
-        }
-        Err(err) => {
-            let (status, msg) = map_auth_err(err);
-            Err(git_auth_err_response(status, msg))
-        }
-    }
+    tokio::task::spawn_blocking(move || extract_git_http_principal(&headers, &store))
+        .await
+        .map_err(|e| internal_err(e).into_response())?
+        .map_err(|(status, message)| git_auth_err_response(status, message))
 }
 
 fn git_auth_err_response(status: StatusCode, msg: String) -> Response {
@@ -467,43 +463,32 @@ pub(crate) async fn git_receive_pack_handler(
 
     let engine = state.git_engine.clone();
     let automatic_state = state.clone();
+    let original_headers = parts.headers;
     let rpc_res = tokio::task::spawn_blocking(move || {
         let _held_repo = repo_guard;
         let _held_exec = held_exec_locks;
-        let before = matched_worktrees.iter().map(|(id, branch, _)| {
-            (*id, engine.resolve_branch_oid(branch))
-        }).collect::<std::collections::HashMap<_, _>>();
-        let result = engine.smart_http_receive_pack(&body);
-        // receive-pack can report per-ref rejection inside HTTP 200, or change a ref
-        // before an RPC failure. Require an actual ref update; the worker checks the checkout.
-        for (id, branch, _) in matched_worktrees {
-            let Some(update) = updates.iter().find(|u| u.refname == format!("refs/heads/{branch}")) else { continue; };
-            if update.is_deletion || update.old_oid == update.new_oid { continue; }
-            match before.get(&id) {
-                Some(Ok(previous)) if previous.as_deref() == Some(update.new_oid.as_str()) => continue,
-                Some(Ok(_)) => {}
-                _ => {
-                    crate::state::set_worktree_status(&automatic_state, id, |wt| wt.status = WorktreeStatus::Failed);
-                    tracing::warn!(worktree_id = %id.0, "push starting ref could not be inspected");
-                    continue;
-                }
+        let intents = crate::git_http_automatic::prepare(&automatic_state, &caller, &matched_worktrees, &updates)?;
+        #[cfg(test)]
+        if let Some((entered, release)) = automatic_state.automatic_checks.pre_receive_hook.lock().take() {
+            entered.send(()).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "push observer closed".into()))?;
+            release.recv().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "push observer closed".into()))?;
+        }
+        let authorized = (|| {
+            let fresh = extract_git_http_principal(&original_headers, &automatic_state.auth_store)?;
+            if fresh.user_id != caller.user_id || fresh.role != caller.role {
+                return Err((StatusCode::FORBIDDEN, "Git push authority changed".into()));
             }
-            let accepted = match engine.resolve_branch_oid(&branch) {
-                Ok(sha) => sha.as_deref() == Some(update.new_oid.as_str()),
-                Err(error) => {
-                    crate::state::set_worktree_status(&automatic_state, id, |wt| wt.status = WorktreeStatus::Failed);
-                    tracing::warn!(worktree_id = %id.0, %error, "push outcome could not be inspected");
-                    continue;
-                }
-            };
-            if accepted {
-                if let Err((status, _)) = crate::automatic_checks::after_commit(
-                    &automatic_state, &caller, id, gitust_core::CommitSha(update.new_oid.clone()), false,
-                ) {
-                    crate::state::set_worktree_status(&automatic_state, id, |wt| wt.status = WorktreeStatus::Failed);
-                    tracing::warn!(worktree_id = %id.0, %status, "push accepted but automatic Checks could not be queued");
-                }
-            }
+            check_repo_bola(&automatic_state.auth_store, automatic_state.repo_id, &fresh, automatic_state.repo_id)
+        })();
+        if let Err(original) = authorized {
+            crate::git_http_automatic::reject_all(&automatic_state, intents);
+            return Err(original);
+        }
+        let result = engine.smart_http_receive_pack(&body).map_err(map_git_err);
+        // A rejected ref may accompany HTTP 200, and an RPC error may follow an accepted ref.
+        // Keep the Git response authoritative; durable Prepared intents survive inspection failure.
+        if let Err((status, _)) = crate::git_http_automatic::reconcile(&automatic_state, intents) {
+            tracing::warn!(%status, "push completed but automatic Checks scheduling is unavailable");
         }
         result
     })
@@ -513,7 +498,7 @@ pub(crate) async fn git_receive_pack_handler(
     // verification from a stale snapshot; every authorized push attempt requires a new run.
     let out = match rpc_res {
         Ok(Ok(bytes)) => bytes,
-        Ok(Err(e)) => return map_git_err(e).into_response(),
+        Ok(Err((status, message))) => return git_auth_err_response(status, message),
         Err(e) => return internal_err(e).into_response(),
     };
 

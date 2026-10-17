@@ -87,7 +87,7 @@ async fn automatic_checks_after_mcp_commit_record_revision_without_approval() {
         "printf automatic-check; test -f README.md",
     );
     git(&dir, &["merge", "--no-edit", "main"]);
-    let _service = crate::automatic_checks::start(&state).unwrap();
+    let _service = crate::automatic_checks::start(&state).await.unwrap();
     let result = commit_via_mcp(&app, &token, &wt, &dir).await;
     let records = settle(&state, &wt).await;
     assert_eq!(
@@ -146,7 +146,7 @@ async fn disabled_policy_preserves_manual_checks_and_failed_automatic_checks_sta
     for (enabled, exit) in [(false, 0), (true, 7)] {
         let (tmp, state, app, token, wt, dir) = fixture().await;
         policy(&tmp.path().join("repo"), enabled, &format!("exit {exit}"));
-        let _service = crate::automatic_checks::start(&state).unwrap();
+        let _service = crate::automatic_checks::start(&state).await.unwrap();
         commit_via_mcp(&app, &token, &wt, &dir).await;
         let records = settle(&state, &wt).await;
         assert_eq!(records.len(), usize::from(enabled));
@@ -169,7 +169,7 @@ async fn disabled_policy_preserves_manual_checks_and_failed_automatic_checks_sta
 async fn queued_updates_coalesce_and_never_replace_manual_verification() {
     let (tmp, state, app, token, wt, dir) = fixture().await;
     policy(&tmp.path().join("repo"), true, "printf latest-check");
-    let _service = crate::automatic_checks::start(&state).unwrap();
+    let _service = crate::automatic_checks::start(&state).await.unwrap();
     let caller = state.auth_store.authenticate_session(&token).unwrap();
     let runtime = state.get_worktree_runtime(wt.id).unwrap();
     let guard = runtime.exec_lock.lock().await;
@@ -206,7 +206,7 @@ async fn queued_runs_stop_on_shutdown_and_unavailable_scheduling_is_explicit() {
     let (tmp, state, app, token, wt, dir) = fixture().await;
     policy(&tmp.path().join("repo"), true, "printf should-not-run");
     let caller = state.auth_store.authenticate_session(&token).unwrap();
-    let service = crate::automatic_checks::start(&state).unwrap();
+    let service = crate::automatic_checks::start(&state).await.unwrap();
     let runtime = state.get_worktree_runtime(wt.id).unwrap();
     let guard = runtime.exec_lock.lock().await;
     let sha = CommitSha(git(&dir, &["rev-parse", "HEAD"]));
@@ -225,7 +225,7 @@ async fn queued_runs_stop_on_shutdown_and_unavailable_scheduling_is_explicit() {
 async fn automatic_checks_require_trusted_mode_ownership_and_live_admin() {
     let (tmp, state, _app, token, wt, dir) = fixture().await;
     policy(&tmp.path().join("repo"), true, "printf should-not-run");
-    let service = crate::automatic_checks::start(&state).unwrap();
+    let service = crate::automatic_checks::start(&state).await.unwrap();
     let caller = state.auth_store.authenticate_session(&token).unwrap();
     let sha = CommitSha(git(&dir, &["rev-parse", "HEAD"]));
     assert!(!crate::automatic_checks::after_commit(
@@ -343,7 +343,7 @@ async fn stopping_service_cancels_an_active_automatic_command_and_releases_its_l
         true,
         &format!(": {nonce}; touch automatic.started; sleep 10; touch automatic.finished"),
     );
-    let service = crate::automatic_checks::start(&state).unwrap();
+    let service = crate::automatic_checks::start(&state).await.unwrap();
     let caller = state.auth_store.authenticate_session(&token).unwrap();
     let sha = CommitSha(git(&dir, &["rev-parse", "HEAD"]));
     crate::automatic_checks::after_commit(&state, &caller, wt.id, sha, false).unwrap();

@@ -26,6 +26,38 @@ impl LocalSandboxExecutor {
         requested: &str,
         required: &[String],
     ) -> Result<SandboxExecutionResult, SandboxError> {
+        self.execute_check_run(None, worktree_id, spec, requested, required)
+            .await
+    }
+
+    /// Labels a preallocated attempt; the durable dispatcher owns duplicate-execution policy.
+    /// Scratch always gets a fresh nonce, so reusing a label cannot share or remove another run.
+    pub async fn execute_with_checks_for_run(
+        &self,
+        run_id: SandboxRunId,
+        worktree_id: WorktreeId,
+        spec: &SandboxSpec,
+        requested: &str,
+        required: &[String],
+    ) -> Result<SandboxExecutionResult, SandboxError> {
+        if run_id.0.is_nil() {
+            return Err(SandboxError::Prepare {
+                path: spec.workdir.display().to_string(),
+                message: "execution attempt ID must not be nil".into(),
+            });
+        }
+        self.execute_check_run(Some(run_id), worktree_id, spec, requested, required)
+            .await
+    }
+
+    async fn execute_check_run(
+        &self,
+        attempt: Option<SandboxRunId>,
+        worktree_id: WorktreeId,
+        spec: &SandboxSpec,
+        requested: &str,
+        required: &[String],
+    ) -> Result<SandboxExecutionResult, SandboxError> {
         let command_str = command::display(requested, required);
         let _permit = self
             .semaphore
@@ -33,18 +65,22 @@ impl LocalSandboxExecutor {
             .await
             .map_err(|_| SandboxError::ConcurrencyLimiterClosed)?;
         let start = Instant::now();
-        let run_id = SandboxRunId::new();
+        let scratch_id = SandboxRunId::new();
+        let run_id = match attempt {
+            Some(id) => id,
+            None => scratch_id,
+        };
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut cleanup = SandboxCleanupGuard {
             pid: None,
-            run_dir: Some(spec.scratch_base.join(run_id.0.to_string())),
+            run_dir: Some(spec.scratch_base.join(scratch_id.0.to_string())),
             cancelled: Arc::clone(&cancelled),
         };
         let spec_owned = spec.clone();
         let allow_network = self.allow_network;
         let prepared = tokio::task::spawn_blocking(move || {
-            let anticipated = spec_owned.scratch_base.join(run_id.0.to_string());
-            let res = prepare_run(&spec_owned, run_id, "", allow_network);
+            let anticipated = spec_owned.scratch_base.join(scratch_id.0.to_string());
+            let res = prepare_run(&spec_owned, scratch_id, "", allow_network);
             if res.is_err() || cancelled.load(Ordering::SeqCst) {
                 // fail-open-ok: best-effort scratch cleanup on preparation failure/cancellation.
                 let _ = fs::remove_dir_all(&anticipated);

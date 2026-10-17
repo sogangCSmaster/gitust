@@ -50,6 +50,48 @@ async fn completed_runs_survive_restart_without_restoring_approval_authority() {
 }
 
 #[tokio::test]
+async fn completed_attempt_retries_are_idempotent_and_conflicting_or_duplicate_ids_fail_closed() {
+    let (_tmp, state, app, token, wt, _) = fixture().await;
+    assert_eq!(
+        run(&app, &token, &wt, "printf stable-attempt").await.0,
+        StatusCode::OK
+    );
+    let runtime = state.get_worktree_runtime(wt.id).unwrap();
+    let common = &runtime.common_git_dir;
+    let path = common
+        .join("gitust-check-runs")
+        .join(format!("{}.json", wt.id.0));
+    let original = std::fs::read(&path).unwrap();
+    let saved = crate::run_history::read(common, wt.id, &wt.branch)
+        .unwrap()
+        .remove(0);
+    let mut retry = saved.clone();
+    retry.completed_at += chrono::Duration::seconds(1);
+    crate::run_history::append(common, wt.id, &wt.branch, retry).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    for changed in [0, 1] {
+        let mut conflict = saved.clone();
+        if changed == 0 {
+            conflict.result.exit_code = 9;
+        } else {
+            conflict.user_id = gitust_core::UserId::new();
+        }
+        assert!(crate::run_history::append(common, wt.id, &wt.branch, conflict).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+    }
+    let mut document: serde_json::Value = serde_json::from_slice(&original).unwrap();
+    document["records"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::to_value(saved.clone()).unwrap());
+    let duplicate = serde_json::to_vec(&document).unwrap();
+    std::fs::write(&path, &duplicate).unwrap();
+    assert!(crate::run_history::read(common, wt.id, &wt.branch).is_err());
+    assert!(crate::run_history::append(common, wt.id, &wt.branch, saved).is_err());
+    assert_eq!(std::fs::read(path).unwrap(), duplicate);
+}
+
+#[tokio::test]
 async fn step_output_is_bounded_with_json_escaping_and_legacy_history_still_loads() {
     let (_tmp, state, app, token, wt, _) = fixture().await;
     let (_, body) = run(&app, &token, &wt, "true").await;
@@ -86,6 +128,7 @@ async fn step_output_is_bounded_with_json_escaping_and_legacy_history_still_load
         .unwrap()
         .user_id;
     for _ in 0..5 {
+        result.run_id = gitust_core::SandboxRunId::new();
         let record = crate::run_history::RunRecord::new(user, false, None, None, result.clone());
         crate::run_history::append(&runtime.common_git_dir, wt.id, &wt.branch, record).unwrap();
     }
@@ -209,6 +252,7 @@ async fn history_bounds_utf8_output_without_changing_the_execution_response() {
     let (status, body) = run(&app, &token, &wt, "printf complete").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let mut result: SandboxExecutionResult = serde_json::from_str(&body).unwrap();
+    result.run_id = gitust_core::SandboxRunId::new();
     result.stdout = "한".repeat(6000);
     let original = result.stdout.clone();
     let runtime = state.get_worktree_runtime(wt.id).unwrap();

@@ -12,7 +12,12 @@ use tower_http::cors::CorsLayer;
 
 pub mod auth;
 mod automatic_checks;
+mod automatic_run_api;
+mod automatic_run_model;
+mod automatic_run_recovery;
+mod automatic_run_store;
 pub mod git_http;
+mod git_http_automatic;
 pub mod listener;
 pub mod mcp;
 pub mod oauth;
@@ -200,6 +205,10 @@ pub fn build_router(state: AppState) -> Router {
             get(run_history::list_handler),
         )
         .route(
+            "/api/v1/swarm/worktrees/{id}/automatic-runs",
+            get(automatic_run_api::list),
+        )
+        .route(
             "/api/v1/swarm/worktrees/{id}/approve",
             post(worktrees::approve_worktree_handler),
         )
@@ -263,11 +272,13 @@ pub async fn serve(
              single-user deployment"
         );
     }
-    let _automatic_checks = automatic_checks::start(&state)?;
+    let automatic_checks = automatic_checks::start(&state).await?;
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Gitust All-in-One Server listening on http://{addr}");
-    listener::serve_hardened(listener, app).await
+    let result = listener::serve_hardened(listener, app).await;
+    automatic_checks.shutdown().await?;
+    result
 }
 
 #[cfg(test)]

@@ -1,0 +1,26 @@
+{
+  "binary_sha256": "ad2ef74fa7bf045c475a604774ad3d9d4a9790c0664dad1c6d32c1f24bbc0b33",
+  "results": [
+    {
+      "mode": "shallow",
+      "checkout_shallow": "true",
+      "upstream_shallow": "true",
+      "sync_exit": 1,
+      "failure": "HEAD has no complete commit history"
+    },
+    {
+      "mode": "full",
+      "checkout_shallow": "false",
+      "upstream_shallow": "false",
+      "sync_exit": 0,
+      "main_matches": true,
+      "complete_commit_count": 3,
+      "fsck": "mirror and upstream passed"
+    }
+  ],
+  "scope": "local synthetic Git history regression; workflow files uncommitted",
+  "github_hosted_run": false,
+  "source_base_commit": "5455ec01d0d694712725e5454d4efb0eff71bead",
+  "source_contains_uncommitted_ui_followup": true,
+  "subsequent_ui_checkpoint": "696f32970b4ffe862ca92bf8b2b5f84d24164eaa"
+}

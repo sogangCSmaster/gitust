@@ -933,3 +933,30 @@ to server history and grants no verification, approval or publication authority.
 The new CLI rehearsal is required in repository CI, but this candidate still needs
 its own hosted run. GitHub product publication remains deferred; Gate B and
 previously interrupted procedures were not resumed. Full alpha acceptance remains open.
+
+### Opt-in local Checks history, 2026-10-18
+
+Based on `dba73df03713b76d1bf86be06660aa80a3463e77`, `sandbox checks --record`
+retains five completed results under the actual persisted repository identity.
+The original service lease is held through execution and storage. Default v1
+execution remains unchanged; opt-in v2 reports the save outcome separately from
+the real execution result. Explicit CLI queries never create a repository identity.
+Stored output is bounded at UTF-8 boundaries, while the immediate result is kept.
+An invalid or incomplete checkpoint fails explicitly instead of becoming an empty
+history. See the [contract](local-checks.md) and [candidate evidence](evidence/local-checks-history-2026-10-18.json).
+
+Full verification passed: Rust 438, frontend 298 across 39 files and Python 20,
+with two existing ignored Git tests. The actual CLI rehearsal passed 15 checks on
+Seatbelt across two original repositories and one relocated restore: recorded
+success/failure, exact identities and measurements, retention, private bounded
+storage, unchanged v1 behavior, original approvals/origins/annotated tags and
+strict fsck. Original repository, worktree and auth locations were made unavailable
+before restoration. Private fixtures were removed. No UI was changed in this step.
+
+The preceding `dba73df` [hosted run](https://github.com/sogangCSmaster/gitust/actions/runs/39075988175)
+passed Ubuntu and macOS, including all 21 named required steps except the intended
+macOS Linux-prerequisite skip. The new history/relocation rehearsal is required in
+CI; this candidate still needs its own hosted run. History remains diagnostic and
+does not grant verification, approval, replay or HTTP execution authority. GitHub
+product publication stays deferred, automatic Gate B stays stopped, and full alpha
+acceptance remains open.

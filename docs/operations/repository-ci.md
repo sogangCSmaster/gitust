@@ -70,7 +70,13 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
    preserved dirty files, refs, approved tasks and raw annotated tags, and removal
    of temporary checkout directories and fences. Require the actual OS sandbox,
    matching source/binary hashes, strict Git `fsck` and removed private fixtures.
-10. Kill a disposable fixture service during an actual automatic Check and require
+10. Record completed local Checks and read them in new CLI processes. Require
+    unchanged default v1 behavior, exact repository/run/SHA binding, retained
+    failure/skipping, newest-five retention, bounded UTF-8 output and private
+    storage. Back up a stopped fixture, make the original repository, tasks and
+    auth store unavailable, then require unchanged history, approvals, origins
+    and annotated tags after relocation, with strict Git `fsck` and cleanup.
+11. Kill a disposable fixture service during an actual automatic Check and require
    a fresh service to refuse the unresolved execution fence. Stop only the
    fixture's authenticated process groups, require explicit operator recovery,
    and prove ordinary execution resumes without restoring verification authority.

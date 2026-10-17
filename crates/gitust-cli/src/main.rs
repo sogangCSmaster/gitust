@@ -2,6 +2,7 @@
 
 mod admin_cmd;
 mod checks_cmd;
+mod history_cmd;
 mod sandbox_cmd;
 #[cfg(test)]
 mod tests_cli_review;
@@ -58,6 +59,16 @@ enum SandboxSubcommands {
         expected_commit: String,
         #[arg(long, default_value_t = 600)]
         timeout: u64,
+        /// Save a confirmed completed run to bounded repository-local diagnostic history
+        #[arg(long)]
+        record: bool,
+    },
+    /// Read recorded local Checks without executing commands or initializing identity
+    ChecksHistory {
+        #[arg(long)]
+        repo: PathBuf,
+        #[arg(long)]
+        run_id: Option<String>,
     },
     /// Run a command inside an isolated agent worktree and OS sandbox (`gitust sandbox run "<cmd>"`)
     Run {
@@ -281,8 +292,19 @@ async fn main() -> Result<()> {
                     repo,
                     expected_commit,
                     timeout,
+                    record,
                 }) => {
-                    let report = checks_cmd::run_cli_checks(&repo, &expected_commit, timeout).await;
+                    let report =
+                        checks_cmd::run_cli_checks(&repo, &expected_commit, timeout, record).await;
+                    let exit_code = report.exit_code();
+                    println!("{}", serde_json::to_string(&report)?);
+                    if exit_code != 0 {
+                        std::process::exit(exit_code);
+                    }
+                    return Ok(());
+                }
+                Some(SandboxSubcommands::ChecksHistory { repo, run_id }) => {
+                    let report = history_cmd::read_history(&repo, run_id.as_deref()).await;
                     let exit_code = report.exit_code();
                     println!("{}", serde_json::to_string(&report)?);
                     if exit_code != 0 {

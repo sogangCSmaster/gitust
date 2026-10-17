@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "base_commit": "dba73df03713b76d1bf86be06660aa80a3463e77",
+  "scope": "Opt-in completed local Checks diagnostics, bounded repository-local retention and explicit CLI queries; no execution or approval authority added",
+  "source_manifest_sha256": "ae4484c0bb0ae371cd6e7be7b93cef0ad5ffe026d3052cdd77da7474e5d16398",
+  "source_sha256": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "3a71df1760a990ab4de8159bab09987aa70f88c1e5f4c81007378fad030f7815"
+    },
+    {
+      "path": "README.md",
+      "sha256": "8c8f69708a3c4e4522b63177e1dcc83ccf841c59ac0536347765248e69c41fb9"
+    },
+    {
+      "path": "crates/gitust-cli/src/checks_cmd.rs",
+      "sha256": "05edc8c401095cf36acfd3a45d72855284332f2ea8bb8841e90734dec38b8dff"
+    },
+    {
+      "path": "crates/gitust-cli/src/history_cmd.rs",
+      "sha256": "35ee0e2c26e5a854c422cf16027768b52ce79654392682d6d5d0131fbc5e0b76"
+    },
+    {
+      "path": "crates/gitust-cli/src/main.rs",
+      "sha256": "d4f6df27d4a9f32e185ffb7766b2497ba3d7d939b9a4d391c1218dd8ee437f05"
+    },
+    {
+      "path": "crates/gitust-cli/tests/cli_checks.rs",
+      "sha256": "40933f3f436eb176e5a1675d9866b59cb2c6c569bf14791b80c20c57e3f3bc8f"
+    },
+    {
+      "path": "crates/gitust-sandbox/src/lib.rs",
+      "sha256": "49596efed3b79f6c31b8a8cb4a0f47545d7ae310c1d069244e9adaba520797c5"
+    },
+    {
+      "path": "crates/gitust-server/src/lib.rs",
+      "sha256": "264293a7c2697ca8e2526de47aa4869eab39e54e16159c68d4057d1ad94d21ec"
+    },
+    {
+      "path": "crates/gitust-server/src/local_checks_history.rs",
+      "sha256": "77fb214e47fab851ab6bbea57b1db4cb202173c0e8303e32a1c4d87af319f8b6"
+    },
+    {
+      "path": "crates/gitust-server/src/local_checks_history_store.rs",
+      "sha256": "358e84404de0da6d8c50cb7c9b5fec3076c392c75e151918f174158dd18cefe8"
+    },
+    {
+      "path": "crates/gitust-server/tests/local_checks_history.rs",
+      "sha256": "b6b5d28081e47acb3d7e6959675616fdcba2ea4eca98cdaf0b3d61b2647c6ace"
+    },
+    {
+      "path": "docs/operations/local-checks.md",
+      "sha256": "73785a18c9139f0e5393be4e3a2a5419cb036b1d4ecef258ef91e4d30c6b6955"
+    },
+    {
+      "path": "docs/operations/repository-ci.md",
+      "sha256": "636bd0027057208625015172b679d77ff545e2c348ca65d3ba1f0652c5449751"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "sha256": "716876bd56f59afcb5941a0ca861d45ecbae1eeedf758f01acbb362d16a164ad"
+    },
+    {
+      "path": "scripts/cli-checks-history-rehearsal.py",
+      "sha256": "003f6b5e05ebadbb6f8418a5392d0eeb97136045b3342c8fd512dd4c84f27876"
+    }
+  ],
+  "binary_sha256": "fa887aca2ba9cade713861654950953ed302b0a9992c62b49e07fab4b5921078",
+  "binary_provenance": "Locally built base plus listed candidate changes; not a clean committed-candidate build",
+  "verification": {
+    "command": "scripts/verify.sh",
+    "exit": 0,
+    "log_sha256": "50d49b869f379af687397e790432c6ac4e21c769f951e5fe13cc3146d71fbd00",
+    "rust_passed": 438,
+    "git_ignored": 2,
+    "frontend_passed": 298,
+    "frontend_files": 39,
+    "python_passed": 20
+  },
+  "focused_verification": {
+    "storage_evidence_sha256": "4e263a03c24344754c8c5a276812a1a9fbd6944c7af5b464ad50c8e544446b07",
+    "cli_evidence_sha256": "51ef9d108e8ec7f3f463fa89f0b78c1c72e2028e5cd298f21b18fb00461f9f31",
+    "new_storage_cases_passed": 3,
+    "cli_existing_and_new_cases_passed": 4,
+    "existing_managed_history_cases_passed": 8,
+    "baseline": "Storage API was absent at compile time; initial CLI history cases failed because the flags/query were absent. Later assertions extended the CLI case; no byte-identical final CLI before/after claim.",
+    "environment": "An initial restricted managed-history test attempt had sandbox errors; the same existing scope passed 8/8 with normal OS sandbox execution."
+  },
+  "operating": {
+    "report_sha256": "3a159697c139a8fd61fac131c899cbab95d061476d4ccb1a4eb732266c9971f9",
+    "actual_repositories": 2,
+    "restored_repositories": 1,
+    "platform": "Darwin",
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "runtime_worktree_dirty": true,
+    "checks": {
+      "passed": true,
+      "query_does_not_initialize_identity": true,
+      "recorded_success_and_failure_reopened": true,
+      "exact_ref_commit_blob_and_run_binding": true,
+      "actual_measurements_and_skipped_steps_preserved": true,
+      "bounded_utf8_output_preserves_live_result": true,
+      "newest_five_retained_and_evicted_ids_missing": true,
+      "plain_v1_execution_does_not_record": true,
+      "separate_bare_repository_identity": true,
+      "history_storage_private_and_bounded": true,
+      "real_backup_and_relocated_history": true,
+      "original_approval_and_origins_preserved": true,
+      "temporary_checkouts_and_scratch_removed": true,
+      "git_fsck": true,
+      "private_fixture_removed": true
+    },
+    "runtime_source_sha256": {
+      "scripts/cli-checks-history-rehearsal.py": "003f6b5e05ebadbb6f8418a5392d0eeb97136045b3342c8fd512dd4c84f27876",
+      "scripts/cli-checks-rehearsal.py": "af475bd3155dd5fcf60f4dc7ec3baab084ae2cfbbbca602f0ae9916f651a505a",
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+      "scripts/backup.py": "24b9e250e7c6b6097697ae3797aec4ebfca223e9ad4eb269b073815bea2275b6"
+    }
+  },
+  "preceding_hosted_ci": {
+    "head_sha": "dba73df03713b76d1bf86be06660aa80a3463e77",
+    "run_id": 39075988175,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39075988175",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Verify and rehearse (ubuntu-22.04)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify and rehearse (macos-15)",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "report_sha256": "1a279fa2c7b81fb024ed6ca8cf30565dc21e117b369838175fdbe0579624c0cf"
+  },
+  "limits": [
+    "Candidate hosted Linux/macOS CI remains pending its own push.",
+    "Stored output is bounded, not secret-redacted; incomplete storage rejects reads/writes instead of silently replacing it.",
+    "No new HTTP history or execution endpoint, automatic trigger, durable queue, verification, approval or publication authority.",
+    "The operator not_found expectation was corrected to the agreed null reason before execution; no production defect was involved.",
+    "Actual GitHub product publication remains user-deferred. Gate B and previously interrupted procedures were not resumed."
+  ]
+}

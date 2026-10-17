@@ -23,6 +23,7 @@ mod git_http_automatic;
 mod git_http_read;
 mod git_http_write;
 pub mod listener;
+pub mod local_checks_history;
 pub mod mcp;
 pub mod oauth;
 mod outbound;

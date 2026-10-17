@@ -69,3 +69,15 @@ matched the independent upstream SHA and passed both `git fsck` checks. The
 committed operating rehearsal and explicit shallow guard retain this regression
 in the CI execution path. This local result does not establish a successful
 GitHub-hosted run; record that run's exact revision and outcome separately.
+
+The first hosted run, [39006612796](https://github.com/sogangCSmaster/gitust/actions/runs/39006612796),
+tested `9e11c82532b22d7eae59e7bcd4561cab81a4db3f` and failed on both hosts.
+Linux passed the namespace preflight but failed the hidden-auth-state regression:
+its empty masking tmpfs was writable. This establishes a masking-policy defect,
+not a write to the original host auth file. macOS passed every mechanical gate,
+then failed the clean-checkout guard before starting the ten-task rehearsal.
+An independent clean-clone reproduction generated five untracked Python bytecode
+files after successful tests; the two bytecode ignore rules kept the same tests
+and clean-checkout guard passing. The original hosted log did not list dirty
+paths, so that reproduction does not identify its exact file list. Neither job
+reached the crash rehearsal. This failed run does not establish Linux acceptance.

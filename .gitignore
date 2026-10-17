@@ -6,6 +6,8 @@ target/
 .vite/
 .gitust/
 .*.gitust-worktrees/
+__pycache__/
+*.py[cod]
 
 # Local environment secrets; examples must contain placeholders only.
 .env

@@ -43,6 +43,8 @@ The [offline backup tool and runbook](../operations/backup-restore.md) preserve 
 
 The executor uses macOS Seatbelt or Linux Bubblewrap, with an isolated environment, bounded output, a timeout, and network denial. Server execution is opt-in for SiteAdmins on trusted single-user deployments, not a hostile multi-tenant boundary.
 
+Linux seals hidden directory masks read-only after installing nested worktree/admin/scratch grants. Missing hidden names under a read-only source use filtered private parent views, preserving symlinks inside the namespace. Allowed subdirectories retain live read-only binds; new names at a filtered parent become visible on the next preparation. A missing deny inside a writable source is refused. Source inspection and mounting still require a trusted host writer.
+
 MCP-purpose OAuth sessions are restricted to MCP; they cannot act as general login credentials for approval, publication, administration, or Git HTTP. Local stdio MCP and CLI commands run under the local operator's authority.
 
 HTTP MCP commits require trusted execution, a live SiteAdmin credential and the persisted worktree owner. The original credential and repository authority are checked again immediately before the branch update. Local stdio commits use operator authority, so a recovered task can be continued without transferring its stored owner. Both transports reject terminal/approved tasks, stale HEADs, staged conflicts and unsupported commit inputs. Builtin Git content normalization is supported through bounded private configuration/attribute snapshots; executable filters, hooks and signing programs do not run.

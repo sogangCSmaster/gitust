@@ -92,7 +92,11 @@ jobs:
 
       - name: Run the real ten-task operating rehearsal
         run: |
-          test -z "$(git status --porcelain --untracked-files=all)"
+          if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+            printf 'The source checkout changed during verification; refusing rehearsal.\n' >&2
+            git status --short --untracked-files=all
+            exit 1
+          fi
           test "$(git rev-parse --is-shallow-repository)" = false
           cargo build --locked -p gitust-cli
           # PR checkouts are detached. Give the local fixture the exact tested commit.

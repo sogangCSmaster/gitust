@@ -317,18 +317,22 @@ fn bwrap_args_orders_mounts_and_network_flags() {
     let hidden_file = tmp.path().join("hidden-file");
     let ro_dir = tmp.path().join("ro");
     let rw_dir = tmp.path().join("rw");
+    let nested_rw = hidden_dir.join("own");
     fs::create_dir_all(&hidden_dir).expect("mkdir");
     fs::write(&hidden_file, "secret").expect("write");
     fs::create_dir_all(&ro_dir).expect("mkdir");
     fs::create_dir_all(&rw_dir).expect("mkdir");
+    fs::create_dir_all(&nested_rw).expect("mkdir nested grant");
 
     let rules = vec![
         PathRule::new(&hidden_dir, PathAccess::Hidden),
         PathRule::new(&hidden_file, PathAccess::Hidden),
         PathRule::new(&ro_dir, PathAccess::ReadOnly),
         PathRule::new(&rw_dir, PathAccess::ReadWrite),
+        PathRule::new(&nested_rw, PathAccess::ReadWrite),
     ];
     let offline: Vec<String> = bwrap_args(&rules, &rw_dir, "echo hi", false)
+        .expect("offline mounts")
         .into_iter()
         .map(|s| s.to_string_lossy().into_owned())
         .collect();
@@ -345,8 +349,24 @@ fn bwrap_args_orders_mounts_and_network_flags() {
     assert!(offline.windows(3).any(|w| w[0] == "--bind"
         && w[1] == rw_dir.to_string_lossy()
         && w[2] == rw_dir.to_string_lossy()));
+    let seal = offline
+        .windows(2)
+        .position(|w| w[0] == "--remount-ro" && w[1] == hidden_dir.to_string_lossy())
+        .expect("hidden tmpfs must be read-only");
+    let nested_grant = offline
+        .windows(3)
+        .position(|w| w[0] == "--bind" && w[2] == nested_rw.to_string_lossy())
+        .expect("nested writable grant must remain mounted");
+    assert!(
+        seal > nested_grant,
+        "seal only after creating nested mounts"
+    );
+    assert!(!offline
+        .windows(2)
+        .any(|w| w[0] == "--remount-ro" && w[1] == nested_rw.to_string_lossy()));
 
     let online: Vec<String> = bwrap_args(&rules, &rw_dir, "echo hi", true)
+        .expect("online mounts")
         .into_iter()
         .map(|s| s.to_string_lossy().into_owned())
         .collect();

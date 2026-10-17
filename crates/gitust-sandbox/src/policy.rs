@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 
 use gitust_core::SandboxRunId;
 
+pub(crate) use crate::linux_policy::bwrap_args;
 use crate::{PathAccess, PathRule, SandboxBackend, SandboxError, SandboxSpec};
 
 /// Everything resolved on a blocking thread before spawning.
@@ -67,7 +68,9 @@ pub(crate) fn prepare_run(
                 OsString::from(command_str),
             ]
         }
-        SandboxBackend::LinuxBubblewrap => bwrap_args(&rules, &workdir, command_str, allow_network),
+        SandboxBackend::LinuxBubblewrap => {
+            bwrap_args(&rules, &workdir, command_str, allow_network)?
+        }
     };
 
     Ok(PreparedRun {
@@ -276,62 +279,6 @@ pub(crate) fn seatbelt_quote(path: &Path) -> Result<String, SandboxError> {
         "\"{}\"",
         s.replace('\\', "\\\\").replace('"', "\\\"")
     ))
-}
-
-/// Builds Bubblewrap arguments: read-only root, private `/dev` + `/proc`, all namespaces
-/// unshared (network shared only when allowed), then path rules shallow-to-deep (later mounts
-/// shadow earlier ones).
-pub(crate) fn bwrap_args(
-    rules: &[PathRule],
-    workdir: &Path,
-    command_str: &str,
-    allow_network: bool,
-) -> Vec<OsString> {
-    let mut args: Vec<OsString> = [
-        "--die-with-parent",
-        "--new-session",
-        "--unshare-all",
-        "--ro-bind",
-        "/",
-        "/",
-        "--dev",
-        "/dev",
-        "--proc",
-        "/proc",
-    ]
-    .iter()
-    .map(OsString::from)
-    .collect();
-    if allow_network {
-        args.push("--share-net".into());
-    }
-    for rule in rules {
-        let p = rule.path.as_os_str().to_owned();
-        match rule.access {
-            PathAccess::Hidden if rule.path.is_dir() => {
-                args.extend(["--tmpfs".into(), p]);
-            }
-            PathAccess::Hidden if rule.path.exists() => {
-                args.extend(["--ro-bind".into(), "/dev/null".into(), p]);
-            }
-            PathAccess::Hidden => {}
-            PathAccess::ReadOnly => {
-                args.extend(["--ro-bind".into(), p.clone(), p]);
-            }
-            PathAccess::ReadWrite => {
-                args.extend(["--bind".into(), p.clone(), p]);
-            }
-        }
-    }
-    args.extend([
-        "--chdir".into(),
-        workdir.as_os_str().to_owned(),
-        "/bin/sh".into(),
-        "-c".into(),
-        "--".into(),
-        command_str.into(),
-    ]);
-    args
 }
 
 pub(crate) fn build_sanitized_path() -> String {

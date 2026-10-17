@@ -26,10 +26,13 @@
 mod cleanup;
 mod command;
 mod execution;
+mod linux_policy;
 mod mcp;
 mod policy;
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, unix))]
+mod tests_late_hidden;
 #[cfg(test)]
 mod tests_policy_failclosed;
 #[cfg(test)]

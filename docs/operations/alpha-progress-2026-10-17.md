@@ -161,3 +161,23 @@ older binaries reject that optional field, so downgrading them is unsupported.
 Full Phase 3/4 capabilities remain outside this milestone. No deployment, actual upstream
 GitHub workflow publication or production-data restore is established by this evidence.
 Source-repository commits and pushes are separate from the application publication test.
+
+## Fixed source checkpoint `a178330`
+
+The [release checkpoint evidence](evidence/alpha-release-macos-a178330-2026-10-17.json)
+records a clean, pushed source revision and one matching release binary for installation,
+all ten operating tasks and execution-crash recovery. A separate 321-file source/output
+directory used offline dependency caches, passed 29 real Seatbelt sandbox tests and the
+Smart HTTP permission/`git fsck` roundtrip. The copied binary served 20 exact embedded
+responses and accepted fresh administrator login while its source assets were unavailable
+and runtime PATH contained Git alone. The ten-task rehearsal and interrupted-command
+recovery both passed with source `a178330a995c150b3a07e72bbcbf1729cf435c19` and binary
+SHA-256 `56952424c15273d70409d8d4c51c9d4eecc19cab5665cde961624cb8b4142b52`.
+
+These remain local macOS observations using existing host tools, protocol MCP clients
+and a local bare upstream. Intended IDE sessions, authorized GitHub publication, a
+separately provisioned machine and complete Linux acceptance remain open. The hosted
+[run for this checkpoint](https://github.com/sogangCSmaster/gitust/actions/runs/39008388426)
+passed all mechanical gates, ten operating tasks and crash recovery on macOS 15.
+Linux stopped in a cold-loading frontend test before Rust sandbox tests ran; its
+result cannot establish the new Bubblewrap policy's behavior. The overall run failed.

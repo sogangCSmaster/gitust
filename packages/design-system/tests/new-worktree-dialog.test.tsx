@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -16,6 +16,11 @@ const repo = {
   branch: "trunk",
   headCommit: "a".repeat(40),
 };
+beforeAll(async () => {
+  // Prepare the real lazy module before form interactions. Pending and rejected
+  // module states are covered by the dedicated deferred-feature tests.
+  await import("../src/showcase/NewWorktreeForm");
+});
 beforeEach(() => {
   localStorage.setItem("gitust_token", "session");
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});

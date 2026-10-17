@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "source_commit": "a178330a995c150b3a07e72bbcbf1729cf435c19",
+  "source_worktree_dirty_at_execution": false,
+  "binary_sha256": "56952424c15273d70409d8d4c51c9d4eecc19cab5665cde961624cb8b4142b52",
+  "scope": "local disposable macOS installation with existing toolchains and dependency caches",
+  "platform_validation": {
+    "status": "passed",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "offline": true,
+    "scope": "fresh source/output directories with existing host toolchains and caches",
+    "snapshot": {
+      "file_count": 321,
+      "sha256": "f65240930f2c39b1f74cb97d84876b756a479004770ba2281e247c722e8e3ed5"
+    },
+    "git": "git version 2.52.0",
+    "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "cargo": "cargo 1.92.0 (344c4567c 2025-10-21)",
+    "node": "v24.18.1",
+    "pnpm": "10.0.0",
+    "duration_seconds": {
+      "dependency_install": 1.445,
+      "web_build": 3.0,
+      "release_build": 24.441,
+      "sandbox_tests": 14.809,
+      "http_git_roundtrip": 15.067
+    },
+    "copied_binary_runtime": {
+      "embedded_responses": 20,
+      "login": "passed",
+      "runtime_path_contains": [
+        "git"
+      ],
+      "source_assets_available": false
+    }
+  },
+  "sandbox_tests_passed": 29,
+  "operating_rehearsal": {
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "mcp_clients": 2,
+    "external_github_publication": false,
+    "git_fsck": "server, local upstream and HTTP client passed --full --strict",
+    "completed_tasks": 10,
+    "all_tasks_passed": true,
+    "task_numbers": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ]
+  },
+  "execution_crash": {
+    "passed": true,
+    "operator_script_sha256": "290ef27f731d8d84d3d8e7f58db6786a82c9adcd319d8e2e98fa2c60de24d76e",
+    "platform": "Darwin",
+    "backend": "macos_seatbelt",
+    "old_command_survived_sigkill": true,
+    "fresh_service_rejected": true,
+    "explicit_recovery_required": true,
+    "verification_restored": false,
+    "post_recovery_execution_passed": true,
+    "git_fsck": "passed",
+    "external_connections": false
+  },
+  "linux_runtime_verified": false,
+  "actual_ide_agent_session": false,
+  "separately_provisioned_machine": false,
+  "hosted_ci": {
+    "run_id": 39008388426,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39008388426",
+    "source_commit": "a178330a995c150b3a07e72bbcbf1729cf435c19",
+    "attempt": 1,
+    "conclusion": "failure",
+    "macos_15": {
+      "job_id": 117325452421,
+      "conclusion": "success",
+      "mechanical_gates": "passed",
+      "ten_task_rehearsal": "passed",
+      "execution_crash_rehearsal": "passed"
+    },
+    "ubuntu_22_04": {
+      "job_id": 117325452539,
+      "conclusion": "failure",
+      "failed_stage": "frontend creation form remained in lazy loading state",
+      "rust_sandbox_tests_executed": false,
+      "ten_task_rehearsal_executed": false,
+      "execution_crash_rehearsal_executed": false
+    }
+  }
+}

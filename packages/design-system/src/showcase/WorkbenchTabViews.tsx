@@ -58,9 +58,16 @@ const PrimitivesTab = lazy(() =>
 );
 
 import type { ConnectedRepository } from "./connected-repository-client";
+const RepositoryBranchSelect = lazy(() =>
+  import("./RepositoryBranchSelect").then((module) => ({
+    default: module.RepositoryBranchSelect,
+  })),
+);
+import type { RepositoryBranches } from "./live-branches";
 import { RepositoryInitialCommit } from "./RepositoryInitialCommit";
 
 export interface WorkbenchTabViewsProps {
+  branches?: RepositoryBranches;
   activeTab: WorkbenchTab;
   liveMode: boolean;
   repository?: ConnectedRepository | null;
@@ -173,6 +180,16 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
       }
     >
       <PageHeading
+        action={
+          <Show when={props.liveMode && props.repository && props.branches}>
+            <DeferredView label="Branches">
+              <RepositoryBranchSelect
+                repository={props.repository!}
+                branches={props.branches!}
+              />
+            </DeferredView>
+          </Show>
+        }
         title="Changes"
         description={
           props.liveMode
@@ -184,6 +201,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         when={
           !props.liveMode ||
           props.repository?.headCommit !== null ||
+          props.branches?.state().selected ||
           props.worktreeReview
         }
         fallback={
@@ -266,6 +284,16 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
       }
     >
       <PageHeading
+        action={
+          <Show when={props.liveMode && props.repository && props.branches}>
+            <DeferredView label="Branches">
+              <RepositoryBranchSelect
+                repository={props.repository!}
+                branches={props.branches!}
+              />
+            </DeferredView>
+          </Show>
+        }
         title="Repository files"
         description={
           props.liveMode
@@ -282,7 +310,11 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         </Alert>
       </Show>
       <Show
-        when={!props.liveMode || props.repository?.headCommit !== null}
+        when={
+          !props.liveMode ||
+          props.repository?.headCommit !== null ||
+          props.branches?.state().selected
+        }
         fallback={
           <RepositoryInitialCommit
             branch={props.repository?.branch ?? ""}

@@ -12,7 +12,7 @@ use axum::{
 };
 use gitust_core::{RepoId, RepositoryRecord};
 use gitust_git::{GitEngine, GitEngineError};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 type ApiError = (StatusCode, String);
 #[cfg(test)]
@@ -291,6 +291,37 @@ pub(crate) async fn diff(
                 query.head.as_deref(),
                 query.path.as_deref(),
             )
+        })
+        .await,
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RepoBranchesQuery {
+    limit: Option<usize>,
+    cursor: Option<String>,
+}
+pub(crate) async fn branches(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(raw): Path<String>,
+    query: Result<Query<RepoBranchesQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let query = match query {
+        Ok(Query(query)) => query,
+        Err(_) => {
+            return response::<()>(Err((
+                StatusCode::BAD_REQUEST,
+                "invalid branch page query".into(),
+            )))
+        }
+    };
+    // fail-open-ok: omitted limit selects the bounded default; explicit invalid values fail closed in the core.
+    let limit = query.limit.unwrap_or(50);
+    response(
+        read(state, headers, raw, move |engine| {
+            engine.list_local_branches(limit, query.cursor.as_deref())
         })
         .await,
     )

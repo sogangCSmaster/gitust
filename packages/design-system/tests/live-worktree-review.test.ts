@@ -1,3 +1,4 @@
+import { commitHistory } from "./fixtures/commit-history";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentSandboxTask } from "../src/patterns/AgentSwarmView";
 import type { DiffLine } from "../src/patterns/VirtualDiffViewer";
@@ -240,10 +241,11 @@ it("does not republish a prior account's resolved branch context", async () => {
 
 it("preserves worktree review when a HEAD tree file is opened at that tree's own commit", async () => {
   const treeSha = "d".repeat(40);
+  defaultHead = treeSha;
   fetchMock.mockImplementation(async (url: string) =>
     response(
       url.includes("/commits?")
-        ? { commits: [] }
+        ? commitHistory(defaultHead!)
         : url.includes("/tree?")
           ? {
               commit_sha: treeSha,
@@ -273,7 +275,7 @@ it.each([undefined, "main", "d".repeat(39)])(
     fetchMock.mockImplementation(async (url: string) =>
       response(
         url.includes("/commits?")
-          ? { commits: [] }
+          ? commitHistory(defaultHead!)
           : {
               commit_sha: commit,
               entries: [{ path: "unbound.txt", is_dir: false }],
@@ -290,10 +292,11 @@ it.each([undefined, "main", "d".repeat(39)])(
 );
 
 it("rejects a blob from a different commit than the displayed tree snapshot", async () => {
+  defaultHead = base;
   fetchMock.mockImplementation(async (url: string) =>
     response(
       url.includes("/commits?")
-        ? { commits: [] }
+        ? commitHistory(defaultHead!)
         : url.includes("/tree?")
           ? {
               commit_sha: base,
@@ -313,10 +316,11 @@ it("rejects a blob from a different commit than the displayed tree snapshot", as
 
 it("refuses repository hydration that changes the tree SHA without providing a path list", async () => {
   let incomplete = false;
+  defaultHead = base;
   fetchMock.mockImplementation(async (url: string) =>
     response(
       url.includes("/commits?")
-        ? { commits: [] }
+        ? commitHistory(defaultHead!)
         : url.includes("/tree?")
           ? {
               commit_sha: incomplete ? head : base,
@@ -328,6 +332,7 @@ it("refuses repository hydration that changes the tree SHA without providing a p
   await client.hydrateFromLiveBackend();
   expect(treePaths).toEqual(["old.txt"]);
   incomplete = true;
+  defaultHead = head;
   await client.hydrateFromLiveBackend();
   expect(treePaths).toEqual([]);
   const requests = fetchMock.mock.calls.length;
@@ -357,7 +362,7 @@ it("retains an explicit worktree comparison while default HEAD becomes unborn", 
   expect(lines?.[0]?.content).toBe("EXPLICIT WORKTREE");
   defaultHead = "c".repeat(40);
   fetchMock
-    .mockResolvedValueOnce(response({ commits: [] }))
+    .mockResolvedValueOnce(response(commitHistory(defaultHead!)))
     .mockResolvedValueOnce(response({ commit_sha: defaultHead, entries: [] }));
   await client.hydrateFromLiveBackend();
   expect(fetchMock).toHaveBeenCalledTimes(3);

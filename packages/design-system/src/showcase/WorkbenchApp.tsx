@@ -184,7 +184,6 @@ export const WorkbenchApp: Component = () => {
     setWorktreeReview,
     showQuickFeedback,
   });
-
   const liveSwarmClient = createLiveSwarmClient({
     getSwarmTasks: swarmTasks,
     setSwarmTasks,
@@ -450,6 +449,7 @@ export const WorkbenchApp: Component = () => {
           </Show>
 
           <WorkbenchTabViews
+            branches={liveClient.branches}
             repository={selectedRepository()}
             canWorkbench={connectedRepository.canWorkbench()}
             activeTab={activeTab()}

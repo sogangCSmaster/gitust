@@ -1,4 +1,4 @@
-import { createSignal, type Component } from "solid-js";
+import { createEffect, createSignal, type Component } from "solid-js";
 import { Button } from "../components/ui/button";
 import { Icon } from "../components/workspace/icon";
 import {
@@ -21,6 +21,19 @@ export const RepositoryFilesView: Component<{
   const [detail, setDetail] = createSignal(props.initialDetail ?? false);
   let list: HTMLDivElement | undefined;
   let back: HTMLButtonElement | undefined;
+  createEffect(() => {
+    if (props.selectedFilePath !== "") return;
+    const returnFocus = document.activeElement === back;
+    setDetail(false);
+    if (returnFocus)
+      queueMicrotask(() => {
+        if (
+          document.activeElement === back ||
+          document.activeElement === document.body
+        )
+          list?.querySelector<HTMLInputElement>("input")?.focus();
+      });
+  });
   return (
     <div class="grid min-w-0 gap-3 md:grid-cols-[minmax(10rem,0.7fr)_minmax(0,1.3fr)]">
       <div ref={list} class={detail() ? "hidden min-w-0 md:block" : "min-w-0"}>

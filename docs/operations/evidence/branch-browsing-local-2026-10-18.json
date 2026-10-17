@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "scope": "Darwin dirty candidate based on 5b7801c. Final backend10 and UI17 manifests below; clean hosted validation is separate.",
+  "backend_source_manifest_sha256": "62f16c7eb399295af961c7dbd52625de8d8f611a643913e733f0b79eb6fd9609",
+  "ui_source_manifest_sha256": "ef7bf6254791d1b74f3a7171cba9f4ace39297561b361576d7a9797c9843f5b3",
+  "operating_rehearsal": {
+    "version": 1,
+    "passed": true,
+    "source_commit": "5b7801c32647271b86b14e80f599707ae67e25e0",
+    "runtime_worktree_dirty": true,
+    "binary_sha256": "cea3b99173a1aaf8470b2e165060bc847dc4b20e0fef912851f822eb09db7e5e",
+    "platform": "Darwin",
+    "operator_script_sha256": "08ec888087f00cacbda8021ff933c8346328f6494d08c364dd1cf2a5203cde55",
+    "actual_repositories": 2,
+    "cli_created_registered_bare_repositories": true,
+    "empty_retry_preserved_pair": true,
+    "unborn_registration_restored_without_original": true,
+    "unborn_default_did_not_hide_other_branches": true,
+    "first_ordinary_push_and_fetch": true,
+    "independent_git_read_oracles": true,
+    "secondary_transport_denied": true,
+    "populated_retry_rejected_unchanged": true,
+    "restart_identity_preserved": true,
+    "git_fsck": true,
+    "uuid_branch_pages_match_git": true,
+    "unborn_default_exposes_existing_branches": true,
+    "secondary_branch_reads": true,
+    "max_cursor_http_round_trip": true,
+    "external_github_publication": false
+  },
+  "before_feature": {
+    "same_operator_script_sha256": "08ec888087f00cacbda8021ff933c8346328f6494d08c364dd1cf2a5203cde55",
+    "binary_sha256": "24ccd6177fc468d93718705480ff675eeb63873cd38ac3fcded7dfc459943aa2",
+    "exit_code": 1,
+    "http_status": 404,
+    "success_report_created": false
+  },
+  "independent_review_fixes": {
+    "head_binding": "Wrong commits envelope SHA, wrong first SHA and empty history fail before publication; three independent regressions failed before and passed after.",
+    "test_git_selectors": "All three touched shared server test Git paths clear inherited GIT_*; isolated child regressions failed before, passed after and preserved external synthetic Git state.",
+    "mobile_file_context": "Actual 320px file detail then branch change previously hid the file list; the correction shows the list and preserves branch-selector focus. No test-only state marker was added.",
+    "operator_query": "The draft after query failed at the second real page; the finalized cursor wire passes the Git-oracle pagination rehearsal."
+  },
+  "browser": {
+    "binary_sha256": "cea3b99173a1aaf8470b2e165060bc847dc4b20e0fef912851f822eb09db7e5e",
+    "actual_ui_login": true,
+    "actual_repositories": 2,
+    "widths": [
+      320,
+      768,
+      1440
+    ],
+    "no_horizontal_page_overflow": true,
+    "equal_branch_control_heights": true,
+    "mobile_height_pixels": 44,
+    "topic_visible_before_default_commit": true,
+    "new_push_and_list_refresh_preserved_reviewed_commit": true,
+    "explicit_new_tip_selection_updated_files_and_changes": true,
+    "default_head_refresh_preserved_explicit_branch": true,
+    "default_and_secondary_use_their_own_commits": true,
+    "mobile_file_list_reset_and_external_focus_preserved": true,
+    "fixture_removed": true,
+    "pagination_scope": "Next/First controls use behavioral tests; real one-entry HTTP pages use the operating rehearsal."
+  },
+  "mechanical_gate": {
+    "exit_code": 0,
+    "cli": 33,
+    "db": 37,
+    "git_passed": 118,
+    "git_existing_ignored_benchmarks": 2,
+    "server": 145,
+    "sandbox": 30,
+    "frontend": 251,
+    "frontend_files": 33,
+    "python": 14
+  },
+  "limitations": [
+    "Live pages are not a multi-page ref transaction.",
+    "No branch/default mutation or secondary writes/transport.",
+    "Product GitHub publication remains user-deferred.",
+    "No new standalone installation, native IDE or deployment proof."
+  ]
+}

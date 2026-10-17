@@ -12,7 +12,12 @@
 
 mod ancestry;
 mod approvals;
+mod branches;
 mod browse;
+pub use branches::{
+    RepoBranch, RepoBranchPage, MAX_BRANCH_CURSOR_BYTES, MAX_BRANCH_NAME_BYTES,
+    MAX_BRANCH_PAGE_BYTES,
+};
 mod checks;
 mod config_guard;
 mod diff;

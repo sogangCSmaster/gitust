@@ -193,6 +193,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/repos",
             get(repository_reads::catalog).post(auth::create_team_repo_handler),
         )
+        .route(
+            "/api/v1/repos/{id}/branches",
+            get(repository_reads::branches),
+        )
         .route("/api/v1/repos/{id}/commits", get(repository_reads::commits))
         .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))
         .route("/api/v1/repos/{id}/blob", get(repository_reads::blob))

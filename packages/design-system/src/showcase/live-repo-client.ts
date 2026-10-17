@@ -1,4 +1,6 @@
+import { createLiveRepositorySync } from "./live-repo-sync";
 import { readHeadSnapshot } from "./live-repo-head";
+import { createRepositoryBranches } from "./live-branches";
 import type { AgentSandboxTask } from "../patterns/AgentSwarmView";
 import {
   formatErr,
@@ -21,6 +23,15 @@ const EMPTY_TREE_SHA1 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
  * Changes, file previews and metadata use independent request ordering within one session epoch.
  */
 export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
+  const branches = createRepositoryBranches({
+    getRepositoryId: cb.getRepositoryId,
+    onUnavailable: cb.onRepositoryUnavailable,
+    onSelect: () => {
+      viewingWorktree = false;
+      resetHeadSnapshot();
+      void hydrateFromLiveBackend();
+    },
+  });
   let latestViewReqId = 0;
   let latestBlobReqId = 0;
   let latestHydrationReqId = 0;
@@ -69,6 +80,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     cb.setDiffTruncated(false);
   };
   const resetRepoEpoch = () => {
+    branches.reset();
     repoEpoch++;
     observedHead = undefined;
     viewingWorktree = false;
@@ -224,6 +236,14 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         base,
       );
       if (!current()) return;
+      if (
+        /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(rev) &&
+        (typeof data.head_sha !== "string" ||
+          data.head_sha.toLowerCase() !== rev.toLowerCase())
+      )
+        throw new Error(
+          "Server returned a different commit snapshot; reopen the comparison",
+        );
       const paths = filePaths(data);
       const oid = reviewTarget
         ? /^[0-9a-f]{40}$/i
@@ -462,7 +482,8 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     const token = getLiveToken();
     const repositoryId = cb.getRepositoryId();
     if (!token || !repositoryId) return;
-    const head = cb.getRepositoryHead?.();
+    const head =
+      branches.state().selected?.commit_sha ?? cb.getRepositoryHead?.();
     if (head !== observedHead) {
       observedHead = head;
       resetHeadSnapshot();
@@ -475,8 +496,9 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       reqId === latestHydrationReqId &&
       sessionCurrent(epoch, token, repositoryId);
     try {
-      const [cData, tData] = await readHeadSnapshot((path) =>
-        fetchRepository(path, token, repositoryId, current),
+      const [cData, tData] = await readHeadSnapshot(
+        (path) => fetchRepository(path, token, repositoryId, current),
+        head ?? "",
       );
       if (!current()) return;
       if (treeRev !== tData.commit_sha) {
@@ -498,8 +520,12 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
           })),
         );
       }
-      if (diffRequestAtStart === latestViewReqId && !viewingWorktree)
-        await loadLiveCommitDiff("HEAD");
+      if (
+        diffRequestAtStart === latestViewReqId &&
+        !viewingWorktree &&
+        (!commitDiff || commitDiff.head === tData.commit_sha)
+      )
+        await loadLiveCommitDiff(tData.commit_sha);
     } catch (err) {
       if (!current()) return;
       treeRev = null;
@@ -520,61 +546,15 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     }
   };
 
-  const triggerGithubSync = () => {
-    if (!cb.canWorkbench()) return;
-    const token = getLiveToken();
-    if (!token) {
-      cb.showQuickFeedback(
-        "Sign in to fetch from the configured GitHub mirror",
-      );
-      return;
-    }
-    const epoch = repoEpoch;
-    const repositoryId = cb.getRepositoryId();
-    const t0 = performance.now();
-    cb.showQuickFeedback(
-      "GitHub Read-Only Mirror Sync: Synchronizing upstream refs (Agent branches kept private)...",
-    );
-    void (async () => {
-      try {
-        const res = await fetch("/api/v1/sync/github", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: "{}",
-        });
-        if (!sessionCurrent(epoch, token, repositoryId)) return;
-        const dt = (performance.now() - t0).toFixed(1);
-        if (res.ok) {
-          const report = await res.json();
-          if (!sessionCurrent(epoch, token, repositoryId)) return;
-          const sha = String(report.last_synced_commit ?? "").slice(0, 7);
-          const priv = Number(report.private_agent_branches_filtered ?? 0);
-          const skippedCount = Array.isArray(report.skipped_branches)
-            ? report.skipped_branches.length
-            : 0;
-          cb.showQuickFeedback(
-            `GitHub Mirror Synced @ ${sha} in ${dt}ms (${priv} private agent branches isolated, ${skippedCount} skipped)`,
-          );
-          if (cb.onRepositoryChanged) await cb.onRepositoryChanged();
-          else await hydrateFromLiveBackend();
-        } else {
-          const errText = (await res.text().catch(() => "")).trim();
-          if (!sessionCurrent(epoch, token, repositoryId)) return;
-          cb.showQuickFeedback(
-            `GitHub Mirror Sync rejected (HTTP ${res.status} in ${dt}ms${errText ? `: ${errText}` : ""})`,
-          );
-        }
-      } catch (err) {
-        if (!sessionCurrent(epoch, token, repositoryId)) return;
-        cb.showQuickFeedback(`GitHub Mirror Sync failed: ${formatErr(err)}`);
-      }
-    })();
-  };
+  const triggerGithubSync = createLiveRepositorySync(
+    cb,
+    () => repoEpoch,
+    sessionCurrent,
+    hydrateFromLiveBackend,
+  );
 
   return {
+    branches,
     loadLiveCommitDiff,
     loadLiveWorktreeDiff,
     selectFileFromTree,

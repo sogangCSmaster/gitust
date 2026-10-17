@@ -48,12 +48,13 @@ In progress. Implemented portions:
 - SiteAdmin display-name editing for configured registered repositories, with a compact Overview dialog and durable metadata-only changes. UUID, registration binding, team, privacy and Git paths remain unchanged. Metadata-only records and legacy unregistered services cannot be renamed through this API.
 - Catalog and web support for a valid default branch without a commit, using an explicit nullable HEAD. Primary Smart HTTP accepts an authorized first ordinary push; other branches and existing tasks remain distinct from the missing default commit. The compact primary Clone dialog provides its credential-free UUID URL; secondary repositories remain browse-only.
 - Offline creation of a fresh registered bare repository with an explicit unborn default branch, fixed identity, shared create/import destination admission, sealed-empty retries and no-overwrite publication. Serving it still requires explicit configuration. See the [creation and recovery contract](operations/repository-create.md).
+- Bounded UUID branch pages and a compact Files/Changes selector for primary and read-only repositories, including alternate branches before a default commit exists. Reads use identified commit SHAs; list refresh preserves an explicit snapshot. This adds browsing, without branch mutation or secondary transport. See the [branch browsing contract](operations/branch-browsing.md).
 - A stopped-installation backup/relocated-restore utility, regression tests and recorded Linux/macOS rehearsals at `42bae69`, including MCP commits after relocation. Final-candidate acceptance remains open.
 
 Remaining work:
 
 - Non-managed branch triggers and workflow execution beyond managed-worktree automatic Checks. GitHub Actions-compatible workflows remain Phase 4 work.
-- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current initial static-import closure is approximately 71 kB gzip. Measure the complete initial static-import closure, not just an arbitrarily split entry file.
+- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current initial static-import closure is approximately 73 kB gzip. Measure the complete initial static-import closure, not just an arbitrarily split entry file.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Repository administration UI, lifecycle management and online inventory changes; additional repositories also need isolated worktree and write routing before gaining full workbench capabilities.

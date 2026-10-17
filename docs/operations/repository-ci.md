@@ -39,7 +39,10 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
 6. Create two fresh registered bare repositories through the actual CLI, retry an
    identical empty creation without changing UUID/binding/inode, and serve both.
    Exercise empty clone, an alternate-branch push that leaves the default unborn,
-   the first default-branch push/fetch and browser object reads. A stopped retry
+   the first default-branch push/fetch and browser object reads.
+   UUID-routed one-entry branch pages must match independent Git refs before and
+   after the first default push, including an empty secondary and a topic-only
+   repository whose default HEAD is still unborn. A stopped retry
    after the repository gains commits must fail without changing refs or anchors.
    Restore the empty primary and its auth checkpoint while the original repository
    and auth file are unavailable, then authenticate and serve its preserved identity.

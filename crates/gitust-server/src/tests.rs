@@ -166,7 +166,7 @@ async fn http_gate_worktree_ownership_quota_and_work_preservation() {
         .worktree_dir;
     std::fs::write(a_dir.join("work.txt"), "agent work\n").expect("write");
     let git = |dir: &std::path::Path, args: &[&str]| {
-        std::process::Command::new("git")
+        fixture_git()
             .arg("-C")
             .arg(dir)
             .args([
@@ -238,9 +238,20 @@ async fn http_gate_worktree_ownership_quota_and_work_preservation() {
     assert_eq!(s, StatusCode::NO_CONTENT);
 }
 
+fn fixture_git() -> std::process::Command {
+    let mut command = std::process::Command::new("git");
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(key);
+        }
+    }
+    command.env("GIT_CONFIG_NOSYSTEM", "1");
+    command
+}
+
 fn init_temp_repo(dir: &std::path::Path) {
     let git = |args: &[&str]| {
-        let out = std::process::Command::new("git")
+        let out = fixture_git()
             .arg("-C")
             .arg(dir)
             .args(["-c", "commit.gpgsign=false"])
@@ -412,7 +423,7 @@ async fn http_worktree_lifecycle_spawn_exec_approve_discard() {
         .expect("lifecycle worktree")
         .worktree_dir;
     std::fs::write(lc_dir.join("README.md"), "hello\nmerged-by-agent\n").expect("write");
-    let commit_out = std::process::Command::new("git")
+    let commit_out = fixture_git()
         .arg("-C")
         .arg(&lc_dir)
         .args([
@@ -525,3 +536,6 @@ mod tests_repository_read_credentials;
 
 #[path = "tests_sync_credentials.rs"]
 mod tests_sync_credentials;
+
+#[path = "tests_repository_branches.rs"]
+mod tests_repository_branches;

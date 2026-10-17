@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { commitHistory } from "./fixtures/commit-history";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -71,7 +72,7 @@ beforeEach(() => {
                     next_cursor: null,
                   }
                 : url.includes("/commits?")
-                  ? { commits: [] }
+                  ? commitHistory("c".repeat(40))
                   : url.includes("/tree?")
                     ? { commit_sha: "c".repeat(40), entries: [] }
                     : [],

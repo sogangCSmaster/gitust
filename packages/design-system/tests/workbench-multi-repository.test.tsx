@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { commitHistory } from "./fixtures/commit-history";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -59,7 +60,12 @@ beforeEach(() => {
       body = { user_id: "admin", username: "Admin", role: "SiteAdmin" };
     else if (url === "/api/v1/repos") body = { repositories: catalog };
     else if (url === "/api/v1/repo") body = primary;
-    else if (url.includes("/commits?")) body = { commits: [] };
+    else if (url.includes("/branches?"))
+      body = { branches: [], next_cursor: null };
+    else if (url.includes("/commits?"))
+      body = commitHistory(
+        new URL(url, "https://example.invalid").searchParams.get("rev")!,
+      );
     else if (url.includes("/tree?"))
       body = {
         commit_sha: url.includes(secondary.id)
@@ -120,6 +126,7 @@ it("opens a real browse-only repository without exposing primary worktree action
   await fireEvent.click(
     within(nav).getByRole("button", { name: "Files", exact: true }),
   );
+  await screen.findByLabelText("Select branch");
   await screen.findByText("README.md");
   expect(
     fetcher.mock.calls.some(([url]) =>
@@ -254,4 +261,107 @@ it("retries a failed HEAD view on explicit Refresh when the catalog commit has n
     within(nav).getByRole("button", { name: "Files", exact: true }),
   );
   await screen.findByText("README.md");
+});
+
+it("browses a non-default branch snapshot when the default is unborn and shares it across Files and Changes", async () => {
+  catalog = [{ ...secondary, head_commit: null }];
+  const topic = "d".repeat(40);
+  const nextTip = "e".repeat(40);
+  let tip = topic;
+  const previous = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (url: string) => {
+    if (url.includes("/branches?"))
+      return new Response(
+        JSON.stringify({
+          branches: [
+            { name: "topic", ref_name: "refs/heads/topic", commit_sha: tip },
+          ],
+          next_cursor: null,
+        }),
+      );
+    if (url.includes("/tree?"))
+      return new Response(
+        JSON.stringify({
+          commit_sha: topic,
+          entries: [{ path: "TOPIC.txt", is_dir: false }],
+        }),
+      );
+    if (url.includes("/blob?"))
+      return new Response(
+        JSON.stringify({ commit_sha: topic, content: "TOPIC CONTENT" }),
+      );
+    if (url.includes("/diff?"))
+      return new Response(
+        JSON.stringify({
+          head_sha: topic,
+          base_sha: "c".repeat(40),
+          files: [],
+          lines: [],
+        }),
+      );
+    return previous(url);
+  });
+  render(() => <WorkbenchApp />);
+  await fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Open repository reference-library",
+    }),
+  );
+  const nav = screen.getByRole("navigation", { name: "Repository views" });
+  await fireEvent.click(
+    within(nav).getByRole("button", { name: "Files", exact: true }),
+  );
+  const selector = await screen.findByLabelText("Select branch");
+  await screen.findByText("Snapshot —. Select a branch to change it.");
+  await fireEvent.keyDown(selector, { key: "ArrowDown" });
+  await fireEvent.click(
+    await screen.findByRole("option", { name: "topic · dddddddd" }),
+  );
+  await screen.findByText("TOPIC.txt");
+  await fireEvent.click(screen.getByText("TOPIC.txt"));
+  await screen.findByText("TOPIC CONTENT");
+  const calls = fetcher.mock.calls.filter(([url]) =>
+    /\/(commits|tree|diff|blob)\?/.test(url),
+  );
+  expect(calls.length).toBeGreaterThan(3);
+  for (const [url] of calls) {
+    const query = new URL(url, "https://example.invalid").searchParams;
+    expect(query.get("rev") ?? query.get("head")).toBe(topic);
+  }
+  await fireEvent.click(
+    within(nav).getByRole("button", { name: "Changes", exact: true }),
+  );
+  expect((await screen.findByLabelText("Select branch")).textContent).toContain(
+    "topic · dddddddd",
+  );
+  const count = calls.length;
+  tip = nextTip;
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Refresh branch list" }),
+  );
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Refresh branch list" })
+        .hasAttribute("disabled"),
+    ).toBe(false),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText("Select branch").textContent).toContain(
+      "topic · dddddddd",
+    ),
+  );
+  expect(
+    fetcher.mock.calls.filter(([url]) =>
+      /\/(commits|tree|diff|blob)\?/.test(url),
+    ),
+  ).toHaveLength(count);
+  await fireEvent.keyDown(screen.getByLabelText("Select branch"), {
+    key: "ArrowDown",
+  });
+  expect(
+    await screen.findByRole("option", { name: "topic · eeeeeeee" }),
+  ).toBeTruthy();
+  await fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
+  expect(within(nav).queryByRole("button", { name: "Worktrees" })).toBeNull();
 });

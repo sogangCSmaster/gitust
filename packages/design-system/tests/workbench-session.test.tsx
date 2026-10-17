@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { commitHistory } from "./fixtures/commit-history";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -76,11 +77,16 @@ beforeEach(() => {
               : url.endsWith("/swarm/worktrees")
                 ? [row]
                 : url.includes("/commits?")
-                  ? { commits: [] }
+                  ? commitHistory("c".repeat(40))
                   : url.includes("/tree?")
                     ? { commit_sha: "c".repeat(40), entries: [] }
                     : url.includes("/diff?")
-                      ? { files: [], lines: [] }
+                      ? {
+                          head_sha: "c".repeat(40),
+                          base_sha: "a".repeat(40),
+                          files: [],
+                          lines: [],
+                        }
                       : [],
         ),
       ),
@@ -217,6 +223,8 @@ it("shows persistent partial-result notices in Changes and Repository files", as
     if (url.includes("/diff?"))
       return new Response(
         JSON.stringify({
+          head_sha: "c".repeat(40),
+          base_sha: "a".repeat(40),
           files: [{ path: "partial.txt" }],
           files_changed: 1,
           truncated: true,
@@ -261,7 +269,7 @@ it("changes the selected diff file without displaying the aggregate multi-file c
       );
       return new Response(
         JSON.stringify({
-          head_sha: "a".repeat(40),
+          head_sha: "c".repeat(40),
           base_sha: "b".repeat(40),
           truncated: false,
           files: path ? [{ path }] : [{ path: "one.txt" }, { path: "two.txt" }],

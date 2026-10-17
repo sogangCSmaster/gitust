@@ -188,7 +188,9 @@ jobs:
                     "unborn_registration_restored_without_original",
                     "unborn_default_did_not_hide_other_branches", "first_ordinary_push_and_fetch",
                     "independent_git_read_oracles", "secondary_transport_denied",
-                    "populated_retry_rejected_unchanged", "restart_identity_preserved", "git_fsck"]
+                    "populated_retry_rejected_unchanged", "restart_identity_preserved", "git_fsck",
+                    "uuid_branch_pages_match_git", "unborn_default_exposes_existing_branches",
+                    "secondary_branch_reads", "max_cursor_http_round_trip"]
           if not all(report[key] is True for key in checks):
               raise SystemExit("The empty-repository rehearsal is incomplete")
           public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",

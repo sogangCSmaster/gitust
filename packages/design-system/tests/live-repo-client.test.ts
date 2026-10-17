@@ -1,3 +1,4 @@
+import { commitHistory } from "./fixtures/commit-history";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createLiveRepoClient } from "../src/showcase/live-repo-client";
 import type { DiffLine } from "../src/patterns/VirtualDiffViewer";
@@ -18,6 +19,7 @@ let selectedPath: string;
 let diffFiles: string[];
 let diffTruncated: boolean;
 let treeTruncated: boolean;
+let publishedCommits: Array<{ sha: string }>;
 const response = (data: unknown) => new Response(JSON.stringify(data));
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -28,7 +30,7 @@ function deferred<T>() {
 }
 async function hydrateTree(view: ReturnType<typeof createLiveRepoClient>) {
   fetchMock
-    .mockResolvedValueOnce(response({ commits: [] }))
+    .mockResolvedValueOnce(response(commitHistory(head)))
     .mockResolvedValueOnce(response({ commit_sha: head, entries: [] }))
     .mockResolvedValueOnce(
       response({ head_sha: head, base_sha: base, files: [], lines: [] }),
@@ -45,6 +47,7 @@ beforeEach(async () => {
   unavailable = vi.fn();
   lines = null;
   blobLines = null;
+  publishedCommits = [];
   feedback = vi.fn();
   selectedPath = "";
   diffFiles = [];
@@ -81,7 +84,9 @@ beforeEach(async () => {
       lines = value;
     },
     setLiveFileTreeNodes: vi.fn(),
-    setLiveCommits: vi.fn(),
+    setLiveCommits: (value) => {
+      publishedCommits = value;
+    },
     getActiveCommitRev: () => "HEAD",
     showQuickFeedback: feedback,
   });
@@ -186,6 +191,7 @@ it("invalidates a pending file response when a directory is selected", async () 
   const selected: string[] = [];
   const view = createLiveRepoClient({
     getRepositoryId: () => repositoryId,
+    getRepositoryHead: () => "a".repeat(40),
     canWorkbench: () => workbench,
     onRepositoryUnavailable: (id) => unavailable(id),
     setLiveBlobLines: (value) => {
@@ -283,7 +289,7 @@ it("retains explicit truncation state for both a partial diff and a partial tree
   fetchMock.mockImplementation(async (url: string) =>
     response(
       url.includes("/commits?")
-        ? { commits: [] }
+        ? commitHistory(head)
         : url.includes("/tree?")
           ? {
               commit_sha: head,
@@ -425,3 +431,153 @@ it("refreshes catalog metadata after sync instead of hydrating a stale unborn HE
   expect(fetchMock).toHaveBeenCalledOnce();
   expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/sync/github");
 });
+
+it("pins initial default commits, tree and diff to the catalog SHA", async () => {
+  fetchMock.mockImplementation(async (url: string) =>
+    response(
+      url.includes("/commits?")
+        ? commitHistory(head)
+        : url.includes("/tree?")
+          ? { commit_sha: head, entries: [] }
+          : { head_sha: head, base_sha: base, files: [], lines: [] },
+    ),
+  );
+  await client.hydrateFromLiveBackend();
+  for (const [url] of fetchMock.mock.calls) {
+    const query = new URL(url, "https://example.invalid").searchParams;
+    expect(query.get("rev") ?? query.get("head")).toBe(head);
+  }
+});
+
+it("pins branch reads and rejects earlier branch snapshots across A to B to A", async () => {
+  const a = "d".repeat(40),
+    b = "e".repeat(40);
+  const oldTree = deferred<Response>();
+  let hold = true;
+  fetchMock.mockImplementation(async (url: string) => {
+    const query = new URL(url, "https://example.invalid").searchParams;
+    const rev = query.get("rev") ?? query.get("head");
+    if (url.includes("/branches?"))
+      return response({
+        branches: [
+          { name: "a", ref_name: "refs/heads/a", commit_sha: a },
+          { name: "b", ref_name: "refs/heads/b", commit_sha: b },
+        ],
+        next_cursor: null,
+      });
+    if (url.includes("/commits?")) return response(commitHistory(rev!));
+    if (url.includes("/tree?")) {
+      if (hold) {
+        hold = false;
+        return oldTree.promise;
+      }
+      return response({
+        commit_sha: rev,
+        entries: [{ path: "current.txt", is_dir: false }],
+      });
+    }
+    if (url.includes("/blob?"))
+      return response({ commit_sha: rev, content: "CURRENT BRANCH FILE" });
+    return response({
+      ...diff("current.txt", "CURRENT BRANCH DIFF"),
+      head_sha: rev,
+    });
+  });
+  await client.branches.refresh();
+  const [first, second] = client.branches.state().branches;
+  client.branches.select(first!);
+  await vi.waitFor(() =>
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url.includes("/tree?")),
+    ).toHaveLength(1),
+  );
+  client.branches.select(second!);
+  await vi.waitFor(() =>
+    expect(lines?.[0]?.content).toBe("CURRENT BRANCH DIFF"),
+  );
+  client.branches.select(first!);
+  await vi.waitFor(() => expect(selectRevision).toHaveBeenLastCalledWith(a));
+  oldTree.resolve(
+    response({
+      commit_sha: a,
+      entries: [{ path: "obsolete.txt", is_dir: false }],
+    }),
+  );
+  await Promise.resolve();
+  await client.selectFileFromTree({ path: "current.txt", kind: "file" });
+  expect(blobLines?.[0]?.content).toBe("CURRENT BRANCH FILE");
+  const url = fetchMock.mock.calls.at(-1)![0];
+  expect(new URL(url, "https://example.invalid").searchParams.get("rev")).toBe(
+    a,
+  );
+  expect(lines?.[0]?.content).toBe("CURRENT BRANCH DIFF");
+  expect(client.branches.state().selected?.commit_sha).toBe(a);
+  for (const [request] of fetchMock.mock.calls.filter(
+    ([url]) => !url.includes("/branches?"),
+  ))
+    expect(request).not.toContain("HEAD");
+});
+
+it("keeps an already selected commit comparison during a same-snapshot hydration", async () => {
+  fetchMock.mockResolvedValueOnce(
+    response({
+      ...diff("chosen.txt", "SELECTED COMMIT"),
+      head_sha: "d".repeat(40),
+    }),
+  );
+  await client.loadLiveCommitDiff("d".repeat(40));
+  fetchMock.mockClear();
+  fetchMock.mockImplementation(async (url: string) =>
+    response(
+      url.includes("/commits?")
+        ? commitHistory(head)
+        : { commit_sha: head, entries: [] },
+    ),
+  );
+  await client.hydrateFromLiveBackend();
+  expect(lines?.[0]?.content).toBe("SELECTED COMMIT");
+  expect(fetchMock.mock.calls.some(([url]) => url.includes("/diff?"))).toBe(
+    false,
+  );
+});
+
+it.each(["envelope", "first", "empty"])(
+  "rejects commit history with %s identity mismatch before publishing paths or commits",
+  async (kind) => {
+    const wrong = "d".repeat(40);
+    fetchMock.mockImplementation(async (url: string) =>
+      response(
+        url.includes("/commits?")
+          ? {
+              head_sha: kind === "envelope" ? wrong : head,
+              commits:
+                kind === "empty"
+                  ? []
+                  : [
+                      {
+                        sha: kind === "envelope" ? head : wrong,
+                        short_sha: wrong.slice(0, 7),
+                        summary: "OTHER SNAPSHOT",
+                        author_name: "Fixture",
+                      },
+                    ],
+            }
+          : url.includes("/tree?")
+            ? {
+                commit_sha: head,
+                entries: [{ path: "mixed.txt", is_dir: false }],
+              }
+            : { ...diff("mixed.txt", "MIXED SNAPSHOT"), head_sha: head },
+      ),
+    );
+    await client.hydrateFromLiveBackend();
+    expect(publishedCommits).toEqual([]);
+    expect(feedback).toHaveBeenCalledWith(
+      expect.stringContaining("Live repository hydration failed"),
+    );
+    const before = fetchMock.mock.calls.length;
+    await client.selectFileFromTree({ path: "mixed.txt", kind: "file" });
+    expect(fetchMock).toHaveBeenCalledTimes(before);
+    expect(blobLines?.[0]?.content).toContain("revision is unavailable");
+  },
+);

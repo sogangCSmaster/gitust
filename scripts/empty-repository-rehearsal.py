@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Create two disposable registered repositories and exercise their first HTTP push."""
 import argparse
+import base64
 import importlib.util
 import json
 import os
@@ -8,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlencode
 
 
 def load(name):
@@ -120,9 +122,48 @@ def catalog(fixture, head):
                     "primary summary differs from actual created repository")
 
 
+def branch_pages(fixture, index):
+    expected = fixture.git(fixture.repos[index], "for-each-ref",
+                           "--format=%(refname)%09%(objectname)", "refs/heads/")
+    expected = [{"ref_name": ref, "name": ref.removeprefix("refs/heads/"),
+                 "commit_sha": sha} for ref, sha in
+                (line.split("\t") for line in expected.splitlines())]
+    actual, seen, cursor = [], set(), None
+    for _ in range(4):
+        query = {"limit": 1}
+        if cursor is not None:
+            query["cursor"] = cursor
+        page = fixture.admin.request(
+            "GET", f"/api/v1/repos/{fixture.ids[index]}/branches?" + urlencode(query))
+        rows = page["branches"]
+        fixture.require(isinstance(rows, list) and len(rows) <= 1,
+                        "branch page exceeded its requested limit")
+        actual.extend({key: row[key] for key in ["ref_name", "name", "commit_sha"]}
+                      for row in rows)
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+        fixture.require(bool(rows) and isinstance(cursor, str) and cursor not in seen,
+                        "branch pagination did not advance")
+        seen.add(cursor)
+    else:
+        raise RuntimeError("branch pagination exceeded the disposable fixture's bound")
+    fixture.require(actual == expected, "UUID branch pages differ from independent Git refs")
+    return actual
+
+
 def execute(fixture):
     setup(fixture)
     catalog(fixture, None)
+    fixture.require(branch_pages(fixture, 0) == [] and branch_pages(fixture, 1) == [],
+                    "empty creation fabricated a branch entry")
+    maximum_cursor = "v1." + base64.urlsafe_b64encode(
+        ("refs/heads/" + "é" * 16384).encode("utf-8")).decode("ascii").rstrip("=")
+    fixture.require(len(maximum_cursor) == 43709, "cursor fixture does not reach the supported bound")
+    page = fixture.admin.request("GET", f"/api/v1/repos/{fixture.ids[0]}/branches?"
+                                 + urlencode({"limit": 1, "cursor": maximum_cursor}))
+    fixture.require(page["branches"] == [] and page["next_cursor"] is None,
+                    "maximum supported cursor did not round-trip through the actual HTTP listener")
     helper = fixture.helper
     url = fixture.url + "/git/" + fixture.ids[0] + ".git"
     env = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.extraHeader",
@@ -140,6 +181,10 @@ def execute(fixture):
     fixture.require(fixture.git(fixture.repos[0], "rev-parse", "develop") == develop,
                     "first alternate push differs from independent Git")
     catalog(fixture, None)
+    branches = branch_pages(fixture, 0)
+    fixture.require(len(branches) == 1 and branches[0]["name"] == "develop"
+                    and branches[0]["commit_sha"] == develop,
+                    "unborn default hid the first pushed branch")
     alternate = fixture.admin.request(
         "GET", f"/api/v1/repos/{fixture.ids[0]}/blob?rev={develop}&path=README.md")
     fixture.require(alternate["commit_sha"] == develop
@@ -157,6 +202,8 @@ def execute(fixture):
                     and fixture.git(clone, "rev-parse", "origin/main") == head,
                     "first main push/fetch differs from independent Git")
     catalog(fixture, head)
+    branch_pages(fixture, 0)
+    fixture.require(branch_pages(fixture, 1) == [], "primary refs leaked into the secondary page")
     blob = fixture.admin.request("GET", f"/api/v1/repos/{fixture.ids[0]}/blob?rev={head}&path=README.md")
     fixture.require(blob["commit_sha"] == head and blob["content"] == (clone / "README.md").read_text(),
                     "created repository browser reads a different committed file")
@@ -175,6 +222,7 @@ def execute(fixture):
     fixture.healthy(fixture.process, fixture.url)
     fixture.admin, _ = fixture.login(fixture.url, "operator", fixture.password)
     catalog(fixture, head)
+    branch_pages(fixture, 0)
     for repo in [*fixture.repos, clone]:
         fixture.git(repo, "fsck", "--full", "--strict")
     source = Path(__file__).resolve().parent.parent
@@ -189,6 +237,9 @@ def execute(fixture):
             "first_ordinary_push_and_fetch": True, "independent_git_read_oracles": True,
             "secondary_transport_denied": True, "populated_retry_rejected_unchanged": True,
             "restart_identity_preserved": True, "git_fsck": True,
+            "uuid_branch_pages_match_git": True,
+            "unborn_default_exposes_existing_branches": True, "secondary_branch_reads": True,
+            "max_cursor_http_round_trip": True,
             "external_github_publication": False}
 
 

@@ -1,3 +1,4 @@
+import { commitHistory } from "./fixtures/commit-history";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { DiffLine } from "../src/patterns/VirtualDiffViewer";
 import {
@@ -40,18 +41,22 @@ beforeEach(async () => {
   fetcher = vi.fn(async (url: string) =>
     response(
       url.includes("/commits?")
-        ? { commits: [] }
+        ? commitHistory(tree)
         : url.includes("/tree?")
           ? {
               commit_sha: tree,
               entries: [{ path: "source.txt", is_dir: false }],
             }
-          : diff("INITIAL DIFF"),
+          : {
+              ...diff("INITIAL DIFF"),
+              head_sha: url.includes(tree) ? tree : head,
+            },
     ),
   );
   vi.stubGlobal("fetch", fetcher);
   client = createLiveRepoClient({
     getRepositoryId: () => "11111111-1111-4111-8111-111111111111",
+    getRepositoryHead: () => tree,
     canWorkbench: () => true,
     setActiveCommitRev: (value) => {
       revision = value;
@@ -140,7 +145,7 @@ it("does not let background metadata hydration replace a newer comparison select
     .mockResolvedValueOnce(response(diff("SELECTED COMPARISON")));
   const hydration = client.hydrateFromLiveBackend();
   await client.loadLiveCommitDiff(head);
-  commits.resolve(response({ commits: [] }));
+  commits.resolve(response(commitHistory(tree)));
   paths.resolve(
     response({
       commit_sha: tree,

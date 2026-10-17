@@ -372,3 +372,59 @@ is 71,359 bytes at gzip level 9, still above the 50,000-byte target. This candid
 does not add HTTP creation, live inventory changes, secondary writes, standalone
 installation or native IDE evidence. Hosted verification must be recorded at its
 own source revision. Product GitHub publication remains deferred.
+
+The subsequent [fixed-source creation checkpoint](evidence/alpha-ci-5b7801c-2026-10-17.json)
+records [run 39041940368](https://github.com/sogangCSmaster/gitust/actions/runs/39041940368),
+attempt 1, for `5b7801c32647271b86b14e80f599707ae67e25e0`. Ubuntu 22.04 and
+macOS 15 both passed all required gates, ten operating tasks, two-repository and
+startup-rollback checks, the new actual empty-create/first-push/independent-restore
+rehearsal, and execution-crash recovery. This exact-source result covers the
+creation and Clone implementation; it excludes subsequent branch-list API/UI
+changes and the enhanced branch-page assertions in that rehearsal. It does not
+establish product GitHub publication, standalone installation or native IDE proof.
+
+## Branch browsing candidate, 2026-10-18
+
+The [local branch candidate record](evidence/branch-browsing-local-2026-10-18.json)
+binds the frozen backend10/UI17 source manifests to the final Darwin binary.
+The dirty candidate is based on `5b7801c`; that revision's hosted creation result
+does not establish hosted branch coverage. The final local mechanical gate passed
+CLI33, DB37, Git118 (two existing benchmarks ignored), server145, sandbox30 and
+frontend251 across 33 files, alongside Python regressions, formatting, Clippy,
+typechecks, bundle freshness and line/fail-open checks.
+
+The actual operating rehearsal checks one-entry UUID branch pages against Git
+before any refs, after an alternate first push while the default is unborn,
+after the first default push and after restart. Empty secondary reads remain
+independent. A canonical maximum 43,709-byte cursor also round-trips through the
+real HTTP listener; code/URI-construction checks alone were not used as this
+transport evidence. The previous binary fails the same operator at the missing
+branch route without producing a success report. An earlier draft used `after`
+instead of the finalized `cursor` parameter and failed on page two; the actual
+pagination path now remains required in CI.
+
+Independent review caught mixed commit-list/tree identity: checking only the tree
+could publish another commit's history. The helper now requires the requested SHA
+in the commits envelope and its nonempty first entry too. Three independent wrong
+envelope/first-entry/empty-history cases fail before the correction and pass after
+it. The touched shared server test Git helpers also now clear inherited selectors
+on all three entry paths; isolated child regressions preserve the separate
+synthetic repository's HEAD, refs and working state.
+
+The final binary's browser flow covered actual login and 320/768/1440px layouts.
+An alternate branch was readable before the default existed, a later real push
+and list refresh preserved the reviewed commit, selecting the new tip updated
+Files/Changes, and default-HEAD refresh preserved the explicit branch. Choosing
+the default or a secondary branch read that repository's identified content.
+Mobile branch changes previously cleared the file path while leaving the file
+list hidden; actual before/after visibility and focus checks close that defect.
+The fix uses the existing path-reset signal and adds no test-only state marker.
+
+The [initial JavaScript closure measurement](evidence/branch-browsing-ui-size-2026-10-18.json)
+is 72,956 bytes at gzip level 9. The selector and its existing Select dependency
+load when Files/Changes opens; the 50,000-byte initial target remains unmet.
+Browser evidence does not claim UI pagination over more than 50 branches: its
+controls have behavioral tests and real HTTP keyset pagination has the operating
+rehearsal. Branch mutation, secondary writes, standalone installation, native IDE
+integration, actual GitHub product publication and deployment remain outside this
+candidate. A later hosted run must be recorded at its exact tested source.

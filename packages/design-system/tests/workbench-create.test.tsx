@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { commitHistory } from "./fixtures/commit-history";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -89,7 +90,8 @@ it("lets a Developer create from the connected trunk branch and selects the retu
     if (url.endsWith("/swarm/worktrees")) return response([row]);
     if (url.includes("/tree?"))
       return response({ commit_sha: repo.head_commit, entries: [] });
-    if (url.includes("/commits?")) return response({ commits: [] });
+    if (url.includes("/commits?"))
+      return response(commitHistory(repo.head_commit));
     if (url.includes("/diff?"))
       return response({
         head_sha: repo.head_commit,

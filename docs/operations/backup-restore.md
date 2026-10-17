@@ -203,6 +203,11 @@ The pointer-reconnection example was checked with a disposable normal repository
 
 ## Interrupted execution precondition
 
+Preserve `gitust-repository/identity.json` and its private directory/file modes as part of
+the common Git directory. Complete restoration retains the configured repository ID;
+missing or corrupt records inside an existing identity directory stop startup. See the
+[identity recovery contract](../architecture/repository-identity.md) before repairing it.
+
 The backup command also rejects unresolved execution fences, even if the crashed
 server's OS lock has already been released. Stop every prior command and follow
 the [explicit recovery procedure](execution-recovery.md) before taking a new

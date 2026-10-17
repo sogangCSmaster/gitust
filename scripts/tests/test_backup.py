@@ -93,6 +93,12 @@ class BackupTests(unittest.TestCase):
         (admin / "gitust-origin.json").chmod(0o600)
         (self.common / "gitust-approvals").mkdir()
         (self.common / "gitust-approvals" / "receipt.json").write_text("durable evidence")
+        identity_dir = self.common / "gitust-repository"
+        identity_dir.mkdir(mode=0o700)
+        identity = identity_dir / "identity.json"
+        identity_bytes = b'{"version":1,"repo_id":"22222222-2222-4222-8222-222222222222"}'
+        identity.write_bytes(identity_bytes)
+        identity.chmod(0o600)
         self.create()
         self.restore()
         destination = self.restored / "repository"
@@ -102,6 +108,10 @@ class BackupTests(unittest.TestCase):
         self.assertEqual((wt / "dirty file.txt").read_text(), "uncommitted work\n")
         self.assertTrue((wt / "local-link").is_symlink())
         self.assertEqual((destination / ".git/gitust-approvals/receipt.json").read_text(), "durable evidence")
+        restored_identity = destination / ".git/gitust-repository/identity.json"
+        self.assertEqual(restored_identity.read_bytes(), identity_bytes)
+        self.assertEqual(restored_identity.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(restored_identity.parent.stat().st_mode & 0o777, 0o700)
         restored_admin = Path((wt / ".git").read_text().strip().removeprefix("gitdir: "))
         self.assertEqual((restored_admin / "gitust-origin.json").read_bytes(), origin_bytes)
         self.assertEqual((restored_admin / "gitust-origin.json").stat().st_mode & 0o777, 0o600)

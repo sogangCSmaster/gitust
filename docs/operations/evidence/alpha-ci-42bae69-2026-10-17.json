@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "source_commit": "42bae69103127dd2263ad1fed6cc620b6f9cb161",
+  "scope": "fixed-source GitHub-hosted CI using local fixture upstreams and protocol MCP clients",
+  "run": {
+    "id": 39009448871,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39009448871",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "evidence_basis": [
+    "GitHub Actions run and job API terminal results for the exact source commit",
+    "Job logs: sandbox results, late-host regression, PASS 01/10 through PASS 10/10 and crash-rehearsal completion",
+    "Successful workflow assertions against the private runtime reports; only allowlisted outcomes are recorded here",
+    "Both rehearsal scripts require git fsck --full --strict to succeed before reporting completion"
+  ],
+  "jobs": [
+    {
+      "id": 117328602146,
+      "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39009448871/job/117328602146",
+      "runner_image": "ubuntu-22.04",
+      "platform": "Linux",
+      "os_version": "Ubuntu 22.04.5",
+      "backend": "linux_bubblewrap",
+      "started_at": "2026-10-17T06:18:59Z",
+      "completed_at": "2026-10-17T06:22:39Z",
+      "conclusion": "success",
+      "mechanical_gates": "passed",
+      "sandbox_tests": {
+        "passed": 29,
+        "failed": 0,
+        "ignored": 0,
+        "late_host_metadata_and_symlink_aliases": "passed",
+        "auth_state_hidden_read_write_denial": "passed"
+      },
+      "operating_rehearsal": {
+        "completed_tasks": 10,
+        "task_numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "all_tasks_passed": true,
+        "mcp_clients": 2,
+        "external_github_publication": false,
+        "git_fsck": "server, local upstream and HTTP client passed --full --strict"
+      },
+      "report_assertions": {
+        "source_matches_tested_commit": true,
+        "runtime_source_clean": true,
+        "expected_os_backend": true,
+        "ten_distinct_successful_tasks": true
+      },
+      "execution_crash": {
+        "passed": true,
+        "source_matches_tested_commit": true,
+        "runtime_source_clean": true,
+        "expected_os_backend": true,
+        "fresh_service_rejected": true,
+        "explicit_recovery_required": true,
+        "verification_restored": false,
+        "post_recovery_execution_passed": true,
+        "git_fsck": "passed --full --strict"
+      }
+    },
+    {
+      "id": 117328602317,
+      "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39009448871/job/117328602317",
+      "runner_image": "macos-15",
+      "platform": "macOS",
+      "os_version": "macOS 15.7.9",
+      "backend": "macos_seatbelt",
+      "started_at": "2026-10-17T06:19:06Z",
+      "completed_at": "2026-10-17T06:24:08Z",
+      "conclusion": "success",
+      "mechanical_gates": "passed",
+      "sandbox_tests": {
+        "passed": 29,
+        "failed": 0,
+        "ignored": 0,
+        "late_host_metadata_and_symlink_aliases": "passed",
+        "auth_state_hidden_read_write_denial": "passed"
+      },
+      "operating_rehearsal": {
+        "completed_tasks": 10,
+        "task_numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "all_tasks_passed": true,
+        "mcp_clients": 2,
+        "external_github_publication": false,
+        "git_fsck": "server, local upstream and HTTP client passed --full --strict"
+      },
+      "report_assertions": {
+        "source_matches_tested_commit": true,
+        "runtime_source_clean": true,
+        "expected_os_backend": true,
+        "ten_distinct_successful_tasks": true
+      },
+      "execution_crash": {
+        "passed": true,
+        "source_matches_tested_commit": true,
+        "runtime_source_clean": true,
+        "expected_os_backend": true,
+        "fresh_service_rejected": true,
+        "explicit_recovery_required": true,
+        "verification_restored": false,
+        "post_recovery_execution_passed": true,
+        "git_fsck": "passed --full --strict"
+      }
+    }
+  ],
+  "boundaries": {
+    "earlier_failed_run_outcomes_unchanged": true,
+    "later_uncommitted_changes_covered": false,
+    "standalone_installation_established_by_this_run": false,
+    "actual_ide_agent_session": false,
+    "external_github_publication": false,
+    "automatic_orphan_termination_asserted": false,
+    "private_runtime_reports_published": false
+  }
+}

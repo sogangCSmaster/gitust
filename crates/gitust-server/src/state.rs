@@ -161,7 +161,22 @@ impl AppState {
         github_mirror_url: String,
         auth_store: AuthStore,
     ) -> Result<Self, GitEngineError> {
-        let repo_id = RepoId::new();
+        let repo_id = match git_engine.load_or_create_repository_id() {
+            Ok(id) => id,
+            // Auth-only unit fixtures deliberately have no Git repository. Persisted identity
+            // failures never receive this exception, and production always propagates OpenRepo.
+            Err(GitEngineError::OpenRepo { .. }) if cfg!(test) => RepoId::new(),
+            Err(error) => return Err(error),
+        };
+        if auth_store.repository_exists(repo_id).map_err(|_| {
+            GitEngineError::RepositoryIdentity(
+                "authorization metadata could not be inspected".into(),
+            )
+        })? {
+            return Err(GitEngineError::RepositoryIdentity(
+                "configured repository ID collides with unbound authorization metadata".into(),
+            ));
+        }
         let mut worktrees = VecDeque::new();
         let mut worktree_runtime = HashMap::new();
         match git_engine.recover_agent_worktrees(repo_id) {
@@ -366,6 +381,7 @@ pub(crate) fn map_git_err(err: GitEngineError) -> (StatusCode, String) {
         | GitEngineError::MergeConflict(_)
         | GitEngineError::VerificationInvalid(_)
         | GitEngineError::ExecutionFence(_)
+        | GitEngineError::RepositoryIdentity(_)
         | GitEngineError::WorktreeServiceBusy(_) => StatusCode::CONFLICT,
         GitEngineError::CredentialsInRepoConfig => StatusCode::PRECONDITION_FAILED,
         _ => {
@@ -402,8 +418,8 @@ pub(crate) fn internal_err(e: impl std::fmt::Display) -> (StatusCode, String) {
 }
 
 /// Enforces team repository BOLA access (fail-closed):
-/// - If `repo_id` is registered in `auth_store`, enforces team membership via `authorize_repository_access`.
-/// - Otherwise, only allows access if `repo_id == default_repo_id` (the primary server repository).
+/// The configured repository has no registry/ACL binding yet: an equal registered UUID is a
+/// collision, never implicit ownership. Other metadata repositories retain their team checks.
 pub(crate) fn check_repo_bola(
     auth_store: &AuthStore,
     default_repo_id: RepoId,
@@ -413,16 +429,19 @@ pub(crate) fn check_repo_bola(
     auth_store
         .verify_active_principal(caller)
         .map_err(map_auth_err)?;
-    if auth_store
+    let registered = auth_store
         .repository_exists(repo_id)
-        .map_err(map_auth_err)?
-    {
+        .map_err(map_auth_err)?;
+    if repo_id == default_repo_id {
+        if registered {
+            return Err(map_auth_err(AuthError::ForbiddenRepositoryAccess));
+        }
+        return Ok(());
+    }
+    if registered {
         auth_store
             .authorize_repository_access(caller, repo_id)
             .map_err(map_auth_err)?;
-        return Ok(());
-    }
-    if repo_id == default_repo_id {
         return Ok(());
     }
     Err(map_auth_err(AuthError::ForbiddenRepositoryAccess))
@@ -464,10 +483,10 @@ pub(crate) async fn filter_authorized_worktrees(
     let default_repo = state.repo_id;
     let caller_owned = caller.clone();
     tokio::task::spawn_blocking(move || {
-        store
-            .verify_active_principal(&caller_owned)
-            .map_err(map_auth_err)?;
-        let mut access_cache: HashMap<RepoId, bool> = HashMap::new();
+        // Reject a configured-ID collision even with no rows; filtering it into an empty list
+        // would conceal the broken binding. Cache the already checked default once per list.
+        check_repo_bola(&store, default_repo, &caller_owned, default_repo)?;
+        let mut access_cache = HashMap::from([(default_repo, true)]);
         let mut authorized = Vec::with_capacity(candidates.len());
         for wt in candidates {
             let allowed = match access_cache.get(&wt.repo_id).copied() {

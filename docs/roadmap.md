@@ -39,7 +39,8 @@ In progress. Implemented portions:
 - A live workbench history viewer for the latest five completed runs, including per-command outcomes, captured output and execution metadata, separate from current verification authority.
 - A live worktree-to-diff review entry that pins head/base commits across file switches, refuses unknown targets and keeps tree/blob snapshots consistent. The follow-up passed local checks and Gate A; its Gate B exception was approved before automatic Gate B reviews were stopped by the user.
 - Bounded task display labels in creation metadata, preserved on restart and relocation for new tasks. Legacy records retain a generic recovered label; labels do not restore verification authority.
-- A stopped-installation backup/relocated-restore utility, regression tests and recorded local macOS rehearsals, including MCP commits after relocation. Linux and release acceptance remain open.
+- Stable configured repository IDs across restart and complete offline relocation, with bounded private metadata and collision rejection. This does not implement repository routing or team ACL binding.
+- A stopped-installation backup/relocated-restore utility, regression tests and recorded Linux/macOS rehearsals at `42bae69`, including MCP commits after relocation. Final-candidate acceptance remains open.
 
 Remaining work:
 
@@ -51,7 +52,7 @@ Remaining work:
 - Final-candidate restoration evidence for auth state, Git data, worktrees and approval records on the intended platforms.
 - Deployment validation, platform coverage, and final-candidate checks and Gate A review.
 
-The MCP commit implementation passed current full checks, an independent architecture review and the local ten-task rehearsal after index-aware normalization fixes. The independent HTTP review has partial executed evidence but no final verdict because further checks were interrupted by tool policy. Actual intended IDE-agent sessions, authorized GitHub publication, Linux execution and a separately provisioned installation remain open. Track those boundaries in the [alpha progress report](operations/alpha-progress-2026-10-17.md); all nine acceptance conditions remain in force.
+The MCP commit implementation passed full checks, independent architecture review and ten-task rehearsals. Hosted Linux/Bubblewrap and macOS/Seatbelt checks, relocation and crash recovery passed at `42bae69`. The historical independent HTTP review has partial executed evidence but no final verdict because further checks were interrupted by tool policy. Actual intended IDE-agent sessions, authorized GitHub publication, a separately provisioned installation and validation of later changes remain open. Track those boundaries in the [alpha progress report](operations/alpha-progress-2026-10-17.md); all nine acceptance conditions remain in force.
 
 GitHub remains the initial source of truth. Local merge and upstream publication are separate operations. Publication failure must not erase approval or silently select a different commit.
 

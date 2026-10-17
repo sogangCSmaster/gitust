@@ -193,6 +193,7 @@ impl SandboxSpec {
             "worktrees",
             "gitust-worktree-service.lock",
             "gitust-active-executions",
+            "gitust-repository",
             "gitust-approvals",
             "gitust-check-runs",
             ".gitust",

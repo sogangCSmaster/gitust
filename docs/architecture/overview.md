@@ -31,13 +31,14 @@ See [MCP commits and recovery](mcp-commits.md), [verification and Checks](worktr
 
 - Auth state uses a configured JSON file with cross-process locking and atomic replacement. Both reading and writing enforce a 64MiB snapshot ceiling; a rejected write preserves the previous file and rolls back memory. Email input is limited to 254 UTF-8 bytes.
 - Git objects, refs, and linked-worktree metadata remain in Git storage.
+- The configured repository ID is persisted in private `gitust-repository/identity.json` under the common Git directory. Restart and complete offline relocation retain it; incomplete records and unbound auth-metadata collisions fail closed. See [repository identity and recovery](repository-identity.md).
 - Each managed worktree has a bounded, immutable `gitust-origin.json` in its Git administration directory. It binds the worktree ID/branch to the creation target and SHA independently of reflog retention. Valid legacy creation entries are migrated; missing evidence leaves the target unknown, and verification/approval refuse it. Corrupt new metadata fails recovery rather than falling back to `main`. Restore trusted metadata or discard and recreate an unknown-target task; retargeting is not implemented.
 - Approval/publication records live under the common Git directory's `gitust-approvals` directory.
 - Runtime verification evidence is discarded on restart; an unmerged task needs fresh verification.
 
 Git mutation and approval-record persistence are not one transaction. Failures between them may require operator inspection. Host-side commits also publish the branch before installing its prepared index; an index-installation failure reports the created SHA and requires index recovery without restoring verification authority. An uncatchable kill can leave a stale worktree `index.lock` that needs the stopped-writer procedure in the commit documentation.
 
-The [offline backup tool and runbook](../operations/backup-restore.md) preserve auth state and the full supported repository/worktree layout. Relocated macOS rehearsals include the MCP commit path; release acceptance and Linux restoration evidence remain open in the [alpha progress report](../operations/alpha-progress-2026-10-17.md).
+The [offline backup tool and runbook](../operations/backup-restore.md) preserve auth state and the full supported repository/worktree layout. Hosted Linux and macOS ten-task rehearsals include relocated restoration and the MCP commit path at `42bae69`; final-candidate acceptance and later-change validation remain tracked in the [alpha progress report](../operations/alpha-progress-2026-10-17.md).
 
 ## Execution and trust
 

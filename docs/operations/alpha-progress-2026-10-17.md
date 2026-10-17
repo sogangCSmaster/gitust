@@ -181,3 +181,20 @@ separately provisioned machine and complete Linux acceptance remain open. The ho
 passed all mechanical gates, ten operating tasks and crash recovery on macOS 15.
 Linux stopped in a cold-loading frontend test before Rust sandbox tests ran; its
 result cannot establish the new Bubblewrap policy's behavior. The overall run failed.
+
+## Hosted Linux and macOS checkpoint `42bae69`
+
+The [allowlisted CI evidence](evidence/alpha-ci-42bae69-2026-10-17.json) records
+[run 39009448871](https://github.com/sogangCSmaster/gitust/actions/runs/39009448871),
+attempt 1, for source `42bae69103127dd2263ad1fed6cc620b6f9cb161`. Both Ubuntu 22.04
+and macOS 15 passed every mechanical gate, all 29 real OS sandbox tests, the late-host
+metadata/symlink regression, all ten operating tasks and execution-crash recovery.
+The report assertions confirmed the exact clean source and required Bubblewrap/Seatbelt
+backend. The operating and crash rehearsals also completed their required strict Git
+`fsck` checks.
+
+This closes the missing hosted Linux runtime evidence for this fixed checkpoint.
+Earlier failed runs retain their recorded outcomes. These results do not cover later
+uncommitted repository-identity work or establish a standalone installation, an intended
+IDE session or actual GitHub publication. Crash recovery proves durable rejection and
+explicit recovery; it does not assert automatic termination of every orphaned command.

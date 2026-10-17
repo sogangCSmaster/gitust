@@ -21,6 +21,7 @@ mod mirror;
 mod mirror_init;
 mod outbound;
 mod process;
+mod repository_identity;
 mod service_lock;
 mod smart_http;
 #[cfg(test)]
@@ -29,6 +30,8 @@ mod tests;
 mod tests_execution_fence;
 #[cfg(test)]
 mod tests_outbound;
+#[cfg(test)]
+mod tests_repository_identity;
 mod verification;
 mod worktree;
 mod worktree_commit;
@@ -83,6 +86,8 @@ pub(crate) const SANDBOX_SCRATCH_DIR_NAME: &str = "gitust-sandbox-scratch";
 
 #[derive(Debug, Error)]
 pub enum GitEngineError {
+    #[error("repository identity: {0}")]
+    RepositoryIdentity(String),
     #[error("execution lifetime fence: {0}")]
     ExecutionFence(String),
     #[error("verification invalid: {0}")]
@@ -191,6 +196,7 @@ pub struct GitEngine {
     pub(crate) worktree_base_dir: Option<PathBuf>,
     pub(crate) shared_repo: Arc<OnceLock<gix::ThreadSafeRepository>>,
     pub(crate) service_lock: Arc<std::sync::Mutex<std::sync::Weak<WorktreeServiceLockInner>>>,
+    pub(crate) repository_identity_init: Arc<std::sync::Mutex<()>>,
     pub(crate) fetch_timeout: std::time::Duration,
     pub(crate) fetch_timeout_overridden: bool,
 }
@@ -210,6 +216,7 @@ impl GitEngine {
             worktree_base_dir: None,
             shared_repo: Arc::new(lock),
             service_lock: Arc::new(std::sync::Mutex::new(std::sync::Weak::new())),
+            repository_identity_init: Arc::new(std::sync::Mutex::new(())),
             fetch_timeout: DEFAULT_FETCH_TIMEOUT,
             fetch_timeout_overridden: false,
         }

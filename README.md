@@ -25,7 +25,7 @@ The current milestone is a trusted single-user self-hosted alpha: operate concur
 
 | Area | Available now |
 |---|---|
-| Workspaces | Managed `agent/*` branches, linked worktrees, ownership checks, and startup recovery |
+| Workspaces | Managed `agent/*` branches, linked worktrees, persisted repository identity, ownership checks, and startup recovery |
 | Execution | Local commands using macOS Seatbelt or Linux Bubblewrap |
 | Verification | Clean SHA checks, required commands from the merge target's committed `.gitust-checks.json`, per-command results, and opt-in automatic Checks after managed-worktree MCP commits or Git HTTP pushes |
 | Approval and publication | Human-approved fast-forward merge, exact-SHA push, persisted records, and explicit retry |
@@ -41,7 +41,7 @@ Automatic Checks require `"auto_run": true` in the merge target's committed Chec
 
 ## Build from source
 
-You need Rust, Git, Node.js, and pnpm 10. The current development checks run with Rust 1.92.0. Sandbox execution requires macOS with `sandbox-exec`, or Linux with `bwrap` and the necessary namespace support. Windows sandbox execution is not implemented.
+You need Rust, Git, Node.js, and pnpm 10. The current development checks run with Rust 1.92.0. Repository identity storage currently supports macOS and Linux. Sandbox execution requires macOS with `sandbox-exec`, or Linux with `bwrap` and the necessary namespace support. Windows sandbox execution is not implemented.
 
 ```sh
 git clone https://github.com/sogangCSmaster/gitust.git
@@ -115,9 +115,11 @@ gitust triage list --repo /absolute/path/to/repository
 
 One worktree service owns a repository at a time. When `serve` is running, connect agents to its `/mcp` HTTP endpoint instead of starting another stdio service on the same repository.
 
+The configured repository keeps its ID across server restarts and complete offline restoration. Keep its private Git metadata in backups; an incomplete identity record stops startup. This ID does not register a repository or bind team permissions. See the [identity and recovery contract](docs/architecture/repository-identity.md).
+
 Sandbox commands can edit their own checkout, while shared Git administration stays read-only inside the sandbox. The host-side `gitust_worktree_commit` MCP tool commits explicitly listed files against an expected HEAD SHA. HTTP use requires trusted single-user execution, a SiteAdmin and worktree ownership; stdio runs under local operator authority. Every accepted commit attempt clears prior verification, and a successful commit requires fresh verification before human approval. See the [commit contract and recovery procedure](docs/architecture/mcp-commits.md).
 
-The [local ten-task rehearsal](docs/operations/alpha-rehearsal.md) passed after the index-aware normalization fixes, including 15 MCP commits and relocated restoration. This establishes the recorded local protocol-client flow; actual IDE-agent, GitHub and Linux integration remain unverified. See [current validation and review limits](docs/security/mcp-commit-review-2026-10-17.md).
+The [ten-task rehearsal](docs/operations/alpha-rehearsal.md) passed with real MCP commits and relocated restoration. The [recorded hosted CI](docs/operations/evidence/alpha-ci-42bae69-2026-10-17.json) also passed on Linux/Bubblewrap and macOS/Seatbelt at revision `42bae69`. Actual intended IDE-agent use, authorized GitHub publication and a separately provisioned installation still need evidence; later changes require their own validation. See the [acceptance progress](docs/operations/alpha-progress-2026-10-17.md).
 
 In the workbench, run verification, inspect the result, select **Approve & Merge**, then **Publish to GitHub**. Publication sends the approved SHA and its reachable history, not every local branch. A failed push preserves the local merge for explicit retry.
 

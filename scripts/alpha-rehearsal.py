@@ -150,6 +150,11 @@ class Rehearsal:
             "identifier": "alpha-operator", "password": self.password})
         self.operator = Client(self.url, response["raw_session_token"])
         self.operator_id = response["user"]["id"]
+        repository_id = self.operator.request("GET", "/api/v1/repo")["id"]
+        if hasattr(self, "repository_id"):
+            require(repository_id == self.repository_id,
+                    "configured repository ID changed after restart or relocation")
+        self.repository_id = repository_id
 
     def setup(self):
         seed = self.scratch / "seed"
@@ -444,6 +449,7 @@ class Rehearsal:
                 "platform": platform.platform(), "sandbox_backends": sorted(self.backends),
                 "fixture": "committed Gitust main cloned locally; task commits only in scratch",
                 "mcp_clients": 2, "mcp_only_commit_demonstrated": True,
+                "repository_identity_preserved_after_restart_and_restore": True,
                 "tasks_1_to_9_commit_actor": "gitust_worktree_commit via HTTP MCP",
                 "mcp_commits": self.mcp_commits,
                 "task_10_commit_actor": "separate Git Smart HTTP client clone",
@@ -459,6 +465,11 @@ class Rehearsal:
         require(json.loads(owner)["user_id"] == self.operator_id, "source task owner is incorrect")
         approvals = {p.name: p.read_bytes() for p in (self.repo / "gitust-approvals").glob("*.json")}
         main = git(self.repo, "rev-parse", "main")
+        self.stop()
+        self.start()
+        self.login()
+        for client in self.clients:
+            client.url = self.url
         self.stop()
         backup, restored = self.scratch / "backup", self.scratch / "restored"
         tool = self.source / "scripts/backup.py"
@@ -489,7 +500,8 @@ class Rehearsal:
         self.edit(9, "MCP commit after relocated restore using the original PAT")
         self.verify(9)
         self.record(9, "offline backup, relocation, original-PAT MCP commit and re-verification",
-                    commit=self.merge_publish(9), retained_runs=len(before), restored_approvals=7)
+                    commit=self.merge_publish(9), retained_runs=len(before), restored_approvals=7,
+                    repository_identity_preserved_after_restart_and_restore=True)
 
     def http_git_task(self):
         self.spawn(10)

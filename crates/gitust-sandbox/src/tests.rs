@@ -80,6 +80,11 @@ async fn gate_7_4_sandbox_isolation() {
     fs::write(repo_dir.join("MAIN_ONLY.txt"), "MAIN_WORKTREE_CONTENT").expect("write");
 
     let engine = GitEngine::new(&repo_dir);
+    let repository_id = engine
+        .load_or_create_repository_id()
+        .expect("stable repository ID");
+    let identity_path = repo_dir.join(".git/gitust-repository/identity.json");
+    let identity_bytes = fs::read(&identity_path).expect("read private identity");
     let mk = |branch: &str| {
         engine
             .materialize_agent_worktree(
@@ -150,6 +155,7 @@ async fn gate_7_4_sandbox_isolation() {
         format!("cat '{common}/refs/stash'"),
         format!("cat '{common}/logs/HEAD'"),
         format!("cat '{common}/gitust-active-executions/private.json'"),
+        format!("cat '{common}/gitust-repository/identity.json'"),
         format!("cat '{}/index'", sibling.worktree_admin_dir.display()),
     ] {
         let res = run(probe.clone()).await;
@@ -160,7 +166,20 @@ async fn gate_7_4_sandbox_isolation() {
         );
         assert!(!res.stdout.contains("SECRET"), "{probe} leaked a secret");
         assert!(!res.stdout.contains("PRIVATE_EXECUTION_FENCE"));
+        assert!(!res.stdout.contains(&repository_id.0.to_string()));
     }
+    let write_identity = run(format!(
+        "printf changed > '{common}/gitust-repository/identity.json'"
+    ))
+    .await;
+    assert_ne!(
+        write_identity.exit_code, 0,
+        "private identity must not be writable"
+    );
+    assert_eq!(
+        fs::read(identity_path).expect("identity remains"),
+        identity_bytes
+    );
 
     let admin_listing = run(format!("ls '{common}/worktrees'")).await;
     assert!(

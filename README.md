@@ -93,6 +93,8 @@ SiteAdmins can rename the display name of a configured registered repository fro
 
 Use the compact [branch selector](docs/operations/branch-browsing.md) in Files or Changes to read a branch at its identified commit. Other branches remain browsable when the default branch has no commit; refreshing the list preserves the selected snapshot.
 
+SiteAdmins can change a registered bare primary's [default branch](docs/operations/default-branch.md) from Overview. New clones and omitted-base HTTP/MCP tasks use the selected branch; existing tasks keep their original approval target.
+
 The upstream URL configures synchronization and publication. Starting the server does not automatically mirror or publish commits. Private outbound GitHub authentication currently uses SSH keys/agent and a preconfigured `known_hosts`, rather than HTTPS credential helpers.
 
 For frontend development, keep the Rust server running on `127.0.0.1:3000` and start Vite in another terminal:

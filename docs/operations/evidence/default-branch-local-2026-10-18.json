@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "recorded_at_utc": "2026-10-17T16:55:58.620222+00:00",
+  "source": {
+    "base_commit": "6c67809b2543f153971519c9805d5cf09bed9863",
+    "candidate_dirty": true,
+    "integrated_source_manifest_sha256": "a17844b5178ddc959aebe840210282533c13d7d930b3f439a084d5ecd5819a97",
+    "frozen_files": {
+      ".github/workflows/ci.yml": "0a0cffac2ec93e46b239cb699d3fa9d19f8eb15cf9c319be1a55a82ffda7af0e",
+      "README.md": "aebe02400904fdd655454aeb3d89ae94d2a565b5fb919898d8414a9a3ab6f40c",
+      "crates/gitust-git/src/default_branch.rs": "be8c29e49b5d06aafce36344ac7a9259287b21233c628037fdf645c0315ed924",
+      "crates/gitust-git/src/lib.rs": "4c396ca190e71b8642bf86cd274f53bfec6de15d48632078e8fd7663b0c28518",
+      "crates/gitust-git/src/tests.rs": "7fedb38ed189c42a84c4932a1e59724d66fd8d748d85213c7a330a175d0bbc8c",
+      "crates/gitust-git/src/tests_default_branch.rs": "6751eadacd6b10a06dce18768dd47eab8402a29922d9c9a6ca4854d64a13aa60",
+      "crates/gitust-sandbox/src/mcp.rs": "d6e92a137bd72fefd7494d2d18533317e550ca4829fe392798ea8f10ccff97b2",
+      "crates/gitust-server/src/lib.rs": "6ddec59bb4597e1b4c380e1432a750a793e1119b1ad23ee2304ec0ff5c050b33",
+      "crates/gitust-server/src/mcp.rs": "c81aa4aea466bce7006df0a0c5016f0c073c58244004ca819e238a9e6be95b33",
+      "crates/gitust-server/src/repository_default_branch.rs": "1237fb9c48a87944e58f57d5c518ef2bfe09d32994ef2bbe01d3d119ba630eca",
+      "crates/gitust-server/src/repository_reads.rs": "6a572dc20451aeb00dfe579a91b3cd477e47ac40852cf41d7c5c616e3a644765",
+      "crates/gitust-server/src/state.rs": "ef7d5bb751f2d2fc10dcf1e30727242b830f085015b3c3474d151d7a96200385",
+      "crates/gitust-server/src/tests.rs": "cd6ba09a6e93d306afbfd1755331ae893629f24fb41d7777466a10add63dfc34",
+      "crates/gitust-server/src/tests_repository_default.rs": "ac41e207817ab5e00f020fd0db8a85f2e49cc86faf23ff3ef0a32ecf2c78c441",
+      "crates/gitust-server/src/tests_repository_default_auth.rs": "b134e21dd52daed903e495b1d41e8025460ccf14e5dc55f1576530d242e55150",
+      "crates/gitust-server/src/worktree_spawn.rs": "0e6c2239340bd89864ea85cc9f862d05cdf1cf0b1a66af623b1393f171371bea",
+      "docs/operations/default-branch.md": "a6e8112e195e71ba69ae0a921beca291f24a83db133a5674af89f7ca9cc1b4d5",
+      "docs/roadmap.md": "7e642e8658c302618469c60509cd865338d11243c29cb3d3269b758a11fdc9b6",
+      "packages/design-system/dist/assets/AgentSwarmView-DA8_Xw-L.js": "b823db35a2caf981655eaab1eb34f5a22320bee5694782460a7686e4ba8adbda",
+      "packages/design-system/dist/assets/AgentSwarmView-DXHls3Xo.js": null,
+      "packages/design-system/dist/assets/EnterpriseAdminView-BvydZ3Ev.js": "b0d00490e67d71b431f50d497511422734fe326435edc4165a06d07b8ac75506",
+      "packages/design-system/dist/assets/EnterpriseAdminView-DJxE5AqJ.js": null,
+      "packages/design-system/dist/assets/NewWorktreeForm-B-HAX9II.js": null,
+      "packages/design-system/dist/assets/NewWorktreeForm-CvtjmRvp.js": "5e5122edfd9595c74b302b55cd5afacf27af3bb19fdcaaf0082ab71a6c11a2c1",
+      "packages/design-system/dist/assets/PrimitivesTab-CgDVljjs.js": "93db9a7c85814f280306d4aae04d19b60bc4796de8db010388bd8df8a99fb16e",
+      "packages/design-system/dist/assets/PrimitivesTab-DGnUfeCD.js": null,
+      "packages/design-system/dist/assets/RFN6X5VH-BxE8NMMa.js": null,
+      "packages/design-system/dist/assets/RFN6X5VH-CbfvVs10.js": "d950a880e1c6cc123df618f51c9238ba6a9ad8022a90ff046e1d8f050aa8c71b",
+      "packages/design-system/dist/assets/RepositoryBranchSelect-BhMS6U6H.js": "3c1818a6e633e420134d4f30829a4b2e20b3c7105ea426886b5f26669169002b",
+      "packages/design-system/dist/assets/RepositoryBranchSelect-D1PdEAVi.js": null,
+      "packages/design-system/dist/assets/RepositoryChangesView-D-gwoSku.js": "fadc1c288951f0296b7590a6763e2b946319665d05b76349da971c5d4c871ac1",
+      "packages/design-system/dist/assets/RepositoryChangesView-DG5Biskc.js": null,
+      "packages/design-system/dist/assets/RepositoryDefaultBranchForm-WwyIObqN.js": "631404f5504af345ba7e1cc48d0cc038330967f9694d6014dd81d0d56704851e",
+      "packages/design-system/dist/assets/RunHistoryContent-DXAFb73N.js": null,
+      "packages/design-system/dist/assets/RunHistoryContent-DbjV0Del.js": "8dc0494bc9e569b250ad38ecea8f100c8bf37fd2cf7a58196b1dce3e82a3bdff",
+      "packages/design-system/dist/assets/VerificationResultDetails-D50MumR-.js": "f1b1ed7ff787bd108dde1e8782462721c1dbb4d410e148dbc9490e9a4bec15c8",
+      "packages/design-system/dist/assets/VerificationResultDetails-DOLKeovu.js": null,
+      "packages/design-system/dist/assets/collapsible-DBMqsXoq.js": null,
+      "packages/design-system/dist/assets/collapsible-DYHKfzq1.js": "cb877278ece6144b14897ace77a99104d3d667d02788fdf98e78d73c15f8c8bc",
+      "packages/design-system/dist/assets/index.css": "eb569b1044d33a4e092ab54f98403fea706e701319113722db155c38743bb0a2",
+      "packages/design-system/dist/assets/index.js": "74da18fc062b75718543bc02bc3f591e31012a3b6285f7923b0bdea2bc95f0a7",
+      "packages/design-system/dist/assets/select-C7i-ESLD.js": null,
+      "packages/design-system/dist/assets/select-m5o8UcHV.js": "525427c9c7aa751f1e96bfe008c46fd96b12c05112ee76373fb40573a2516326",
+      "packages/design-system/dist/assets/switch-1vfhDq0J.js": null,
+      "packages/design-system/dist/assets/switch-BWQyP8ek.js": "be1e90e4664e316d9c1ebe8291482d0919ac80bfacba859b8ee3e069636913ac",
+      "packages/design-system/src/showcase/RepositoryDefaultBranch.tsx": "0c5a7dcb5a49a123dc27fe26bd28d705fc8a80b252cbc632e1798487b267b015",
+      "packages/design-system/src/showcase/RepositoryDefaultBranchForm.tsx": "91ba232efb415d158655d111bcba4a31a3a9b3db0e912ac37eef95c6e9dd6816",
+      "packages/design-system/src/showcase/RepositoryViews.tsx": "a12c9b14712ee78be60fc1ae6a1ea3b1650cd225bb9fce9967dab30f4802d8c7",
+      "packages/design-system/src/showcase/connected-repository-client.ts": "efe4775ee2fff905e6ddca7ac3425ec3fa642ab0f9d53a9668059221ede88e8e",
+      "packages/design-system/src/showcase/repository-default-branch.ts": "1846d3f48e6f7598f8d6c2be4509439efe472999c03a449e8aa2a14bd5fabbbd",
+      "packages/design-system/src/showcase/repository-workspace.ts": "bd36337d080485f134b63dc3bd7c320ab2502e9a404291f7ebcdfb7c157466dd",
+      "packages/design-system/tests/connected-repository-client.test.ts": "5ef75809094e9a061e5147bfdc1eef9eb2808aeed6707a896cf35f7680a489a8",
+      "packages/design-system/tests/repository-default-branch.test.tsx": "a217b40d4d27fb71b8a0a741e8666737d6ac4502036877dae24fc1f812ffc008",
+      "packages/design-system/tests/workbench-multi-repository.test.tsx": "c5b33f47bbab14b4ede0876147f6365a3ae47287208992416677b1d83d1b0172",
+      "scripts/default-branch-rehearsal.py": "9581dcc45121b43f5b6915854c93a3afc33eee0586fef4798245bbc57c97c4cf"
+    },
+    "backend_rebased_manifest_sha256": "67cf63705626b3bd4a49108f9aa21f747a9ef7228f03fb741d27f9088bb9b1fe",
+    "ui_source_manifest_sha256": "4bb9f4d7734304df6e617d60e89c074167b91ec79d65637bcd9c51e5367ac7ff",
+    "dist_manifest_sha256": "fb68d39c470332af275b5982bd4327c114c72239529d6f0e2cb9dbe6c4309bb9"
+  },
+  "binary_sha256": "16c7ae562b6510037addb167313aa13ec49c70644fc71c2d19dbfda9aca2a6b5",
+  "mechanical_verification": {
+    "exit_code": 0,
+    "log_sha256": "66662a73fc53e2795e9d1e2ed67d1249adb0bb1fd3edc6af3583802e523780ea",
+    "python_tests": 19,
+    "frontend_tests": 258,
+    "frontend_test_files": 34,
+    "rust_passed": {
+      "cli": 33,
+      "core": 2,
+      "db": 37,
+      "git": 133,
+      "sandbox": 30,
+      "server": 152,
+      "sync": 1
+    },
+    "git_existing_ignored_benchmarks": 2,
+    "fmt_clippy_typecheck_bundle_line_and_fail_open": "passed"
+  },
+  "feature_absence_before": {
+    "source_commit": "6c67809b2543f153971519c9805d5cf09bed9863",
+    "binary_sha256": "4f1c77f57d531c16657cb055a355b77f86d7ca70ba8b2cf62a406b49f6b3f88b",
+    "runtime_script_sha256": "9581dcc45121b43f5b6915854c93a3afc33eee0586fef4798245bbc57c97c4cf",
+    "exit_code": 1,
+    "failure": "PATCH default-branch route returned404 before expected401; feature absent",
+    "success_report_exists": false,
+    "log_sha256": "757b65d60eb892b5ffe14dc1eb78ad495adfe6d4bf3924c41f51978fcddd7dc0"
+  },
+  "operating_rehearsal": {
+    "exit_code": 0,
+    "report_sha256": "a3e8215a3f17f1bb3aca51eacd085c7b422a62d50c2acf1e4922394fad06066d",
+    "runtime_source_sha256": {
+      "scripts/default-branch-rehearsal.py": "9581dcc45121b43f5b6915854c93a3afc33eee0586fef4798245bbc57c97c4cf",
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+      "scripts/multi-repository-rehearsal.py": "d62ca6024aba21bb16d5fca327797a1c984255aa454329b81abb508997775bd5",
+      "scripts/empty-repository-rehearsal.py": "08ec888087f00cacbda8021ff933c8346328f6494d08c364dd1cf2a5203cde55"
+    },
+    "source_commit": "6c67809b2543f153971519c9805d5cf09bed9863",
+    "runtime_worktree_dirty": true,
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "external_github_publication": false,
+    "checks": {
+      "passed": true,
+      "default_head_only_changed": true,
+      "registered_identity_preserved": true,
+      "denied_and_stale_requests_unchanged": true,
+      "read_only_git_state_preserved": true,
+      "existing_task_target_preserved": true,
+      "omitted_base_uses_current_default": true,
+      "restart_default_preserved": true,
+      "git_http_advertises_default": true,
+      "fresh_clone_uses_default": true,
+      "existing_clone_fetch_matches_git": true,
+      "git_fsck": true,
+      "owned_services_reaped": true,
+      "private_fixture_removed": true
+    }
+  },
+  "native_browser": {
+    "proof_sha256": "5c77e0859653fa085c5391b26e5a0a62025860de9b7ce5eb6a2777b766ada5e4",
+    "backend_git_proof_sha256": "5c5a4e4842a687bf1d31c4c853276d2c4e32e6f96d0624c5c71ed7d3aba97e33",
+    "observations": 10,
+    "screenshots": [
+      {
+        "file": "default-branch-overview-1440.png",
+        "sha256": "51fd7ccbe1544ae3e81667580d905c5b41bad439ce231e8dd3b35764436794b9",
+        "mime_type": "image/jpeg"
+      },
+      {
+        "file": "default-branch-dialog-320.png",
+        "sha256": "c090cbe5a61fcb8e5976190ec16ce8becb29bc2ea7aadae0f9b38f2019458986",
+        "mime_type": "image/jpeg"
+      },
+      {
+        "file": "default-branch-saved-320.png",
+        "sha256": "296013cd53604521afe9dbc345e310f3f423c5ebe024a370bd2e1290db6e616c",
+        "mime_type": "image/jpeg"
+      },
+      {
+        "file": "default-branch-pinned-files-320.png",
+        "sha256": "5c1139d9f3373b4c8d980a0c32bb6022021d8b5f5921bbb14655ab5767066050",
+        "mime_type": "image/jpeg"
+      },
+      {
+        "file": "default-branch-dialog-768.png",
+        "sha256": "43494bae72096e8c55da0a84bde6f3fe1c85dbaa0cc840eae5cf6632a53ca8f8",
+        "mime_type": "image/jpeg"
+      },
+      {
+        "file": "default-branch-overview-768.png",
+        "sha256": "aab9c008b89a89be164d3afaebdb31a3bfee123a63e31fcfc508ecc7f165eb77",
+        "mime_type": "image/jpeg"
+      },
+      {
+        "file": "default-branch-saved-1440.png",
+        "sha256": "537a1ac1698f8e026707ac3a1a42871269038497d4acc252291b49a43d47bfb8",
+        "mime_type": "image/jpeg"
+      },
+      {
+        "file": "default-branch-dialog-1440.png",
+        "sha256": "157e6c0089e0862ba06a464345b63bc228d14ca8823848f47b8cad4d5aca9934",
+        "mime_type": "image/jpeg"
+      },
+      {
+        "file": "default-branch-existing-target-1440.png",
+        "sha256": "29512b9ccc5c851dfc388f65c692c1b2f86ddde6b3e22c81a05b8eb249d8d1b2",
+        "mime_type": "image/jpeg"
+      },
+      {
+        "file": "default-branch-secondary-1440.png",
+        "sha256": "063df1b239983ea0d41e9723ce189318e2c5ea68520666e739bf61c2492e2eb0",
+        "mime_type": "image/jpeg"
+      }
+    ],
+    "all_page_widths_without_overflow": true,
+    "dialog_button_heights": {
+      "320": 44,
+      "768": 32,
+      "1440": 32
+    },
+    "original_main_and_reviewed_sha_visible": true,
+    "secondary_change_trigger_count": 0,
+    "native_flow": {
+      "login": true,
+      "escapeReturnedToTrigger": true,
+      "keyboardSelectedDevelop": true,
+      "mobileSavedDevelop": true,
+      "explicitMainSnapshotPreserved": true,
+      "defaultReselectionReadDevelop": true,
+      "tabletTabNavigation": true
+    },
+    "owned_fixture_tab_and_services_removed": true,
+    "viewport_reset": true,
+    "independent_pixel_review_screens": 6,
+    "limits": [
+      "Synthetic owned local fixture and SiteAdmin login; native nonadmin/normal-primary management absence not exercised.",
+      "Branch pagination, stale requests and session/ABA races use permanent behavioral/HTTP tests, not this browser flow.",
+      "Existing task comparison opened after default change; cross-tab already-open comparison survival not separately exercised.",
+      "No clipboard, external publication, preview-server replacement or deployment."
+    ]
+  },
+  "bundle_measurement_record_sha256": "6fe2d0dcf31d0c1c99756d94a69f456a5998e1ec9d2b2d6039e8d9bb97c707f0",
+  "independent_gate_a": {
+    "verdict": "CLEAR TO COMMIT",
+    "outstanding_p0_p1_p2": 0,
+    "review_sha256": {
+      "C": "27369187d7fc45357810a97e41fe3add03fd68c5a1631a6944e8b0b8911cdbdd",
+      "D": "2706a19b4ace6f8ea0e335008458dd22a81b77472f054ac0f42bfce20286bc31"
+    },
+    "coverage": "C independently covers UI/dist/operator/CI/docs; D independently covers backend/operator/CI/docs. Neither solely clears authored code."
+  },
+  "limits": [
+    "Local Darwin dirty candidate; parent6c hosted success excludes this feature.",
+    "Target-tip comparison is serialized with Gitust mutations, not jointly locked against independent external Git writers.",
+    "No crash/power-loss guarantee or latency/bundle target achievement claimed.",
+    "No secondary writes, branch creation/deletion or online inventory changes.",
+    "Automatic Gate B remains stopped; actual product GitHub publication deferred.",
+    "Standalone installation, native IDE and deployment acceptance remain open."
+  ]
+}

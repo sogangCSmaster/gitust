@@ -18,7 +18,7 @@ pub struct SpawnWorktreeRequest {
     pub agent: Option<AgentKind>,
     /// Must be in the `agent/` namespace.
     pub branch: String,
-    /// Branch to fork from (default: `main`).
+    /// Branch to fork from; omission requires the current committed symbolic default.
     #[serde(default)]
     pub base_branch: Option<String>,
     pub prompt_summary: String,
@@ -28,7 +28,7 @@ pub(crate) async fn spawn_worktree_core(
     state: &AppState,
     caller: &AuthenticatedPrincipal,
     branch: &str,
-    base_branch: String,
+    base_branch: Option<String>,
     agent: AgentKind,
     prompt_summary: String,
     target_repo_id: RepoId,
@@ -40,7 +40,10 @@ pub(crate) async fn spawn_worktree_core(
         ));
     }
     let clean_branch = GitEngine::validate_agent_branch_name(branch).map_err(map_git_err)?;
-    let clean_base = GitEngine::validate_outbound_branch(&base_branch).map_err(map_git_err)?;
+    let clean_base = base_branch
+        .map(|base| GitEngine::validate_outbound_branch(&base))
+        .transpose()
+        .map_err(map_git_err)?;
     let store = state.auth_store.clone();
     let default_repo = state.repo_id;
     let repo_access = state.repo_access;
@@ -79,14 +82,18 @@ pub(crate) async fn spawn_worktree_core(
 
     let engine = state.git_engine.clone();
     let (materialized, _repo_guard) = tokio::task::spawn_blocking(move || {
-        let res = engine.materialize_agent_worktree(
-            WorktreeId::new(),
-            target_repo_id,
-            agent,
-            &clean_branch,
-            &clean_base,
-            prompt_summary,
-        );
+        let res = clean_base
+            .map_or_else(|| engine.committed_default_branch(), Ok)
+            .and_then(|clean_base| {
+                engine.materialize_agent_worktree(
+                    WorktreeId::new(),
+                    target_repo_id,
+                    agent,
+                    &clean_branch,
+                    &clean_base,
+                    prompt_summary,
+                )
+            });
         let res = res.and_then(|m| {
             if let Err(err) = crate::worktree_owners::persist(&m, user_id) {
                 engine.remove_agent_worktree(
@@ -158,8 +165,7 @@ pub(crate) async fn spawn_worktree_handler(
     let target_repo_id = req.repo_id.unwrap_or(state.repo_id);
     // fail-open-ok: agent kind is a display classification, not a privilege.
     let agent = req.agent.unwrap_or(AgentKind::ClaudeCode);
-    // fail-open-ok: the default base must still pass outbound-branch validation and exist in Git.
-    let base_branch = req.base_branch.unwrap_or_else(|| "main".to_owned());
+    let base_branch = req.base_branch;
     let (wt, _worktree_dir) = spawn_worktree_core(
         &state,
         &caller,

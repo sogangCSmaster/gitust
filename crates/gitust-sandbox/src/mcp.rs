@@ -25,7 +25,7 @@ pub fn builtin_mcp_tools() -> Vec<McpToolDescriptor> {
                     },
                     "base_branch": {
                         "type": "string",
-                        "description": "Base branch to fork from (defaults to the repository's current HEAD branch, or 'main')."
+                        "description": "Base branch to fork from. Omission requires the repository's current committed symbolic default; unborn or detached defaults require an explicit existing base."
                     },
                     "agent": {
                         "type": "string",

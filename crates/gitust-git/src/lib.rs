@@ -20,6 +20,8 @@ pub use branches::{
 };
 mod checks;
 mod config_guard;
+mod default_branch;
+pub use default_branch::RepositoryDefaultBranch;
 mod diff;
 mod execution_fence;
 mod mirror;
@@ -100,6 +102,12 @@ pub(crate) const SANDBOX_SCRATCH_DIR_NAME: &str = "gitust-sandbox-scratch";
 
 #[derive(Debug, Error)]
 pub enum GitEngineError {
+    #[error("invalid default branch request")]
+    DefaultBranchInvalid,
+    #[error("default branch or selected branch tip changed; refresh before retrying")]
+    DefaultBranchConflict,
+    #[error("default branch is unsupported or has no commit")]
+    DefaultBranchUnsupported,
     #[error("repository identity: {0}")]
     RepositoryIdentity(String),
     #[error("execution lifetime fence: {0}")]

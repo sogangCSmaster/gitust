@@ -127,6 +127,7 @@ struct CatalogEntry {
     capability: &'static str,
     is_default: bool,
     can_rename: bool,
+    can_change_default_branch: bool,
 }
 fn display_name(engine: &GitEngine, metadata: Option<&RepositoryRecord>) -> String {
     if let Some(metadata) = metadata {
@@ -188,6 +189,13 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 },
                 is_default: context.is_default,
                 can_rename: authorization.can_rename,
+                can_change_default_branch: authorization.can_rename
+                    && context.is_default
+                    && context
+                        .engine
+                        .inspect_changeable_default_branch()
+                        .map_err(read_error)?
+                        .is_some(),
             });
         }
         #[cfg(test)]
@@ -228,6 +236,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 entry.name.clone_from(&metadata.name);
             }
             entry.can_rename = current.can_rename;
+            entry.can_change_default_branch &= current.can_rename;
         }
         Ok(Catalog { repositories })
     })

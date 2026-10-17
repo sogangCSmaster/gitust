@@ -394,7 +394,8 @@ pub(crate) fn map_auth_err(err: AuthError) -> (StatusCode, String) {
 
 pub(crate) fn map_git_err(err: GitEngineError) -> (StatusCode, String) {
     let code = match &err {
-        GitEngineError::InvalidBranchName(_)
+        GitEngineError::DefaultBranchInvalid
+        | GitEngineError::InvalidBranchName(_)
         | GitEngineError::InvalidRevision(_)
         | GitEngineError::InvalidRepoPath(_)
         | GitEngineError::InvalidRemoteUrl(_)
@@ -402,7 +403,9 @@ pub(crate) fn map_git_err(err: GitEngineError) -> (StatusCode, String) {
         GitEngineError::BaseBranchNotFound(_)
         | GitEngineError::RevisionNotFound(_)
         | GitEngineError::PathNotFound(_) => StatusCode::NOT_FOUND,
-        GitEngineError::BranchAlreadyExists(_)
+        GitEngineError::DefaultBranchConflict
+        | GitEngineError::DefaultBranchUnsupported
+        | GitEngineError::BranchAlreadyExists(_)
         | GitEngineError::MergeConflict(_)
         | GitEngineError::VerificationInvalid(_)
         | GitEngineError::ExecutionFence(_)

@@ -7,7 +7,6 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use gitust_core::{AgentKind, AuthenticatedPrincipal};
-use gitust_git::GitEngine;
 use gitust_sandbox::{builtin_mcp_tools, McpToolDescriptor};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -101,19 +100,6 @@ fn parse_tool_args<T: serde::de::DeserializeOwned>(
 ) -> Result<T, String> {
     serde_json::from_value(raw_args)
         .map_err(|e| jsonrpc_err(id.clone(), -32602, format!("Invalid params: {e}")))
-}
-
-async fn resolve_default_base_branch(state: &AppState) -> String {
-    let engine = state.git_engine.clone();
-    match tokio::task::spawn_blocking(move || engine.inspect_head_zero_copy()).await {
-        Ok(Ok(s))
-            if !s.branch_name.is_empty()
-                && GitEngine::validate_outbound_branch(&s.branch_name).is_ok() =>
-        {
-            s.branch_name
-        }
-        _ => "main".to_owned(),
-    }
 }
 
 pub(crate) async fn mcp_tools_handler(
@@ -353,10 +339,12 @@ async fn handle_mcp_json_line_authorized(
                         Some(b) if !b.is_empty() => b.to_owned(),
                         _ => format!("agent/{slug}/{}", Uuid::new_v4().simple()),
                     };
-                    let base_branch = match args.base_branch.as_deref().map(str::trim) {
-                        Some(b) if !b.is_empty() => b.to_owned(),
-                        _ => resolve_default_base_branch(state).await,
-                    };
+                    let base_branch = args
+                        .base_branch
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|base| !base.is_empty())
+                        .map(str::to_owned);
                     let prompt_summary = args
                         .prompt_summary
                         // fail-open-ok: optional prompt description has no authority; branch and repository checks remain mandatory.

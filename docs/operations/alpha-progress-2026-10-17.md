@@ -526,3 +526,55 @@ be recorded at their own source revision. The prior standalone review interrupte
 by tool policy has not been resumed or reclassified as complete. Gate B remains
 disabled, product GitHub publication remains deferred, and this checkpoint does not
 establish new UI, deployment, standalone installation or native IDE acceptance.
+
+The [fixed-source ref-integrity checkpoint](evidence/alpha-ci-6c67809-2026-10-18.json)
+records [run 39050388214](https://github.com/sogangCSmaster/gitust/actions/runs/39050388214),
+attempt 1, for `6c67809b2543f153971519c9805d5cf09bed9863`. Ubuntu 22.04 and macOS 15
+both passed all required gates, ten operating tasks, two-repository startup checks,
+empty-create/branch-page checks, stopped multi-repository restoration and execution-crash
+recovery. That exact-source result covers the common ref fix and approval gate; it
+does not cover the subsequent default-branch feature or establish product publication.
+
+## Default branch management candidate, 2026-10-18
+
+The [local default-branch checkpoint](evidence/default-branch-local-2026-10-18.json)
+binds the frozen candidate based on `6c67809` to its rebuilt embedded-UI binary.
+A SiteAdmin can change an existing committed branch into the default of a configured
+registered bare primary, through the compact Overview branch line. The symbolic
+HEAD comparison occurs under `HEAD.lock`; original session/PAT and current role/ACL
+are rechecked after slow validation and lock waiting. Existing worktrees retain
+their original origin, Checks and approval target. Omitted HTTP/MCP bases resolve
+the current committed symbolic default without a detached/unborn `main` fallback.
+The [contract](default-branch.md) distinguishes HEAD CAS from target-tip validation
+under the server mutation guard; no external-writer target-tip atomicity is claimed.
+
+The final mechanical gate passed Python19, CLI33, DB37, Git133 (two existing ignored
+benchmarks), server152, sandbox30 and frontend258 across 34 files, plus formatting,
+Clippy, typechecks and bundle/line/fail-open checks. The actual operating rehearsal
+checks both repositories' refs/HEAD after denied, stale and permitted requests,
+stable identity/registration, unchanged annotated tags and verified task records,
+old-task approval to `main`, and a new omitted-base checkout at `develop`. Restart,
+Smart HTTP HEAD advertisement, fresh clone contents, existing-clone fetch and strict
+`fsck` pass. The same operator against the prior `6c67809` binary reaches the absent
+route's 404 and creates no success report; that is feature-absence evidence, not an
+authentication defect. The operator is now required in both CI jobs.
+
+Actual SiteAdmin login and native browser controls were exercised at 320/768/1440px.
+The mobile dialog saved the change with matching 44px action buttons; tablet/desktop
+buttons match at 32px. Ten observed layouts have no page overflow. Escape returns
+focus to the trigger, keyboard selection works, an explicit `main` file snapshot
+survives the default change, and choosing Default reads `develop`. The existing
+task's comparison still identifies its original `main` base; the read-only repository
+exposes no change trigger. Independent pixel review covers six of the ten saved
+screens. Owned browser services, private fixtures and tabs were removed and the
+viewport override reset. Physical devices and an already-open cross-tab comparison
+were not separately exercised; stale/session/ABA cases use permanent tests.
+
+The [remeasured initial static-import closure](evidence/default-branch-ui-size-2026-10-18.json)
+is 73,656 bytes at gzip level 9, 700 bytes above the byte-identical parent UI. Opening
+the default dialog brings the cumulative emitted closure to 98,272 gzip bytes.
+The 50,000-byte initial target remains unmet, and no latency improvement is claimed.
+This candidate preserves the prior ref fix and adds no secondary writes, branch
+creation/deletion or online service inventory. Its own hosted result remains separate
+from `6c67809`'s successful run. Product GitHub publication remains deferred; standalone
+installation, native IDE and deployment acceptance remain open.

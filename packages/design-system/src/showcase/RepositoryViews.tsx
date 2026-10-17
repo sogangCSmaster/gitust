@@ -11,6 +11,8 @@ import type { RepositoryRenameActions } from "./repository-rename-types";
 import { RepositoryInitialCommit } from "./RepositoryInitialCommit";
 import { RepositoryClone, type RepositoryCloneTarget } from "./RepositoryClone";
 import { RepositoryRename } from "./RepositoryRename";
+import { RepositoryDefaultBranch } from "./RepositoryDefaultBranch";
+import type { DefaultBranchActions } from "./repository-default-branch";
 
 export const DEMO_REPOSITORY: ConnectedRepository = {
   id: "demo",
@@ -186,6 +188,7 @@ export const RepositoryOverview: Component<{
     rename: RepositoryRenameActions;
     refreshViews: () => unknown;
     clone: () => RepositoryCloneTarget | null;
+    defaultBranch?: DefaultBranchActions;
   };
 }> = (props) => {
   const destinations: Array<{
@@ -262,12 +265,11 @@ export const RepositoryOverview: Component<{
           </Show>
         </div>
         <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-          <span class="inline-flex min-w-0 max-w-full items-center gap-1.5">
-            <Icon name="git-branch" size={12} class="shrink-0" />
-            <span class="truncate" title={props.repository.branch}>
-              {props.repository.branch}
-            </span>
-          </span>
+          <RepositoryDefaultBranch
+            repository={props.repository}
+            liveMode={props.liveMode}
+            actions={props.actions?.defaultBranch}
+          />
           <Show when={props.repository.headCommit}>
             {(sha) => (
               <span class="inline-flex items-center gap-1.5">

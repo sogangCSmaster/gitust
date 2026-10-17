@@ -8,6 +8,10 @@ import {
 import { DEMO_REPOSITORY } from "./RepositoryViews";
 import { getLiveToken } from "./live-repo-client";
 import type { RepositoryRenameActions } from "./repository-rename-types";
+import type {
+  DefaultBranchActions,
+  DefaultBranchIntent,
+} from "./repository-default-branch";
 
 export const isRepositoryTab = (tab: WorkbenchTab, liveMode: boolean) =>
   ["overview", "swarm", "tree", "diff"].includes(tab) ||
@@ -28,9 +32,12 @@ export const createRepositoryWorkspace = (options: {
   const client = createConnectedRepositoryClient(setState);
   const [selectionEpoch, setSelectionEpoch] = createSignal(0);
   let renameKey = 0;
+  let defaultKey = 0;
+  let activeDefaultKey: number | undefined;
   const invalidateRename = () => {
     setSelectionEpoch((value) => value + 1);
     client.cancelRename();
+    activeDefaultKey = undefined;
   };
   const repositories = createMemo(() =>
     options.liveMode() ? state().repositories : [DEMO_REPOSITORY],
@@ -193,6 +200,60 @@ export const createRepositoryWorkspace = (options: {
     },
     cancel: (intent) => client.cancelRename(intent.key),
   };
+  const defaultCurrent = (intent: DefaultBranchIntent, original = true) => {
+    const repository = selected();
+    const epoch = selectionEpoch();
+    return (
+      options.liveMode() &&
+      repository?.id === intent.repoId &&
+      repository.canChangeDefaultBranch === true &&
+      repository.capability === "workbench" &&
+      repository.isDefault &&
+      (!original ||
+        (activeDefaultKey === intent.key &&
+          `refs/heads/${repository.branch}` === intent.currentRef)) &&
+      epoch === intent.epoch &&
+      intent.token === getLiveToken() &&
+      client.isCurrentSession()
+    );
+  };
+  const defaultBranch: DefaultBranchActions = {
+    begin: () => {
+      const repository = selected();
+      const token = getLiveToken();
+      if (
+        !repository?.canChangeDefaultBranch ||
+        !token ||
+        !options.liveMode() ||
+        !repository.isDefault ||
+        repository.capability !== "workbench" ||
+        !client.isCurrentSession()
+      )
+        return null;
+      activeDefaultKey = ++defaultKey;
+      return {
+        repoId: repository.id,
+        token,
+        epoch: selectionEpoch(),
+        key: activeDefaultKey,
+        currentRef: `refs/heads/${repository.branch}`,
+      };
+    },
+    isCurrent: defaultCurrent,
+    invalidateReads: client.invalidate,
+    confirmed: (intent, branch, head) => {
+      if (!defaultCurrent(intent)) return;
+      client.confirmDefaultBranch(intent.repoId, branch, head);
+      void client.refreshIfCurrent(() => defaultCurrent(intent, false));
+    },
+    cancel: (intent) => {
+      if (activeDefaultKey === intent.key) activeDefaultKey = undefined;
+    },
+    refresh: (intent) => client.refreshIfCurrent(() => defaultCurrent(intent)),
+    unavailable: (intent) => {
+      if (defaultCurrent(intent)) unavailable(intent.repoId);
+    },
+  };
   return {
     state,
     selected,
@@ -206,5 +267,6 @@ export const createRepositoryWorkspace = (options: {
     clone,
     refresh: client.refresh,
     refreshViews,
+    defaultBranch,
   };
 };

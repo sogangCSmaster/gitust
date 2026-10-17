@@ -90,6 +90,32 @@ it("uses the server rename hint and defaults old catalogs to read-only metadata"
   expect(states.at(-1)?.repositories).toEqual([]);
 });
 
+it("reads an optional default-branch capability without granting it to older catalogs", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        response([{ ...repo, can_change_default_branch: true }]),
+      )
+      .mockResolvedValueOnce(response([repo]))
+      .mockResolvedValueOnce(
+        response([{ ...repo, can_change_default_branch: "true" }]),
+      ),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]).toMatchObject({
+    canChangeDefaultBranch: true,
+  });
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]).toMatchObject({
+    canChangeDefaultBranch: false,
+  });
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+});
+
 it("rejects a rename response for another UUID and clears cached targets when access is denied", async () => {
   const fetcher = vi
     .fn()

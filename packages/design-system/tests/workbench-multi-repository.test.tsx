@@ -150,6 +150,125 @@ it("opens a real browse-only repository without exposing primary worktree action
   expect(screen.queryByText("Create worktree", { exact: true })).toBeNull();
 });
 
+it("preserves an explicit branch snapshot across a confirmed default change and uses the new default only when selected", async () => {
+  const pinned = "d".repeat(40),
+    target = "e".repeat(40);
+  let current = { ...primary, can_change_default_branch: true };
+  const normalFetch = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/v1/repos")
+      return new Response(
+        JSON.stringify({ repositories: [current, secondary] }),
+      );
+    if (url.endsWith("/default-branch") && init?.method === "PATCH") {
+      expect(JSON.parse(init.body as string)).toEqual({
+        target_ref: "refs/heads/release",
+        expected_current_ref: "refs/heads/main",
+        expected_target_commit: target,
+      });
+      current = { ...current, branch: "release", head_commit: target };
+      return new Response(
+        JSON.stringify({
+          id: primary.id,
+          branch: "release",
+          head_commit: target,
+        }),
+      );
+    }
+    if (url.includes("/branches?"))
+      return new Response(
+        JSON.stringify({
+          branches: [
+            {
+              name: "release",
+              ref_name: "refs/heads/release",
+              commit_sha: target,
+            },
+            { name: "topic", ref_name: "refs/heads/topic", commit_sha: pinned },
+          ],
+          next_cursor: null,
+        }),
+      );
+    if (url.includes("/tree?")) {
+      const revision = new URL(url, "https://example.invalid").searchParams.get(
+        "rev",
+      );
+      return new Response(
+        JSON.stringify({
+          commit_sha: revision,
+          entries: [
+            {
+              path:
+                revision === target
+                  ? "RELEASE.txt"
+                  : revision === pinned
+                    ? "PINNED.txt"
+                    : "README.md",
+              is_dir: false,
+            },
+          ],
+        }),
+      );
+    }
+    return normalFetch(url, init);
+  });
+  render(() => <WorkbenchApp />);
+  await fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Open repository agent-project",
+    }),
+  );
+  const nav = screen.getByRole("navigation", { name: "Repository views" });
+  await fireEvent.click(
+    within(nav).getByRole("button", { name: "Files", exact: true }),
+  );
+  const branch = await screen.findByLabelText("Select branch");
+  await screen.findByText("Snapshot aaaaaaaa. Select a branch to change it.");
+  await fireEvent.keyDown(branch, { key: "ArrowDown" });
+  await fireEvent.click(
+    await screen.findByRole("option", { name: "topic · dddddddd" }),
+  );
+  await screen.findByText("PINNED.txt");
+  await fireEvent.click(
+    within(nav).getByRole("button", { name: "Overview", exact: true }),
+  );
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Change default branch" }),
+  );
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  await vi.dynamicImportSettled();
+  const candidate = await screen.findByLabelText("New default branch");
+  await screen.findByText("Choose an existing committed branch.");
+  await fireEvent.keyDown(candidate, { key: "ArrowDown" });
+  await fireEvent.click(
+    await screen.findByRole("option", { name: "release · eeeeeeee" }),
+  );
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Change default", exact: true }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const restoredNav = await screen.findByRole("navigation", {
+    name: "Repository views",
+  });
+  await fireEvent.click(
+    within(restoredNav).getByRole("button", { name: "Files", exact: true }),
+  );
+  await screen.findByText("PINNED.txt");
+  expect((await screen.findByLabelText("Select branch")).textContent).toContain(
+    "topic · dddddddd",
+  );
+  await fireEvent.keyDown(screen.getByLabelText("Select branch"), {
+    key: "ArrowDown",
+  });
+  await fireEvent.click(
+    await screen.findByRole("option", { name: "Default (release)" }),
+  );
+  await screen.findByText("RELEASE.txt");
+  expect(screen.getByLabelText("Select branch").textContent).toContain(
+    "Default (release)",
+  );
+});
+
 it("preserves sample worktrees while opening an explicitly labelled demo repository", async () => {
   localStorage.removeItem("gitust_token");
   render(() => <WorkbenchApp />);

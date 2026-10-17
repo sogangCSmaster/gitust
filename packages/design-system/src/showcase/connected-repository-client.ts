@@ -13,6 +13,7 @@ export interface ConnectedRepository {
   capability: "workbench" | "browse";
   isDefault: boolean;
   canRename?: boolean;
+  canChangeDefaultBranch?: boolean;
 }
 export interface ConnectedRepositoryState {
   repositories: ConnectedRepository[];
@@ -52,9 +53,14 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       throw invalid();
     const raw = value as Record<string, unknown>;
     if (
-      Object.keys(raw).length !== (Object.hasOwn(raw, "can_rename") ? 7 : 6) ||
+      Object.keys(raw).length !==
+        6 +
+          Number(Object.hasOwn(raw, "can_rename")) +
+          Number(Object.hasOwn(raw, "can_change_default_branch")) ||
       (Object.hasOwn(raw, "can_rename") &&
         typeof raw.can_rename !== "boolean") ||
+      (Object.hasOwn(raw, "can_change_default_branch") &&
+        typeof raw.can_change_default_branch !== "boolean") ||
       typeof raw.id !== "string" ||
       !uuid.test(raw.id) ||
       /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(raw.id) ||
@@ -87,6 +93,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       capability: raw.capability,
       isDefault: raw.is_default,
       canRename: raw.can_rename === true,
+      canChangeDefaultBranch: raw.can_change_default_branch === true,
     };
   });
 };
@@ -304,6 +311,15 @@ export const createConnectedRepositoryClient = (
     reset,
     rename,
     cancelRename,
+    confirmDefaultBranch: (id: string, branch: string, headCommit: string) => {
+      invalidate();
+      update({
+        ...state,
+        repositories: state.repositories.map((row) =>
+          row.id === id ? { ...row, branch, headCommit } : row,
+        ),
+      });
+    },
     isCurrentSession: () => session === getLiveToken(),
   };
 };

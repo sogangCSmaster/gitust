@@ -11,6 +11,8 @@ mod tests_approvals;
 mod tests_browse_immutable;
 #[path = "tests_checks.rs"]
 mod tests_checks;
+#[path = "tests_default_branch.rs"]
+mod tests_default_branch;
 #[path = "tests_head_identity.rs"]
 mod tests_head_identity;
 #[path = "tests_ref_transaction.rs"]

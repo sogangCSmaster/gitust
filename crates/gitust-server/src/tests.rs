@@ -33,6 +33,8 @@ mod tests_mcp_discard;
 mod tests_oauth;
 #[path = "tests_outbound.rs"]
 mod tests_outbound;
+#[path = "tests_repository_default.rs"]
+mod tests_repository_default;
 #[path = "tests_repository_summary.rs"]
 mod tests_repository_summary;
 #[path = "tests_repository_unborn.rs"]

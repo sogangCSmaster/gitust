@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "baseline_commit": "6c67809b2543f153971519c9805d5cf09bed9863",
+  "baseline_entry_sha256": "a521c8b0df56c79f96d7fc0cc92509565e16e1cb161759a73e6c53a4e3e816de",
+  "entry_sha256": "74da18fc062b75718543bc02bc3f591e31012a3b6285f7923b0bdea2bc95f0a7",
+  "node": "v24.18.1",
+  "zlib": "1.3.1-e00f703",
+  "initial": {
+    "files": [
+      "assets/index.js"
+    ],
+    "gzip_level6_bytes": 73733,
+    "gzip_level9_bytes": 73656
+  },
+  "first_default_dialog_cumulative": {
+    "files": [
+      "assets/RFN6X5VH-CbfvVs10.js",
+      "assets/RepositoryDefaultBranchForm-WwyIObqN.js",
+      "assets/index.js",
+      "assets/select-m5o8UcHV.js"
+    ],
+    "gzip_level6_bytes": 98362,
+    "gzip_level9_bytes": 98272
+  },
+  "initial_static_imports": [],
+  "html_module_preload": [],
+  "baseline_initial_gzip_level9_bytes": 72956,
+  "target_gzip_bytes": 50000,
+  "target_met": false,
+  "source_ui_manifest_sha256": "4bb9f4d7734304df6e617d60e89c074167b91ec79d65637bcd9c51e5367ac7ff",
+  "dist_manifest_sha256": "fb68d39c470332af275b5982bd4327c114c72239529d6f0e2cb9dbe6c4309bb9",
+  "reviewed_closure_evidence_sha256": "1039a84df4d674a1e839ee349fff98ba9b4a07ea0b092f80320bfa8cd185808e",
+  "scope": "Emitted UI bytes equal the independently reviewed frozen UI closure; compressed bytes remeasured against current6c parent. No latency or bundle target achieved claim."
+}

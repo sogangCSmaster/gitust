@@ -125,7 +125,7 @@ fn late_head_gate_denial_propagates_without_reversing_earlier_authorized_refs() 
         Instant::now(),
         || {
             gates += 1;
-            if gates == 3 {
+            if gates == 4 {
                 Err(denied())
             } else {
                 Ok(())
@@ -133,7 +133,7 @@ fn late_head_gate_denial_propagates_without_reversing_earlier_authorized_refs() 
         },
     );
     assert!(result.is_err());
-    assert_eq!(gates, 3);
+    assert_eq!(gates, 4);
     assert_eq!(git(&bare, &["symbolic-ref", "HEAD"]), "refs/heads/unborn");
     // The batch was authorized before the later HEAD gate failed; it is not rolled back.
     assert_eq!(

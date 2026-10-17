@@ -94,6 +94,8 @@ This skill enforces a ruthless, non-rubber-stamping verification standard before
 - All performance claims must come from reproducible benchmarks with hardware/OS context.
 
 ### Check 11: Git Subprocess, Mirror Sync, Diff/Blob Parser & Ref CAS Integrity
+- **Lock-Time Ref CAS, Including Library Primitives**: Verify that the expected old ref value is read and compared while holding the actual Git ref lock. A library may read before waiting for a lock and later compare that stale snapshot; an API named CAS or `MustExistAndMatch` is not proof of atomicity. Use a primitive that checks under the lock, preserve symbolic/direct-ref semantics and packed refs/reflogs, and retain all-or-nothing behavior for batches.
+- **Concurrent Git Writer Regression**: An independent disposable writer must hold the real `<ref>.lock`, publish a divergent commit while the mutation waits, and release it. Approval/sync/create/delete must reject a mismatched expectation and preserve the competing ref. Cover expected-missing refs and batch rollback where those callers use the same primitive; `git fsck` alone cannot detect a lost valid commit.
 - **Argument Injection (`--`) & Literal Pathspecs (`--literal-pathspecs`)**:
   - Separate positional paths/refs with `--` so values starting with `-` cannot be interpreted as flags (`--upload-pack`).
   - Whenever passing a file path filter to `git diff` or `git log`, always pass `--literal-pathspecs` before `-C` so characters like `[ab].txt`, `*`, `?`, or `:(` are never interpreted as Git pathspec globs.

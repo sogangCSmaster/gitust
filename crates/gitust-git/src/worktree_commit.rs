@@ -236,12 +236,13 @@ impl GitEngine {
             .map_err(|_| invalid("invalid prepared commit SHA"))?;
         let parent = gix::ObjectId::from_hex(result.parent.0.as_bytes())
             .map_err(|_| invalid("invalid expected parent SHA"))?;
-        publish_gate()?;
-        repo.reference(
+        crate::ref_transaction::update_with_gate(
+            &repo,
             format!("refs/heads/{}", result.branch).as_str(),
             commit,
             PreviousValue::MustExistAndMatch(Target::Object(parent)),
             "gitust: explicit agent commit",
+            publish_gate,
         )
         .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
         prepared.index.publish().map_err(|error| invalid(format!(

@@ -13,6 +13,8 @@ mod tests_browse_immutable;
 mod tests_checks;
 #[path = "tests_head_identity.rs"]
 mod tests_head_identity;
+#[path = "tests_ref_transaction.rs"]
+mod tests_ref_transaction;
 #[path = "tests_review_security.rs"]
 mod tests_review_security;
 #[path = "tests_worktree_commit.rs"]
@@ -583,3 +585,6 @@ mod tests_mirror;
 
 #[path = "tests_mirror_gate.rs"]
 mod tests_mirror_gate;
+
+#[path = "tests_ref_concurrency.rs"]
+pub(crate) mod tests_ref_concurrency;

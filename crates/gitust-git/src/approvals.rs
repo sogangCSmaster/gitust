@@ -39,7 +39,7 @@ impl GitEngine {
         branch: &str,
         base: &str,
     ) -> Result<CommitSha, GitEngineError> {
-        self.approve_managed_worktree_inner(id, branch, base, None)
+        self.approve_managed_worktree_inner(id, branch, base, None, || Ok(()))
     }
 
     /// Server approvals must match both the verified checkout and the exact merge target.
@@ -50,7 +50,19 @@ impl GitEngine {
         base: &str,
         expected: &CommitSha,
     ) -> Result<CommitSha, GitEngineError> {
-        self.approve_managed_worktree_inner(id, branch, base, Some(expected))
+        self.approve_verified_worktree_with_gate(id, branch, base, expected, || Ok(()))
+    }
+
+    /// Rechecks publication authority after slow validation and actual ref-lock waiting.
+    pub fn approve_verified_worktree_with_gate(
+        &self,
+        id: WorktreeId,
+        branch: &str,
+        base: &str,
+        expected: &CommitSha,
+        publish_gate: impl FnOnce() -> Result<(), GitEngineError>,
+    ) -> Result<CommitSha, GitEngineError> {
+        self.approve_managed_worktree_inner(id, branch, base, Some(expected), publish_gate)
     }
 
     fn approve_managed_worktree_inner(
@@ -59,6 +71,7 @@ impl GitEngine {
         branch: &str,
         base: &str,
         expected: Option<&CommitSha>,
+        publish_gate: impl FnOnce() -> Result<(), GitEngineError>,
     ) -> Result<CommitSha, GitEngineError> {
         let _service = self.lock_worktree_service()?;
         let branch = Self::validate_agent_branch_name(branch)?;
@@ -95,7 +108,12 @@ impl GitEngine {
                 ));
             }
         }
-        let approved_commit = self.merge_agent_branch_at(&branch, &base, Some(&clean_commit))?;
+        let approved_commit = self.merge_agent_branch_at_with_gate(
+            &branch,
+            &base,
+            Some(&clean_commit),
+            publish_gate,
+        )?;
         let approval = WorktreeApproval {
             version: 1,
             worktree_id: id,
@@ -245,3 +263,7 @@ fn sync_directory(path: &Path) -> Result<(), GitEngineError> {
 fn approval_error(message: impl Into<String>) -> GitEngineError {
     GitEngineError::ApprovalState(message.into())
 }
+
+#[cfg(test)]
+#[path = "tests_approval_gate.rs"]
+mod tests_approval_gate;

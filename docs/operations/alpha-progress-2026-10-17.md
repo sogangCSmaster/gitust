@@ -474,3 +474,55 @@ evidence for this later checkpoint is still separate from `caf4161`'s successful
 No Rust or UI behavior changed in this slice. This is a stopped cooperative snapshot,
 without an online or power-loss guarantee. Product GitHub publication remains deferred;
 native IDE integration, standalone installation and deployment acceptance remain open.
+
+The [fixed-source multi-backup checkpoint](evidence/alpha-ci-dd8c0c5-2026-10-18.json)
+records [run 39046465958](https://github.com/sogangCSmaster/gitust/actions/runs/39046465958),
+attempt 1, for `dd8c0c595d2ff5cf0e0057d7e72c0a77c613c657`. Ubuntu 22.04 and macOS 15
+both passed every required step, including the new all-repository stopped restoration
+and execution-crash recovery. This is exact-source hosted evidence for the backup
+slice; it excludes subsequent default-branch management changes and does not establish
+product GitHub publication or deployment.
+
+## Lock-time ref comparisons candidate, 2026-10-18
+
+The [local ref-integrity checkpoint](evidence/ref-cas-local-2026-10-18.json) binds
+the frozen candidate based on `dd8c0c5` to its rebuilt Darwin binary. Ordinary
+repository regressions added to otherwise unchanged `dd8c0c5` production source
+reproduced five failures: stale approval, host commit, create-only branch, mirror
+batch and shared deletion expectations. The deletion regression retains a fixed
+expected SHA so a delayed test thread cannot legitimately delete a later tip.
+The same final cases pass with the native prepared-transaction adapter. The
+baseline filter also selected one existing passing test; it did not fail to build.
+
+Expected object refs are now checked under Git's actual locks rather than a
+snapshot read before lock waiting. Packed refs, raw annotated tags and origin
+reflogs remain compatible. Symbolic aliases, denied publication gates and oversized
+batches are refused without a partial batch result. Prepared refusal aborts normally
+before forced-cleanup fallback; process-group cleanup is performed once and pipe
+workers are collected. Mirror batch failures propagate instead of spawning an
+unbounded single-ref fallback or turning operational errors into skipped success.
+See the [exact transaction and recovery boundary](../architecture/ref-transactions.md).
+
+The approval path now rechecks the original session/PAT, current role and actual
+repository access after slow validation, using the prepared-ref publication gate
+for bare refs and the final pre-command gate for a checked-out-main merge. Core
+regressions prove denial preserves refs, index and approval absence in both layouts,
+then permits an authorized retry. They do not claim a newly executed network
+revocation-race experiment. An uncertain ref outcome retains an inspection/retry
+error; it is not described as an aborted merge.
+
+The final mechanical gate passed Python19, CLI33, DB37, Git128 (two existing ignored
+benchmarks), server145, sandbox30 and frontend251, together with formatting, Clippy,
+typechecks and bundle/line/fail-open checks. The rebuilt binary then passed all ten
+actual local operating tasks: HTTP MCP commits, Checks, exact approval, local-bare
+publication retry, relocated restoration, and a real Smart HTTP clone/commit/push/
+fetch round trip with strict server/upstream/client `fsck`. Owned scratch services
+and data were removed before the success report was written. Independent reviews
+cover the implementation, complementary test slices and final evidence boundaries.
+
+This is local dirty-candidate evidence; `dd8c0c5`'s green hosted run covers the
+earlier backup checkpoint. Hosted Linux/macOS evidence for these later changes must
+be recorded at their own source revision. The prior standalone review interrupted
+by tool policy has not been resumed or reclassified as complete. Gate B remains
+disabled, product GitHub publication remains deferred, and this checkpoint does not
+establish new UI, deployment, standalone installation or native IDE acceptance.

@@ -43,7 +43,7 @@ SiteAdmins can browse retained automatic attempts in the repository's read-only 
 
 ## Build from source
 
-You need Rust, Git, Node.js, and pnpm 10. The current development checks run with Rust 1.92.0. Repository identity storage currently supports macOS and Linux. Sandbox execution requires macOS with `sandbox-exec`, or Linux with `bwrap` and the necessary namespace support. Windows sandbox execution is not implemented.
+You need Rust, Git 2.34 or later, Node.js, and pnpm 10. The current development checks run with Rust 1.92.0. Repository identity storage currently supports macOS and Linux. Sandbox execution requires macOS with `sandbox-exec`, or Linux with `bwrap` and the necessary namespace support. Windows sandbox execution is not implemented.
 
 ```sh
 git clone https://github.com/sogangCSmaster/gitust.git

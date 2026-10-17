@@ -73,7 +73,7 @@ impl GitEngine {
 
     /// Phase 2 of inbound mirror sync: acquires the cross-process worktree service lock, classifies
     /// branch ancestry in-process via `gix`, and applies all fast-forward branch and new tag updates
-    /// in a single batched `gix` CAS reference transaction.
+    /// in a single prepared Git CAS reference transaction.
     ///
     /// Non-fast-forward branches, branches checked out in linked worktrees, dirty main worktree
     /// branches, and moved tags are recorded in `skipped_branches` / `skipped_tags` without aborting
@@ -210,7 +210,7 @@ impl GitEngine {
         for staging_ref in &filtered_upstream_agent_refs {
             // fail-open-ok: best-effort cleanup of filtered `refs/remotes/upstream/agent/*` staging refs; never touches `refs/heads/*`.
             if let Ok(name) = FullName::try_from(staging_ref.as_str()) {
-                // fail-open-ok: best-effort deletion of filtered staging ref.
+                // fail-open-ok: deliberately unconditional cleanup of disposable staging refs only; no CAS or hosted-branch update is claimed.
                 let _ = repo.edit_reference(RefEdit {
                     change: Change::Delete {
                         expected: PreviousValue::Any,
@@ -339,9 +339,8 @@ impl GitEngine {
             batched_edits,
             &mut synced_branches_count,
             &mut synced_tags_count,
-            &mut skipped_branches,
-            &mut skipped_tags,
-        );
+            &mut publish_gate,
+        )?;
 
         let preferred_branch = if upstream_branches.contains_key("main") {
             Some("main")
@@ -526,41 +525,21 @@ fn apply_batched_ref_edits(
     batched_edits: Vec<(bool, String, RefEdit)>,
     synced_branches_count: &mut u32,
     synced_tags_count: &mut u32,
-    skipped_branches: &mut Vec<(String, String)>,
-    skipped_tags: &mut Vec<(String, String)>,
-) {
+    publish_gate: &mut impl FnMut() -> Result<(), GitEngineError>,
+) -> Result<(), GitEngineError> {
     if batched_edits.is_empty() {
-        return;
+        return Ok(());
     }
     let only_edits: Vec<RefEdit> = batched_edits.iter().map(|(_, _, e)| e.clone()).collect();
-    if repo.edit_references(only_edits).is_ok() {
-        for (is_branch, _, _) in &batched_edits {
-            if *is_branch {
-                *synced_branches_count = synced_branches_count.saturating_add(1);
-            } else {
-                *synced_tags_count = synced_tags_count.saturating_add(1);
-            }
-        }
-        return;
-    }
-
-    for (is_branch, short_name, edit) in batched_edits {
-        match repo.edit_reference(edit) {
-            Ok(_) => {
-                if is_branch {
-                    *synced_branches_count = synced_branches_count.saturating_add(1);
-                } else {
-                    *synced_tags_count = synced_tags_count.saturating_add(1);
-                }
-            }
-            Err(e) => {
-                let reason = format!("CAS reference update failed: {e}");
-                if is_branch {
-                    skipped_branches.push((short_name, reason));
-                } else {
-                    skipped_tags.push((short_name, reason));
-                }
-            }
+    // A failed batch may mean bounded-input, I/O or unconfirmed commit failure, not just a
+    // stale ref. Never turn it into success or bypass its bounds via per-ref retries.
+    crate::ref_transaction::apply_with_gate(repo, only_edits, publish_gate)?;
+    for (is_branch, _, _) in batched_edits {
+        if is_branch {
+            *synced_branches_count = synced_branches_count.saturating_add(1);
+        } else {
+            *synced_tags_count = synced_tags_count.saturating_add(1);
         }
     }
+    Ok(())
 }

@@ -17,6 +17,8 @@ Gitust is a Rust Cargo workspace with a SolidJS frontend embedded in the CLI/ser
 
 `gix` handles many read/ref operations. The Git CLI is used for checkout, transport, and other operations. There is no current SQL database, Actions engine, search service, or microVM runtime behind these module names.
 
+Expected-value changes to hosted object refs use [prepared native Git transactions](ref-transactions.md), so comparisons occur under Git's actual ref locks. Object reads remain in-process.
+
 ## Task lifecycle
 
 A task receives a managed `agent/*` branch and linked worktree. Ordinary execution invalidates previous verification. Agents can commit explicitly named files through the host-side `gitust_worktree_commit` MCP tool without gaining sandbox write access to shared Git metadata. Starting an authorized commit attempt clears prior verification; success leaves the task Pending and requires fresh verification. Explicit verification checks a clean attached commit before and after commands, including required policy from the merge target.

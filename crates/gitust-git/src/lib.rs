@@ -2,8 +2,8 @@
 //!
 //! - Read paths (HEAD / root tree / commit history / directory tree / blob inspection) run
 //!   in-process on `gitoxide` (`gix`) through a cached `gix::ThreadSafeRepository`.
-//! - Agent branches are created and deleted with `gix` reference transactions: create-only
-//!   (`PreviousValue::MustNotExist`), scoped to the `agent/` namespace, with reflog entries.
+//! - Agent refs use prepared Git transactions whose expected values are checked under the
+//!   actual ref locks; branch creation is create-only and deletion is agent-scoped.
 //! - Agent worktrees are standard Git *linked worktrees*. They share refs and objects with the main
 //!   repository, so `git gc` is aware of them, agent commits are immediately visible to the main
 //!   repository, and bare mirrors are supported.
@@ -26,6 +26,7 @@ mod mirror;
 mod mirror_init;
 mod outbound;
 mod process;
+mod ref_transaction;
 mod repository_create;
 mod repository_identity;
 pub use repository_create::PreparedEmpty;

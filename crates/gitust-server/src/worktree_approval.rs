@@ -134,26 +134,45 @@ pub(crate) async fn approve_worktree_handler(
                 "required Checks changed since verification; run verification again".into(),
             ));
         }
-        let current = extract_principal(&parts.headers, &state_for_merge.auth_store)?;
-        if !matches!(
-            current.role,
-            EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
-        ) {
-            return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
-        }
-        check_repo_bola(
-            &state_for_merge.auth_store,
-            state_for_merge.repo_id,
-            state_for_merge.repo_access,
-            &current,
-            wt.repo_id,
-        )?;
-        let merged_sha = match engine.approve_verified_worktree(
+        let authorize = || {
+            let current = extract_principal(&parts.headers, &state_for_merge.auth_store)?;
+            if current.user_id != caller.user_id
+                || !matches!(
+                    current.role,
+                    EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
+                )
+            {
+                return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+            }
+            check_repo_bola(
+                &state_for_merge.auth_store,
+                state_for_merge.repo_id,
+                state_for_merge.repo_access,
+                &current,
+                wt.repo_id,
+            )
+        };
+        authorize()?;
+        let mut denied = None;
+        let approved = engine.approve_verified_worktree_with_gate(
             wt_id,
             &branch,
             &base_branch,
             &verified_commit,
-        ) {
+            || {
+                if let Err(error) = authorize() {
+                    denied = Some(error);
+                    return Err(GitEngineError::VerificationInvalid(
+                        "approval authority changed".into(),
+                    ));
+                }
+                Ok(())
+            },
+        );
+        if let Some(error) = denied {
+            return Err(error);
+        }
+        let merged_sha = match approved {
             Ok(sha) => sha,
             Err(err) => {
                 if matches!(err, GitEngineError::VerificationInvalid(_)) {

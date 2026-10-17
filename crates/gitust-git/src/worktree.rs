@@ -51,7 +51,7 @@ pub struct ManagedWorktreeEntry {
 impl GitEngine {
     /// Creates a new `agent/` branch from `base_branch` and checks it out as a Git linked worktree.
     ///
-    /// - The branch is created with a `gix` transaction that fails if it already exists, so
+    /// - The branch is created with a locked Git transaction that fails if it already exists, so
     ///   existing branches can never be overwritten.
     /// - The worktree is a clean checkout of the base commit; uncommitted or untracked files of
     ///   the main working tree are never copied.
@@ -100,7 +100,8 @@ impl GitEngine {
         if branch_exists {
             return Err(GitEngineError::BranchAlreadyExists(clean_branch));
         }
-        if let Err(e) = repo.reference(
+        if let Err(e) = crate::ref_transaction::update(
+            &repo,
             full_branch.as_str(),
             base_id,
             PreviousValue::MustNotExist,
@@ -333,7 +334,7 @@ impl GitEngine {
     }
 
     /// Merges (fast-forwards) a verified `agent/` branch into `base_branch` (`refs/heads/<base>`)
-    /// using an atomic `gix` CAS reference transaction, and updates the main working tree if it is
+    /// using a prepared Git CAS reference transaction, and updates the main working tree if it is
     /// non-bare and currently checked out on `base_branch`.
     pub fn merge_agent_branch(
         &self,
@@ -348,6 +349,16 @@ impl GitEngine {
         branch: &str,
         base_branch: &str,
         expected: Option<&CommitSha>,
+    ) -> Result<CommitSha, GitEngineError> {
+        self.merge_agent_branch_at_with_gate(branch, base_branch, expected, || Ok(()))
+    }
+
+    pub(crate) fn merge_agent_branch_at_with_gate(
+        &self,
+        branch: &str,
+        base_branch: &str,
+        expected: Option<&CommitSha>,
+        publish_gate: impl FnOnce() -> Result<(), GitEngineError>,
     ) -> Result<CommitSha, GitEngineError> {
         let clean_branch = Self::validate_agent_branch_name(branch)?;
         let clean_base = Self::validate_branch_name(base_branch)?;
@@ -425,6 +436,7 @@ impl GitEngine {
                     "main working tree has uncommitted changes on '{clean_base}'; cannot fast-forward"
                 )));
             }
+            publish_gate()?;
             run_git(
                 &self.repo_path,
                 [
@@ -440,16 +452,17 @@ impl GitEngine {
                 ))
             })?;
         } else {
-            repo.reference(
+            crate::ref_transaction::update_with_gate(
+                &repo,
                 full_base.as_str(),
                 agent_id,
                 PreviousValue::MustExistAndMatch(Target::Object(base_id)),
                 format!("gitust: fast-forward {clean_base} to {clean_branch}"),
+                publish_gate,
             )
-            .map_err(|_| {
-                GitEngineError::MergeConflict(format!(
-                    "base branch '{clean_base}' changed concurrently; fast-forward aborted"
-                ))
+            .map_err(|error| match error {
+                GitEngineError::RefTransaction(detail) => GitEngineError::MergeConflict(detail),
+                error => error,
             })?;
         }
 
@@ -457,7 +470,7 @@ impl GitEngine {
     }
 }
 
-/// Deletes an `agent/` branch ref (with reflog) using a `gix` transaction.
+/// Deletes an `agent/` branch and its reflog using a locked Git transaction.
 fn delete_branch_ref(
     repo: &gix::Repository,
     full_branch: &str,
@@ -473,14 +486,21 @@ fn delete_branch_ref(
     let name: FullName = full_branch
         .try_into()
         .map_err(|_| GitEngineError::InvalidBranchName(full_branch.to_owned()))?;
-    repo.edit_reference(RefEdit {
-        change: Change::Delete {
-            expected,
-            log: RefLog::AndReference,
-        },
-        name,
-        deref: false,
-    })
+    crate::ref_transaction::apply(
+        repo,
+        vec![RefEdit {
+            change: Change::Delete {
+                expected,
+                log: RefLog::AndReference,
+            },
+            name,
+            deref: false,
+        }],
+    )
     .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "tests_ref_delete.rs"]
+mod tests_ref_delete;

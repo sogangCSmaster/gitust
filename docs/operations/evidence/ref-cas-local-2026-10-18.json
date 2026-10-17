@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "recorded_at_utc": "2026-10-17T16:37:25.307973+00:00",
+  "scope": "lock-time direct-ref CAS, prepared publication gates, bounded failure and cleanup",
+  "source": {
+    "base_commit": "dd8c0c595d2ff5cf0e0057d7e72c0a77c613c657",
+    "candidate_dirty": true,
+    "implementation_manifest_sha256": "302070089ff1116b75188ff9fe2038c0847169a2a3de10988a2edb3517cd6490",
+    "frozen_files": {
+      ".agents/skills/adversarial-audit/SKILL.md": "70e6ab452878bbc4805d576271f91e43df9c54e22dfaa6424ba240a50fbaee2f",
+      "README.md": "050dec271762aaed7de86a50d17ce5362474423dcc4449edb8c9e69270c75770",
+      "crates/gitust-git/src/approvals.rs": "fa7b41f396e36b4d413747502e5847cbdc6d3a3feb38795a94cc6545905c53ca",
+      "crates/gitust-git/src/lib.rs": "76bd2bb3ca2e00a18c6d5e73f62b2381157a3dd21433ab0bab2aac8311d995c1",
+      "crates/gitust-git/src/mirror.rs": "48f625c7d35bfedecc7670f0faca340bb5d8425714c3eae66da7446aae897c9f",
+      "crates/gitust-git/src/ref_transaction.rs": "dbd0ea35a98e7b327b8926f84adfad6823b0b9e33ee78bdebca2c6caa8b42576",
+      "crates/gitust-git/src/tests.rs": "5a6fc1a71c98cb9e35e57c9c43a8a2baf70b6e8c732178f40826ad3a40b3d55a",
+      "crates/gitust-git/src/tests_approval_gate.rs": "faa5be5df0febfa932feb14ddb47b1d9a924e568802092cc4bac9260760d4986",
+      "crates/gitust-git/src/tests_mirror_gate.rs": "aa11fc995b76f77df05ce65076c8cd6d27f9b80ec43e034817ec011799a72a54",
+      "crates/gitust-git/src/tests_ref_concurrency.rs": "34b6a430bf221d6cf7e41c89d7160916d46782e37a9186797fd9f4a8b1bcdbff",
+      "crates/gitust-git/src/tests_ref_delete.rs": "176f0866c7f166a859f8b43f49ad58724edd3c6e809d5c256d0dfb1b2e3f7c46",
+      "crates/gitust-git/src/tests_ref_transaction.rs": "b899ff0d473a0e1cd70d47d700d78c1cda6c3c178aab856a5ce51e45e5266c76",
+      "crates/gitust-git/src/worktree.rs": "a37787213604e3d9445db49f2f00eed1d00c5cc8e509318b6c14c267c6a3bc98",
+      "crates/gitust-git/src/worktree_commit.rs": "9e4cb2425dc40ddeda88b43b75914f6650500cc5387c853a5f96ffe6697e30e5",
+      "crates/gitust-server/src/worktree_approval.rs": "7e1a7629db8c7d9442acb78735d520b0b02a165314e724b4390047c2d6bb86a3",
+      "docs/architecture/overview.md": "3cdf95910ff7b56e0f8a290968824fc96bab5c47160800d87a9ec8a5bca2b9ec",
+      "docs/architecture/ref-transactions.md": "b886bb92c3d7649e2143fc7aa5f7bf0013edb2eb138a828b0ac2fcd55f6df203",
+      "docs/operations/evidence/alpha-ci-dd8c0c5-2026-10-18.json": "dae7bc3b1da0667ec309c01f7ec6d137e258f6ef198ad2fda60c4696dc8f5129"
+    }
+  },
+  "baseline_regressions": {
+    "baseline_production_unchanged": true,
+    "test_only_module_additions": true,
+    "cases_failed": 5,
+    "existing_filter_match_passed": 1,
+    "exit_code": 101,
+    "test_files_sha256": {
+      "crates/gitust-git/src/tests_ref_concurrency.rs": "34b6a430bf221d6cf7e41c89d7160916d46782e37a9186797fd9f4a8b1bcdbff",
+      "crates/gitust-git/src/tests_ref_delete.rs": "176f0866c7f166a859f8b43f49ad58724edd3c6e809d5c256d0dfb1b2e3f7c46"
+    },
+    "log_sha256": "cd92cb31add12bb2deba83568f3c9bb221d5ff77bbfea21ac17848ad8d2884ac",
+    "cases": [
+      "public approval bare ref update",
+      "public explicit agent commit",
+      "public strict create-only same tip",
+      "public inbound batch conflict",
+      "shared agent deletion with fixed observed expectation"
+    ]
+  },
+  "mechanical_verification": {
+    "exit_code": 0,
+    "log_sha256": "f4fde66d08e33610244ada23680b5a4b2f4ff3c15f0c937552a91da072831881",
+    "python_tests": 19,
+    "frontend_tests": 251,
+    "frontend_test_files": 33,
+    "rust_passed": {
+      "cli": 33,
+      "core": 2,
+      "db": 37,
+      "git": 128,
+      "sandbox": 30,
+      "server": 145,
+      "sync": 1
+    },
+    "git_existing_ignored_benchmarks": 2,
+    "fmt_clippy_typecheck_bundle_line_and_fail_open": "passed"
+  },
+  "operating_rehearsal": {
+    "exit_code": 0,
+    "report_sha256": "1fb6cab71b118cc740e2e485a102c9713437f1a1ea14cdbfae193b791b59815a",
+    "binary_sha256": "4f1c77f57d531c16657cb055a355b77f86d7ca70ba8b2cf62a406b49f6b3f88b",
+    "source_commit": "dd8c0c595d2ff5cf0e0057d7e72c0a77c613c657",
+    "runtime_worktree_dirty": true,
+    "tasks_passed": 10,
+    "all_tasks_passed": true,
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "git_fsck": "server, local upstream and HTTP client passed --full --strict",
+    "external_github_publication": false,
+    "owned_scratch_removed_before_report": true
+  },
+  "independent_gate_a": {
+    "verdict": "CLEAR TO COMMIT",
+    "outstanding_p0_p1_p2": 0,
+    "review_sha256": {
+      "C": "3abc555d7cb4ce33c289316f7d4d23e5e954ba62a3f31eead06eab0fa6b0ac25",
+      "D": "a7f1a8eb8b9356644c8c0de4b1df288e2f20b552755e6425caaefd39758cf703"
+    },
+    "coverage": "C and D independently cover complementary authored slices; no reviewer solely clears their own code"
+  },
+  "limits": [
+    "Local Darwin dirty candidate, not a hosted final-source result.",
+    "No new UI, deployment, standalone installation or native IDE acceptance.",
+    "Git process added to write paths; no latency improvement or crash/power-loss durability claimed.",
+    "Original session/PAT approval wiring statically reviewed and core denied/allowed functional paths executed; no new network revocation-race experiment claimed.",
+    "Prior policy-interrupted standalone review remains incomplete and was not retried; ordinary permanent repository regressions have separate provenance.",
+    "Automatic Gate B stopped; actual product GitHub publication deferred."
+  ]
+}

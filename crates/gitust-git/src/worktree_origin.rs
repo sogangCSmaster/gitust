@@ -6,10 +6,12 @@ use std::path::Path;
 use gitust_core::{CommitSha, WorktreeId};
 use serde::{Deserialize, Serialize};
 
-use crate::{io_err, GitEngine, GitEngineError};
+use crate::{io_err, GitEngine, GitEngineError, MAX_PROMPT_SUMMARY_BYTES};
 
 const FILE: &str = "gitust-origin.json";
-const CAP: u64 = 8192;
+// A 4 KiB display label can expand sixfold through JSON control-character escaping.
+const CAP: u64 = 32 * 1024;
+const REFLOG_CAP: u64 = 8192;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -19,6 +21,8 @@ pub(crate) struct WorktreeOrigin {
     pub(crate) branch: String,
     pub(crate) base_branch: String,
     pub(crate) base_commit: CommitSha,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) prompt_summary: Option<String>,
 }
 
 fn invalid() -> GitEngineError {
@@ -51,13 +55,18 @@ pub(crate) fn persist(
     branch: &str,
     base: &str,
     commit: &CommitSha,
+    prompt_summary: Option<&str>,
 ) -> Result<(), GitEngineError> {
+    if prompt_summary.is_some_and(|summary| summary.len() > MAX_PROMPT_SUMMARY_BYTES) {
+        return Err(invalid());
+    }
     let record = WorktreeOrigin {
         version: 1,
         worktree_id: id,
         branch: branch.into(),
         base_branch: base.into(),
         base_commit: commit.clone(),
+        prompt_summary: prompt_summary.map(str::to_owned),
     };
     let bytes = serde_json::to_vec(&record).map_err(|_| invalid())?;
     if bytes.len() as u64 > CAP {
@@ -124,6 +133,10 @@ pub(crate) fn read_or_migrate(
             || branch.is_some_and(|branch| branch != record.branch)
             || !matches!(sha.len(), 40 | 64)
             || !sha.bytes().all(|b| b.is_ascii_hexdigit())
+            || record
+                .prompt_summary
+                .as_ref()
+                .is_some_and(|summary| summary.len() > MAX_PROMPT_SUMMARY_BYTES)
         {
             return Err(invalid());
         }
@@ -139,10 +152,10 @@ pub(crate) fn read_or_migrate(
     };
     // Only the creation entry is evidence. Later reflog entries must never invent a target.
     let mut first = String::new();
-    BufReader::new(file.take(CAP + 1))
+    BufReader::new(file.take(REFLOG_CAP + 1))
         .read_line(&mut first)
         .map_err(|e| io_err(&log_path, &e))?;
-    if first.len() as u64 > CAP {
+    if first.len() as u64 > REFLOG_CAP {
         return Ok(None);
     }
     let Some((meta, message)) = first.trim_end_matches(['\r', '\n']).split_once('\t') else {
@@ -167,12 +180,13 @@ pub(crate) fn read_or_migrate(
         Ok(_) | Err(_) => return Ok(None), // fail-open-ok: absent legacy evidence grants no verification/merge target.
     };
     let commit = CommitSha(sha.to_owned());
-    persist(admin, id, &branch, &base, &commit)?;
+    persist(admin, id, &branch, &base, &commit, None)?;
     Ok(Some(WorktreeOrigin {
         version: 1,
         worktree_id: id,
         branch,
         base_branch: base,
         base_commit: commit,
+        prompt_summary: None,
     }))
 }

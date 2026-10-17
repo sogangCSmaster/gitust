@@ -67,6 +67,14 @@ class BackupTests(unittest.TestCase):
         original_pointer = (self.wt / ".git").read_bytes()
         admin = Path(original_pointer.decode().strip().removeprefix("gitdir: "))
         original_reverse = (admin / "gitdir").read_bytes()
+        origin = {
+            "version": 1, "worktree_id": self.wt_id, "branch": "agent/test/backup",
+            "base_branch": "main", "base_commit": git(self.repo, "rev-parse", "main"),
+            "prompt_summary": "Keep the task label — 복구 후에도 작업 이름 유지",
+        }
+        origin_bytes = json.dumps(origin, ensure_ascii=False).encode()
+        (admin / "gitust-origin.json").write_bytes(origin_bytes)
+        (admin / "gitust-origin.json").chmod(0o600)
         (self.common / "gitust-approvals").mkdir()
         (self.common / "gitust-approvals" / "receipt.json").write_text("durable evidence")
         self.create()
@@ -78,6 +86,9 @@ class BackupTests(unittest.TestCase):
         self.assertEqual((wt / "dirty file.txt").read_text(), "uncommitted work\n")
         self.assertTrue((wt / "local-link").is_symlink())
         self.assertEqual((destination / ".git/gitust-approvals/receipt.json").read_text(), "durable evidence")
+        restored_admin = Path((wt / ".git").read_text().strip().removeprefix("gitdir: "))
+        self.assertEqual((restored_admin / "gitust-origin.json").read_bytes(), origin_bytes)
+        self.assertEqual((restored_admin / "gitust-origin.json").stat().st_mode & 0o777, 0o600)
         self.assertEqual((self.wt / ".git").read_bytes(), original_pointer)
         self.assertEqual((admin / "gitdir").read_bytes(), original_reverse)
         self.assertEqual((self.restored / "auth/auth-db.json").stat().st_mode & 0o777, 0o600)

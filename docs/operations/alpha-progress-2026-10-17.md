@@ -121,6 +121,32 @@ the exception and removed it as a standing requirement. The
 production entry bundle is 80.73 kB gzip, above the 50 kB goal. Task labels also remain
 generic after restart; branch/owner/approval identity is preserved.
 
+## Task labels follow-up after `9cb3852`
+
+The worktree-review and review-policy checkpoint was committed and pushed as
+`9cb385259f94d7bc6c175fab4b0760229a368bbc`; its pre-push verification passed and the
+remote main SHA matched. The next uncommitted step preserves a new task's display
+label in its immutable creation record. Existing unlabeled records retain the generic
+recovered label. Display metadata does not restore verification or change owner/target
+identity; CLI tasks store a fixed label rather than their command and arguments.
+
+Core recovery regressions failed on the old implementation, and the two HTTP/MCP
+restart regressions also failed against an isolated `9cb3852` source tree. They passed
+after the fix. The final `scripts/verify.sh` exited 0 with 136 frontend, 85 Git
+(two benchmark cases ignored), six CLI, 70 server, 20 sandbox and 12 operations tests,
+plus the remaining checks. Independent Gate A ran eight focused cases and ended CLEAR
+with no remaining verified P0/P1/P2; all 185 Rust/TS/TSX source/test files were below
+600 lines. Gate B was not run, as instructed by the user.
+
+[Live recovery evidence](evidence/task-label-recovery-macos-2026-10-17.json) identifies
+the binary and source hashes. A named MCP task was created on the actual local preview
+server, the server process was restarted, and its label remained visible in the browser.
+Its owner record, branch and base were unchanged; it remained Pending with no restored
+verification or approval authority. The preview checkout stayed clean and `git fsck`
+passed. This remains macOS development-server evidence, not release acceptance or
+GitHub publication. New labeled origin records require a compatible newer binary;
+older binaries reject that optional field, so downgrading them is unsupported.
+
 ## Remaining exit conditions
 
 - Execute the acceptance suite on an actual Linux host with functioning Bubblewrap

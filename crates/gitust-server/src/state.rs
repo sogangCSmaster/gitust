@@ -20,8 +20,7 @@ use parking_lot::{Mutex, RwLock};
 pub const MAX_TRACKED_WORKTREES: usize = 1024;
 /// Maximum number of live worktrees a single user may own.
 pub const MAX_WORKTREES_PER_USER: usize = 16;
-/// Maximum byte length of a worktree `prompt_summary`.
-pub const MAX_PROMPT_SUMMARY_BYTES: usize = 4096;
+pub use gitust_git::MAX_PROMPT_SUMMARY_BYTES;
 /// Maximum byte length of a sandbox command string.
 pub const MAX_SANDBOX_COMMAND_BYTES: usize = 65_536;
 /// Maximum byte length of a single MCP JSON-RPC 2.0 request line/body (1 MiB).

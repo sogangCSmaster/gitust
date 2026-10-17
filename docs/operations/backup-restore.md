@@ -45,7 +45,7 @@ Resolve the repository and auth database from the actual service command. `--aut
 |---|---|
 | Entire main repository directory | Working files, including ignored/untracked files, and the complete Git common directory: objects, refs, configuration, reflogs, index, and linked-worktree administration. |
 | Default managed worktree directory | For a normal checkout named `project`, the sibling `.project.gitust-worktrees/`; for a bare repository, `<common Git directory>/gitust-worktrees/`. Preserve every UUID directory, including its `.git` file and unfinished edits. |
-| `<common>/worktrees/<admin name>/gitust-origin.json` | Immutable worktree ID, agent branch, original target branch, and creation SHA. Preserve its association with the surrounding Git worktree administration directory. |
+| `<common>/worktrees/<admin name>/gitust-origin.json` | Immutable worktree ID, agent branch, original target branch, creation SHA and an optional task display label. Preserve the complete file and its association with the surrounding Git worktree administration directory. |
 | `<common>/gitust-owners/<UUID>.json` | Server-created worktree ownership by auth user ID. The matching auth snapshot is required to retain account identity. |
 | `<common>/gitust-approvals/<UUID>.json` | Durable human approval, exact approved SHA, target branch, and last publication destination. These records can restore `Merged`, subject to validation. |
 | `<common>/gitust-check-runs/<UUID>.json` | Up to five recent completed runs per worktree, with bounded command output. Historical success does not restore verification authority. |
@@ -53,6 +53,13 @@ Resolve the repository and auth database from the actual service command. `--aut
 | Service configuration, separately | Binary version, startup working directory, `--repo`, `--auth-db`, `--sync-github`, sandbox flag, bind address, and any timeout settings. These settings are not reconstructed from task history. |
 
 The permanent `<common>/gitust-worktree-service.lock` file and `<auth-db>.lock` coordinate running processes. Their presence does not prove that a process is running or stopped. Copying a lock file does not copy an active OS lock; never unlink a live deployment's lock file to bypass ownership.
+
+New tasks retain their supplied display label in the origin record, bounded to 4,096
+UTF-8 bytes within a 32 KiB record. Older records without that optional field retain a
+generic recovered label. Restore with the same or a compatible newer binary: older
+binaries reject the new field, so downgrading a labelled installation is unsupported.
+Labels never restore verification authority. CLI sandbox tasks use a fixed display
+label rather than persisting their raw shell command as an origin label.
 
 The examples below cover a main normal checkout with a real `.git` directory, or a main bare repository, using the default managed-worktree layout. Stop if the main path is itself a linked worktree, Git uses an external common directory, managed worktrees use a custom base, Git metadata/storage contains symlinks, the repository is a partial clone, or `objects/info/alternates` references external object storage. Those layouts need a separately reviewed backup of all dependencies. Ordinary linked worktrees outside the managed base must also be included and reconnected explicitly; the examples do not cover them. Submodules and Git LFS require their own completeness checks.
 

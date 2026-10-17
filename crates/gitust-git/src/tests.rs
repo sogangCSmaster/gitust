@@ -25,6 +25,8 @@ mod tests_worktree_commit_modes;
 mod tests_worktree_commit_normalize;
 #[path = "tests_worktree_commit_normalize_index.rs"]
 mod tests_worktree_commit_normalize_index;
+#[path = "tests_worktree_labels.rs"]
+mod tests_worktree_labels;
 #[path = "tests_worktree_origin.rs"]
 mod tests_worktree_origin;
 #[path = "tests_worktree_replacements.rs"]

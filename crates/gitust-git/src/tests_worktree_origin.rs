@@ -118,7 +118,8 @@ fn origin_is_bounded_identity_checked_immutable_and_rejects_symlinks() {
         m.worktree.id,
         &m.worktree.branch,
         "main",
-        &m.worktree.base_commit
+        &m.worktree.base_commit,
+        None
     )
     .is_err());
     assert_eq!(fs::read(&origin).unwrap(), saved);

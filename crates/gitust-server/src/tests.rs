@@ -35,6 +35,8 @@ mod tests_required_checks;
 mod tests_run_history;
 #[path = "tests_verification.rs"]
 mod tests_verification;
+#[path = "tests_worktree_labels.rs"]
+mod tests_worktree_labels;
 
 fn test_app_at(repo: PathBuf, trusted_sandbox_exec: bool) -> (Router, String) {
     let auth_store = AuthStore::new_in_memory();

@@ -34,12 +34,12 @@ In progress. Implemented portions:
 - Bounded durable history of completed HTTP/MCP runs, with a SiteAdmin-only read API and no restoration of approval authority.
 - A live workbench history viewer for the latest five completed runs, including per-command outcomes, captured output and execution metadata, separate from current verification authority.
 - A live worktree-to-diff review entry that pins head/base commits across file switches, refuses unknown targets and keeps tree/blob snapshots consistent. The follow-up passed local checks and Gate A; its Gate B exception was approved before automatic Gate B reviews were stopped by the user.
+- Bounded task display labels in creation metadata, preserved on restart and relocation for new tasks. Legacy records retain a generic recovered label; labels do not restore verification authority.
 - A stopped-installation backup/relocated-restore utility, regression tests and recorded local macOS rehearsals, including MCP commits after relocation. Linux and release acceptance remain open.
 
 Remaining work:
 
 - Automatic Checks on branch updates; durable start/timeout/cancellation records.
-- Persist task labels across restarts; recovered tasks currently retain their branch identity but display a generic recovered label.
 - Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is 80.73 kB gzip.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.

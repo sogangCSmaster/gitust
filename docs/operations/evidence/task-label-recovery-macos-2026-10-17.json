@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-17T02:11:07.958597+00:00",
+  "source_base_commit": "9cb385259f94d7bc6c175fab4b0760229a368bbc",
+  "uncommitted_follow_up": true,
+  "binary_sha256": "aab3a4faf612ff8836b0554bdcf8bc64ce202fd40403642f4e017d4174408a1c",
+  "source_sha256": {
+    "crates/gitust-git/src/worktree.rs": "6bb27791b8cdaf1551a4087a81ba057286a61729367bb5d9459cc2586211a1e7",
+    "crates/gitust-git/src/worktree_origin.rs": "5a4cb63a07406c3c0f322999a3a04dbe13e1f5dc52104a4785250ff295531817",
+    "crates/gitust-git/src/worktree_recovery.rs": "3f88a19d956da031d149e0d5c811ad320c7bd8f128f1f5c760c04a5f0f57a89c",
+    "crates/gitust-git/src/lib.rs": "777273a41a7c4f25eb1b8e65019911e15859f0ddc9fd7de78c1c0af845b6da64",
+    "crates/gitust-server/src/state.rs": "48e8d0d35920b8e0bc526e3f1beeee0127dedd0bc7d899f5c24324a9de7d627f",
+    "crates/gitust-cli/src/sandbox_cmd.rs": "16bc81bb41bd3c1f5ca21bd5c48d19b1fb086a410e8dcaf24608155def6921f8"
+  },
+  "environment": "macOS arm64, loopback Rust server and Vite UI; ignored local preview repository",
+  "fixture": {
+    "worktree_id": "4665e746-2771-4db1-94cf-861437347a44",
+    "branch": "agent/codex/label-persistence-proof",
+    "label": "재시작 후에도 작업 이름 유지"
+  },
+  "observations": {
+    "mcp_created_label_matches_after_process_restart": true,
+    "owner_record_unchanged": true,
+    "branch_and_base_unchanged": true,
+    "status": "pending",
+    "verification_authority_restored": false,
+    "legacy_missing_labels_keep_fallback": true,
+    "preview_repo_clean_and_fsck_passed": true
+  },
+  "checks": {
+    "full_verify_exit": 0,
+    "frontend_tests": 136,
+    "git_tests": 85,
+    "ignored_git_benchmarks": 2,
+    "cli_tests": 6,
+    "server_tests": 70,
+    "sandbox_tests": 20,
+    "operations_tests": 12,
+    "gate_a": "CLEAR TO COMMIT; no remaining verified P0/P1/P2 in this scope",
+    "gate_b": "not run, per the user instruction"
+  },
+  "compatibility": "Existing unlabeled origin records are accepted. Older binaries reject new labeled origin records; downgrade is unsupported.",
+  "limitations": [
+    "Local development UI and macOS runtime only",
+    "Not a GitHub publication, Linux runtime, separately provisioned installation or standalone release acceptance run"
+  ],
+  "browser_proof": {
+    "label_visible_after_process_restart": true,
+    "filtered_task_remains_pending_with_approval_disabled": true,
+    "search_filter_restored": true,
+    "screenshot_sha256": "81706d66b202da296aa896990b70c4a4c5e51493cf633557f5ae532a56636f63"
+  }
+}

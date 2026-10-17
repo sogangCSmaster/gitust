@@ -67,6 +67,8 @@ pub use worktree_commit::{PreparedWorktreeCommit, WorktreeCommit};
 /// Every branch created on behalf of an agent lives under this namespace. The sync engine keeps
 /// this namespace on-premise, and the engine refuses to create or delete refs outside of it.
 pub const AGENT_BRANCH_PREFIX: &str = "agent/";
+/// Maximum UTF-8 byte length of a managed worktree's persisted display summary.
+pub const MAX_PROMPT_SUMMARY_BYTES: usize = 4096;
 /// Directory (inside the common git dir) holding agent linked worktrees of bare repositories.
 pub(crate) const WORKTREES_DIR_NAME: &str = "gitust-worktrees";
 /// Directory (inside the common git dir) holding per-run sandbox scratch space.

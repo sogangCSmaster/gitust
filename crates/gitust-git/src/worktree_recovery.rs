@@ -72,9 +72,14 @@ impl GitEngine {
                     Some(&entry.branch)
                 },
             )?;
-            let (branch, mut base_branch, mut base_commit) = match origin {
-                Some(origin) => (origin.branch, origin.base_branch, origin.base_commit),
-                None => (entry.branch, String::new(), CommitSha(String::new())),
+            let (branch, mut base_branch, mut base_commit, prompt_summary) = match origin {
+                Some(origin) => (
+                    origin.branch,
+                    origin.base_branch,
+                    origin.base_commit,
+                    origin.prompt_summary,
+                ),
+                None => (entry.branch, String::new(), CommitSha(String::new()), None),
             };
             let approval = self.load_worktree_approval(worktree_id)?;
             if let Some(ref record) = approval {
@@ -96,7 +101,9 @@ impl GitEngine {
                     branch,
                     base_branch,
                     base_commit,
-                    prompt_summary: "recovered from disk".to_owned(),
+                    // fail-open-ok: missing legacy labels receive a display fallback; branch/target/owner and approval authority are validated independently.
+                    prompt_summary: prompt_summary
+                        .unwrap_or_else(|| "recovered from disk".to_owned()),
                     materialize_micros: 0,
                     status: if approval.is_some() {
                         WorktreeStatus::Merged

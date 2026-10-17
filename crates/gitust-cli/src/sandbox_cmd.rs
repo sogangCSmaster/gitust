@@ -122,7 +122,6 @@ pub(crate) async fn run_cli_sandbox(
     let branch = format!("agent/cli/sandbox-{}", &id_str[..8]);
     let engine_for_spawn = engine.clone();
     let base_branch = head.branch_name.clone();
-    let cmd_summary = cmd.to_owned();
     let spawn_service_lock = service_lock.clone();
     let m = tokio::task::spawn_blocking(move || {
         let _held_service = spawn_service_lock;
@@ -132,7 +131,7 @@ pub(crate) async fn run_cli_sandbox(
             AgentKind::InternalBot,
             &branch,
             &base_branch,
-            cmd_summary,
+            "CLI sandbox command",
         );
         // fail-open-ok: poison recovery retains the cleanup slot; materialization errors are still returned to the caller.
         let mut slot = materialized_slot.lock().unwrap_or_else(|e| e.into_inner());

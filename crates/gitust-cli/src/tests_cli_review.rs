@@ -45,6 +45,50 @@ async fn cli_sandbox_cannot_mutate_a_repository_owned_by_another_service() {
     assert!(engine.list_agent_worktrees().unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn kept_cli_sandbox_preserves_a_label_without_persisting_command_arguments() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("repo");
+    std::fs::create_dir(&path).unwrap();
+    git(&path, &["init", "-b", "main"]);
+    git(&path, &["config", "user.name", "Test"]);
+    git(&path, &["config", "user.email", "test@example.test"]);
+    git(
+        &path,
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "initial",
+        ],
+    );
+    let command = "printf '%s' 'synthetic-private-argument' > cli-result.txt";
+    assert_eq!(
+        crate::sandbox_cmd::run_cli_sandbox(&path, command, true, 5)
+            .await
+            .unwrap(),
+        0
+    );
+    let recovered = GitEngine::new(&path)
+        .recover_agent_worktrees(RepoId::new())
+        .unwrap();
+    assert_eq!(recovered.len(), 1);
+    let task = &recovered[0];
+    assert_eq!(task.worktree.prompt_summary, "CLI sandbox command");
+    assert_eq!(
+        std::fs::read_to_string(task.worktree_dir.join("cli-result.txt")).unwrap(),
+        "synthetic-private-argument"
+    );
+    let metadata =
+        std::fs::read_to_string(task.worktree_admin_dir.join("gitust-origin.json")).unwrap();
+    assert!(!metadata.contains(command));
+    assert!(!metadata.contains("synthetic-private-argument"));
+    assert_eq!(task.worktree.status, gitust_core::WorktreeStatus::Pending);
+    assert!(task.worktree.verified_commit.is_none());
+}
+
 #[test]
 fn cli_discard_is_not_blocked_by_an_unrelated_corrupt_approval() {
     let tmp = repo();

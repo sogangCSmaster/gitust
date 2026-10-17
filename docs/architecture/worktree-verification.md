@@ -12,6 +12,14 @@ Worktrees의 `Review committed changes`는 해당 작업의 커밋과 현재 병
 
 공통 revision 조회에서 전체 40자리 hex는 객체로만 해석한다. 같은 이름의 브랜치·태그가 있거나 해당 객체가 없더라도 ref로 대체하지 않는다. 그런 이름의 ref를 의도한 호출은 `refs/heads/<이름>` 또는 `refs/tags/<이름>`을 명시해야 한다. `refs/...` 자체도 중첩 namespace 후보 없이 정확히 조회한다. 일반 브랜치·짧은 SHA·HEAD와 ancestry 조회는 기존 규칙을 유지한다.
 
+## 작업 이름과 재시작
+
+새 작업의 `prompt_summary`는 생성 시 `gitust-origin.json`에 선택적 표시 필드로 보존한다. HTTP/MCP가 받은 이름을 재시작 후에도 그대로 표시하며, 이름에서 브랜치·소유자·검증·승인 상태를 추론하지 않는다. 미병합 작업은 기존처럼 Pending으로 복구하고 재검증해야 한다. 이름이 없는 이전 기록과 reflog 마이그레이션 작업은 `recovered from disk`를 표시한다. 저장되지 않은 과거 이름을 추측해 복원하지 않는다.
+
+이름은 최대 4,096 UTF-8바이트다. 공통 Git 생성 경로에서도 부작용 전에 검사하며, JSON escape 확장을 포함한 생성 기록 전체는 읽기·쓰기 모두 32KiB로 제한한다. 기존 파일 종류·symlink·ID·branch 검증과 변경 불가능한 생성 기록의 발행 절차는 유지한다. CLI sandbox는 명령 원문과 인수가 이름 필드에 새로 저장되지 않도록 `CLI sandbox command`라는 고정 이름을 사용하며 실제 실행 명령은 바꾸지 않는다.
+
+새 코드는 이름 필드 없는 기존 기록을 읽는다. 새 이름 필드가 있는 기록은 알 수 없는 필드를 거부하는 이전 바이너리가 읽지 못하므로, 해당 작업을 유지한 채 구버전으로 다운그레이드하는 경로는 지원하지 않는다. 복구에는 같은 버전 또는 호환되는 최신 바이너리를 사용한다.
+
 ## 일반 실행과 승인용 검증
 
 HTTP `POST /api/v1/swarm/worktrees/{id}/sandbox`와 MCP `gitust_sandbox_exec` 모두 `verify` 불리언을 받는다.

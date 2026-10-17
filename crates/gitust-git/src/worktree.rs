@@ -66,6 +66,13 @@ impl GitEngine {
         base_branch: &str,
         prompt_summary: impl Into<String>,
     ) -> Result<MaterializedWorktree, GitEngineError> {
+        let prompt_summary = prompt_summary.into();
+        if prompt_summary.len() > crate::MAX_PROMPT_SUMMARY_BYTES {
+            return Err(GitEngineError::VerificationInvalid(format!(
+                "prompt_summary exceeds {} bytes",
+                crate::MAX_PROMPT_SUMMARY_BYTES
+            )));
+        }
         let start = Instant::now();
         let _service = self.lock_worktree_service()?;
         let clean_branch = Self::validate_agent_branch_name(branch)?;
@@ -129,6 +136,7 @@ impl GitEngine {
                     &clean_branch,
                     &clean_base,
                     &CommitSha(base_id.to_string()),
+                    Some(&prompt_summary),
                 )?;
                 Ok(admin)
             });
@@ -181,7 +189,7 @@ impl GitEngine {
                 branch: clean_branch,
                 base_branch: clean_base,
                 base_commit: CommitSha(base_id.to_string()),
-                prompt_summary: prompt_summary.into(),
+                prompt_summary,
                 materialize_micros,
                 status: WorktreeStatus::Pending,
                 verified_commit: None,

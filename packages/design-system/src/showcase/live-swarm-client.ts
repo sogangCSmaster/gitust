@@ -1,5 +1,6 @@
 import type { AgentProvider, AgentSandboxTask } from "../patterns/AgentSwarmView";
 import { formatErr, getLiveToken } from "./live-repo-client";
+import { validateNewWorktreeInput, type NewWorktreeInput, type NewWorktreeResult } from "./new-worktree-input";
 import { parseVerificationResult } from "./live-verification-result";
 
 export interface LiveWorktreeRecord {
@@ -105,6 +106,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
   let swarmEpoch = 0;
   const inFlightWorktrees = new Map<string, symbol>();
   const spawningIds = new Set<number>();
+  const spawningBranches = new Set<string>();
   const isCurrent = (epoch: number, token: string) =>
     epoch === swarmEpoch && token === getLiveToken();
   const nextId = () => cb.getSwarmTasks().reduce((max, task) => Math.max(max, task.id), 0) + 1;
@@ -193,7 +195,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       updatedAt: "just now",
     }));
     cb.showQuickFeedback(action === "publish"
-      ? `Publishing approved ${target.branch} to GitHub...`
+      ? `Publishing approved ${target.branch} to the configured upstream...`
       : action === "approve"
         ? `Approving & fast-forward merging ${target.branch} into ${target.baseBranch}...`
         : `Discarding worktree ${target.branch} on server...`);
@@ -224,7 +226,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       }
       updateTarget((task) => ({ ...mapLiveWorktreeToTask(result, task.id), verificationResult: task.verificationResult }));
       cb.showQuickFeedback(action === "publish"
-        ? `Published approved ${result.branch} to GitHub ${result.base_branch}`
+        ? `Published approved ${result.branch} to upstream ${result.base_branch}`
         : `Fast-forward merged ${result.branch} into ${result.base_branch} on-premise`);
       cb.onRepoMutated?.();
     } catch (err) {
@@ -241,7 +243,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
         } : {}),
       }));
       cb.showQuickFeedback(action === "publish"
-        ? `Publication failed for ${target.branch}: ${error}. Local merge preserved; GitHub may already have received the commit. Retry to confirm.`
+        ? `Publication failed for ${target.branch}: ${error}. Local merge preserved; the upstream may already have received the commit. Retry to confirm.`
         : `${action === "approve" ? "Merge" : "Discard"} failed for ${target.branch}: ${error} — UI restored; check repository state before retry`);
     } finally {
       // An old account's completion must never release a newer operation on the same worktree.
@@ -333,24 +335,26 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
     }
   };
 
-  const spawnLiveWorktree = async () => {
+  const spawnLiveWorktree = async (input: NewWorktreeInput): Promise<NewWorktreeResult> => {
+    const validation = validateNewWorktreeInput(input);
+    if (validation) return { kind: "error", error: validation };
     const token = getLiveToken();
-    if (!token) return;
+    if (!token) return { kind: "error", error: "Sign in before creating a worktree." };
+    if (spawningBranches.has(input.branch)) return { kind: "error", error: "This branch is already being created." };
     const epoch = swarmEpoch;
     ++latestSwarmReqId;
     const newId = nextId();
     spawningIds.add(newId);
-    const suffix = `${Date.now().toString(36)}-${newId}`;
-    const branch = `agent/claude/task-${suffix}`;
-    const promptSummary = `New worktree #${newId}`;
+    spawningBranches.add(input.branch);
     const optimisticTask: AgentSandboxTask = {
       id: newId,
-      agent: "Claude Code",
-      branch,
-      baseBranch: "main",
+      agent: mapAgentProvider(input.agent),
+      branch: input.branch,
+      baseBranch: input.baseBranch,
       forkLatencyMs: 0,
-      promptSummary,
+      promptSummary: input.promptSummary,
       sandboxStatus: "pending",
+      operation: "creating",
       compileTimeMs: 0,
       testsPassed: 0,
       testsTotal: 0,
@@ -358,33 +362,43 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       additions: 0,
       deletions: 0,
       githubSynced: false,
-      updatedAt: "spawning...",
+      updatedAt: "creating...",
     };
     cb.setSwarmTasks((tasks) => [optimisticTask, ...tasks]);
-
+    let uncertain = true;
     try {
       const res = await fetch("/api/v1/swarm/worktrees", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ agent: "ClaudeCode", branch, base_branch: "main", prompt_summary: promptSummary }),
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ repo_id: input.repoId, agent: input.agent, branch: input.branch,
+          base_branch: input.baseBranch, prompt_summary: input.promptSummary }),
       });
-      if (!isCurrent(epoch, token)) return;
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).trim()}`);
+      if (!isCurrent(epoch, token)) return { kind: "stale" };
+      if (!res.ok) {
+        uncertain = res.status >= 500;
+        const message = (await res.text()).trim();
+        if (!isCurrent(epoch, token)) return { kind: "stale" };
+        throw new Error(`HTTP ${res.status}: ${message}`);
+      }
       const created = (await res.json()) as LiveWorktreeRecord;
-      if (!isCurrent(epoch, token)) return;
+      if (!isCurrent(epoch, token)) return { kind: "stale" };
+      if (!created || typeof created.id !== "string" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(created.id) || created.repo_id !== input.repoId ||
+          created.branch !== input.branch || created.base_branch !== input.baseBranch ||
+          created.agent !== input.agent || created.prompt_summary !== input.promptSummary ||
+          created.status !== "pending" || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(created.base_commit))
+        throw new Error("The server returned a different worktree. Refresh worktrees before retrying.");
       const mapped = mapLiveWorktreeToTask(created, newId);
       cb.setSwarmTasks((tasks) => tasks.filter((task) => task.liveId !== created.id).map((task) => task.id === newId ? mapped : task));
-      cb.showQuickFeedback(`Materialized isolated worktree ${created.branch} in ${mapped.forkLatencyMs}ms`);
+      cb.showQuickFeedback(`Created worktree ${created.branch}`);
+      return { kind: "created", taskId: newId, worktreeId: created.id };
     } catch (err) {
-      if (!isCurrent(epoch, token)) return;
+      if (!isCurrent(epoch, token)) return { kind: "stale" };
       cb.setSwarmTasks((tasks) => tasks.filter((task) => task.id !== newId));
-      cb.showQuickFeedback(`Worktree spawn failed: ${formatErr(err)} — UI restored; check repository state before retry`);
+      return { kind: "error", error: formatErr(err), uncertain };
     } finally {
       if (isCurrent(epoch, token)) {
         spawningIds.delete(newId);
+        spawningBranches.delete(input.branch);
         ++latestSwarmReqId;
       }
     }
@@ -395,6 +409,7 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
     ++latestSwarmReqId;
     inFlightWorktrees.clear();
     spawningIds.clear();
+    spawningBranches.clear();
   };
 
   return {

@@ -1,9 +1,6 @@
-import {
-  AgentSandboxTask,
-  IssueItem,
-  shortcutManager,
-  toggleTheme,
-} from "../index";
+import { shortcutManager } from "../keyboard/shortcut-manager";
+import { toggleTheme } from "../tokens/theme";
+import type { AgentSandboxTask, IssueItem } from "../index";
 import type { WorkbenchTab } from "./WorkbenchApp";
 
 export interface WorkbenchShortcutCallbacks {
@@ -30,6 +27,18 @@ export interface WorkbenchShortcutCallbacks {
 export function registerWorkbenchShortcuts(
   cb: WorkbenchShortcutCallbacks,
 ): Array<() => void> {
+  const whenViewReady = (action: () => void) => () => {
+    if (
+      typeof document !== "undefined" &&
+      document.querySelector("[data-workspace-unavailable]")
+    ) {
+      cb.showQuickFeedback(
+        "This view is not ready. Wait for it to load, or reload after an error.",
+      );
+      return;
+    }
+    action();
+  };
   return [
     shortcutManager.register({
       id: "cmd.palette",
@@ -138,7 +147,7 @@ export function registerWorkbenchShortcuts(
       keys: "a",
       description:
         "Approve and fast-forward merge locally; GitHub publication is separate",
-      handler: () => {
+      handler: whenViewReady(() => {
         if (cb.getActiveTab() === "swarm") {
           const list = cb.getVisibleSwarmTasks();
           const clampedIdx = Math.min(
@@ -148,7 +157,7 @@ export function registerWorkbenchShortcuts(
           const task = list[clampedIdx];
           if (task) cb.approveAndMergeSwarmTask(task.id);
         }
-      },
+      }),
     }),
     shortcutManager.register({
       id: "swarm.discard",
@@ -156,7 +165,7 @@ export function registerWorkbenchShortcuts(
       category: "Actions",
       keys: "x",
       description: "Remove the unmerged local branch.",
-      handler: () => {
+      handler: whenViewReady(() => {
         if (cb.getActiveTab() === "swarm") {
           const list = cb.getVisibleSwarmTasks();
           const clampedIdx = Math.min(
@@ -166,7 +175,7 @@ export function registerWorkbenchShortcuts(
           const task = list[clampedIdx];
           if (task) cb.discardSwarmTask(task.id);
         }
-      },
+      }),
     }),
     shortcutManager.register({
       id: "swarm.spawn",
@@ -175,7 +184,7 @@ export function registerWorkbenchShortcuts(
       keys: "s",
       description:
         "Create an isolated workspace. Demo mode uses sample worktrees.",
-      handler: () => cb.spawnBatchAgentSwarm(),
+      handler: whenViewReady(() => cb.spawnBatchAgentSwarm()),
     }),
     shortcutManager.register({
       id: "issue.toggle",
@@ -183,7 +192,7 @@ export function registerWorkbenchShortcuts(
       category: "Issues & PRs",
       keys: "e",
       description: "Toggle a sample issue between open and closed.",
-      handler: () => {
+      handler: whenViewReady(() => {
         const list = cb.getVisibleIssues();
         const clampedIdx = Math.min(
           cb.getFocusedIssueIdx(),
@@ -191,7 +200,7 @@ export function registerWorkbenchShortcuts(
         );
         const item = list[clampedIdx];
         if (item) cb.toggleIssueStatus(item.id);
-      },
+      }),
     }),
     shortcutManager.register({
       id: "issue.create",
@@ -199,7 +208,7 @@ export function registerWorkbenchShortcuts(
       category: "Issues & PRs",
       keys: "c",
       description: "Add an issue to the sample list.",
-      handler: () => cb.createOptimisticIssue(),
+      handler: whenViewReady(() => cb.createOptimisticIssue()),
     }),
     shortcutManager.register({
       id: "actions.rerun",
@@ -207,7 +216,7 @@ export function registerWorkbenchShortcuts(
       category: "Actions",
       keys: "r",
       description: "Reset sample jobs and logs.",
-      handler: () => cb.rerunAllActionJobs(),
+      handler: whenViewReady(() => cb.rerunAllActionJobs()),
     }),
     shortcutManager.register({
       id: "filter.focus",

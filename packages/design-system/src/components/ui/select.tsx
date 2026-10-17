@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Adapted from solid-ui; see LICENSE.solid-ui and PROVENANCE.md in this directory.
 import type { JSX, ValidComponent } from "solid-js";
-import { splitProps } from "solid-js";
+import { Show, splitProps, useContext } from "solid-js";
 
 import type { PolymorphicProps } from "@kobalte/core/polymorphic";
 import * as SelectPrimitive from "@kobalte/core/select";
 import { cva } from "class-variance-authority";
 
 import { cn } from "../../lib/utils";
+import { OverlayPortalMountContext } from "./overlay-portal-context";
 
 const Select = SelectPrimitive.Root;
 const SelectValue = SelectPrimitive.Value;
@@ -59,19 +60,22 @@ type SelectContentProps<T extends ValidComponent = "div"> =
 const SelectContent = <T extends ValidComponent = "div">(
   props: PolymorphicProps<T, SelectContentProps<T>>,
 ) => {
+  const mount = useContext(OverlayPortalMountContext);
   const [local, others] = splitProps(props as SelectContentProps, ["class"]);
   return (
-    <SelectPrimitive.Portal>
-      <SelectPrimitive.Content
-        class={cn(
-          "relative z-50 min-w-32 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md animate-in fade-in-80",
-          local.class,
-        )}
-        {...others}
-      >
-        <SelectPrimitive.Listbox class="m-0 p-1" />
-      </SelectPrimitive.Content>
-    </SelectPrimitive.Portal>
+    <Show when={!mount || mount()}>
+      <SelectPrimitive.Portal mount={mount?.()}>
+        <SelectPrimitive.Content
+          class={cn(
+            "relative z-50 min-w-32 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md animate-in fade-in-80",
+            local.class,
+          )}
+          {...others}
+        >
+          <SelectPrimitive.Listbox class="m-0 p-1" />
+        </SelectPrimitive.Content>
+      </SelectPrimitive.Portal>
+    </Show>
   );
 };
 

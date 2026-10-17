@@ -24,6 +24,10 @@ an Apple product or an official Apple design.
 - Put actions next to the selected item rather than repeating every action on
   every list row. Keep verification, local approval/merge, and upstream publication
   distinct, with server evidence controlling availability.
+- New worktree asks for a task name and base branch, initialized from the selected
+  repository. Agent and branch overrides stay under Advanced. Keep inputs and the
+  generated branch on failure, prevent duplicate submission, and select the
+  confirmed worktree after success. Creating a workspace does not launch an agent.
 - Use adjacent controls of equal height. Fine-pointer desktop buttons are compact;
   small screens and coarse pointers retain touch-sized controls. Inputs on coarse
   pointers use a readable size that avoids focus zoom.
@@ -45,6 +49,27 @@ tokens, and `src/styles.css` theme variables in `packages/design-system`.
 New screens must follow these shared primitives instead of adding another visual
 component system. Both light and dark themes are supported.
 
+Pending or failed view downloads must block state-changing shortcuts, including
+commands invoked through the palette. Navigation and recovery remain available.
+Nested popup content must retain its owning modal's accessibility and focus scope.
+
 Responsive viewport checks establish browser layout behavior, not physical device
 or assistive-technology certification. The JavaScript bundle remains above the
 50 kB gzip target; a compact interface does not establish that performance target.
+
+## Adopted interface validation
+
+The [2026-10-17 sanitized workflow evidence](../operations/evidence/workbench-ui-2026-10-17.json)
+records a disposable `trunk`-only installation exercised through the real web UI:
+creation, committed comparison, command and required Checks, exact-SHA approval,
+and a separate explicit publication to a local bare upstream. Independent Git
+queries and both repositories' `git fsck --full --strict` confirmed the result.
+An invalid base preserved the creation inputs; failed and successful verification
+runs appeared separately in history. Mobile popup options remained accessible at
+320/375 px, with tablet and desktop layouts checked at 768/1440 px.
+
+The final initial JavaScript static-import closure is 65,358 bytes gzip (203,434
+bytes before compression). This improves on the preceding interface but remains
+above the 50 KB goal. The evidence identifies an uncommitted follow-up build over
+its base revision; it is not fixed-release alpha acceptance, external GitHub
+publication, a real IDE-agent session, or measured interaction latency.

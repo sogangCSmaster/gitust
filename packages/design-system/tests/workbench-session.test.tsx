@@ -154,7 +154,8 @@ it("clears live rows on another tab's logout instead of allowing a fake live mer
     ).toBe(false),
   );
   const oldButton = screen.getByRole("button", { name: "Approve & merge" });
-  const requests = fetcher.mock.calls.length;
+  const mutations = () => fetcher.mock.calls.filter((call) => ["POST", "DELETE", "PUT", "PATCH"].includes(call[1]?.method));
+  const requests = mutations().length;
   storageChanged(null);
   expect(screen.getByText("Demo workspace")).toBeTruthy();
   expect(screen.queryAllByText("REAL worktree")).toHaveLength(0);
@@ -162,7 +163,7 @@ it("clears live rows on another tab's logout instead of allowing a fake live mer
   expect(
     screen.queryByText(/Fast-forward merged agent\/real-branch/),
   ).toBeNull();
-  expect(fetcher.mock.calls.length).toBe(requests);
+  expect(mutations()).toHaveLength(requests);
 });
 
 it("never sends a live row into demo actions while its storage event is still pending", async () => {

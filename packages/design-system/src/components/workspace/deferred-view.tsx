@@ -8,7 +8,11 @@ export const DeferredView: ParentComponent<{
 }> = (props) => (
   <ErrorBoundary
     fallback={() => (
-      <div role="alert" class="space-y-3 rounded-lg border bg-card p-4 text-sm">
+      <div
+        data-workspace-unavailable="error"
+        role="alert"
+        class="space-y-3 rounded-lg border bg-card p-4 text-sm"
+      >
         <p>
           Could not load {props.label}. Reload to get the current application
           files.
@@ -28,7 +32,11 @@ export const DeferredView: ParentComponent<{
   >
     <Suspense
       fallback={
-        <p role="status" class="p-4 text-sm text-muted-foreground">
+        <p
+          data-workspace-unavailable="loading"
+          role="status"
+          class="p-4 text-sm text-muted-foreground"
+        >
           Opening {props.label}…
         </p>
       }

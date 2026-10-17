@@ -1,3 +1,5 @@
+import { filterAgentSwarmTasks } from "./worktree-filter";
+export { filterAgentSwarmTasks } from "./worktree-filter";
 import {
   createEffect,
   createMemo,
@@ -60,7 +62,8 @@ export interface AgentSandboxTask {
   additions: number;
   deletions: number;
   githubSynced?: boolean;
-  operation?: "approving" | "discarding" | "publishing" | "verifying";
+  operation?:
+    "creating" | "approving" | "discarding" | "publishing" | "verifying";
   verifiedCommit?: string;
   verificationResult?: AgentVerificationResult;
   verificationError?: string;
@@ -86,21 +89,6 @@ export interface AgentSwarmViewProps {
   onTriggerGithubSync: () => void;
   filterQuery?: string;
   onFilterQueryChange?: (query: string) => void;
-}
-
-export function filterAgentSwarmTasks(
-  tasks: AgentSandboxTask[],
-  rawQuery: string,
-): AgentSandboxTask[] {
-  const q = rawQuery.trim().toLowerCase();
-  if (!q) return tasks;
-  return tasks.filter(
-    (t) =>
-      t.branch.toLowerCase().includes(q) ||
-      t.agent.toLowerCase().includes(q) ||
-      t.promptSummary.toLowerCase().includes(q) ||
-      t.sandboxStatus.toLowerCase().includes(q),
-  );
 }
 
 const taskKey = (task: AgentSandboxTask) => task.liveId ?? `demo-${task.id}`;

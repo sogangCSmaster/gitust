@@ -1,3 +1,4 @@
+import { SidebarMenuButtonBase as SidebarMenuButton } from "../components/ui/sidebar-menu-button";
 import { createSignal, For, Show, type Component, type JSX } from "solid-js";
 import {
   Sidebar,
@@ -8,7 +9,6 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuBadge,
   useSidebar,

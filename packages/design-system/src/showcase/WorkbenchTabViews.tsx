@@ -1,8 +1,5 @@
 import { Show, lazy, type Component } from "solid-js";
 import {
-  ActionsPipelineView,
-  AgentSwarmView,
-  IssueListView,
   type ActionJobStep,
   type AgentSandboxTask,
   type DiffLine,
@@ -19,6 +16,21 @@ import type { LiveCommitSummary, LiveWorktreeReview } from "./live-repo-client";
 import type { WorkbenchTab } from "./WorkbenchApp";
 import { DeferredView } from "../components/workspace/deferred-view";
 import { Alert, AlertDescription } from "../components/ui/alert";
+const AgentSwarmView = lazy(() =>
+  import("../patterns/AgentSwarmView").then((module) => ({
+    default: module.AgentSwarmView,
+  })),
+);
+const IssueListView = lazy(() =>
+  import("../patterns/IssueListView").then((module) => ({
+    default: module.IssueListView,
+  })),
+);
+const ActionsPipelineView = lazy(() =>
+  import("../patterns/ActionsPipelineView").then((module) => ({
+    default: module.ActionsPipelineView,
+  })),
+);
 const RepositoryChangesView = lazy(() =>
   import("./RepositoryChangesView").then((module) => ({
     default: module.RepositoryChangesView,
@@ -99,26 +111,28 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         title="Worktrees"
         description="A separate space for every agent. Verify changes, then merge with confidence."
       />
-      <AgentSwarmView
-        tasks={props.swarmTasks}
-        focusedIndex={props.focusedSwarmIdx}
-        onFocusIndexChange={props.onFocusedSwarmIdxChange}
-        onApproveMerge={props.onApproveMergeSwarmTask}
-        onDiscardBranch={props.onDiscardSwarmTask}
-        onPublishGithub={props.onPublishSwarmTask}
-        onVerifyWorktree={props.onVerifySwarmTask}
-        onRefreshWorktrees={props.onRefreshSwarmTasks}
-        onViewRunHistory={props.onViewRunHistory}
-        onReviewWorktree={props.onReviewSwarmTask}
-        canRunVerification={
-          props.adminAuthProps?.liveSession?.role === "SiteAdmin"
-        }
-        liveMode={props.liveMode}
-        onSpawnBatchSwarm={props.onSpawnBatchAgentSwarm}
-        onTriggerGithubSync={props.onTriggerGithubSync}
-        filterQuery={props.swarmFilter}
-        onFilterQueryChange={props.onSwarmFilterChange}
-      />
+      <DeferredView label="Worktrees">
+        <AgentSwarmView
+          tasks={props.swarmTasks}
+          focusedIndex={props.focusedSwarmIdx}
+          onFocusIndexChange={props.onFocusedSwarmIdxChange}
+          onApproveMerge={props.onApproveMergeSwarmTask}
+          onDiscardBranch={props.onDiscardSwarmTask}
+          onPublishGithub={props.onPublishSwarmTask}
+          onVerifyWorktree={props.onVerifySwarmTask}
+          onRefreshWorktrees={props.onRefreshSwarmTasks}
+          onViewRunHistory={props.onViewRunHistory}
+          onReviewWorktree={props.onReviewSwarmTask}
+          canRunVerification={
+            props.adminAuthProps?.liveSession?.role === "SiteAdmin"
+          }
+          liveMode={props.liveMode}
+          onSpawnBatchSwarm={props.onSpawnBatchAgentSwarm}
+          onTriggerGithubSync={props.onTriggerGithubSync}
+          filterQuery={props.swarmFilter}
+          onFilterQueryChange={props.onSwarmFilterChange}
+        />
+      </DeferredView>
     </Show>
     <Show when={props.activeTab === "issues"}>
       <PageHeading
@@ -131,15 +145,17 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
           </Button>
         }
       />
-      <IssueListView
-        items={props.issues}
-        focusedIndex={props.focusedIssueIdx}
-        onFocusIndexChange={props.onFocusedIssueIdxChange}
-        onToggleStatus={props.onToggleIssueStatus}
-        filterRef={props.filterRef}
-        filterQuery={props.issueFilter}
-        onFilterQueryChange={props.onIssueFilterChange}
-      />
+      <DeferredView label="Issues demo">
+        <IssueListView
+          items={props.issues}
+          focusedIndex={props.focusedIssueIdx}
+          onFocusIndexChange={props.onFocusedIssueIdxChange}
+          onToggleStatus={props.onToggleIssueStatus}
+          filterRef={props.filterRef}
+          filterQuery={props.issueFilter}
+          onFilterQueryChange={props.onIssueFilterChange}
+        />
+      </DeferredView>
     </Show>
     <Show when={props.activeTab === "diff"}>
       <PageHeading
@@ -171,17 +187,19 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         title="Actions"
         description="Interface demo with generated logs and simulated jobs. Replay the sample pipeline to explore its states."
       />
-      <ActionsPipelineView
-        workflowName="ci-enterprise-release.yml"
-        commitSha="5edd70a"
-        branch="main"
-        jobs={props.actionJobs}
-        activeJobId={props.activeJobId}
-        onSelectJob={props.onSelectJob}
-        onRerunAll={props.onRerunAllActionJobs}
-        logs={props.actionLogs}
-        height={440}
-      />
+      <DeferredView label="Actions demo">
+        <ActionsPipelineView
+          workflowName="ci-enterprise-release.yml"
+          commitSha="5edd70a"
+          branch="main"
+          jobs={props.actionJobs}
+          activeJobId={props.activeJobId}
+          onSelectJob={props.onSelectJob}
+          onRerunAll={props.onRerunAllActionJobs}
+          logs={props.actionLogs}
+          height={440}
+        />
+      </DeferredView>
     </Show>
     <Show when={props.activeTab === "admin"}>
       <PageHeading

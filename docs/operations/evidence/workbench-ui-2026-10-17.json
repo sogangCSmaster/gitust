@@ -1,0 +1,52 @@
+{
+  "worktree_id": "b9b7d9df-893d-4eaa-a953-f977f5663cb1",
+  "branch": "agent/task-4941a9716b06db1b",
+  "base_branch": "trunk",
+  "base_commit": "3c3260270116f9eaebc4f7414bfca2cfda249799",
+  "head_commit": "c99c7ee5fc6f570904d784a1d2c7d1d18757d817",
+  "status_wire": "pending",
+  "provider": "CodexSwarm",
+  "upstream_before_explicit_publication": "3c3260270116f9eaebc4f7414bfca2cfda249799",
+  "source_base_commit": "5455ec01d0d694712725e5454d4efb0eff71bead",
+  "source_contains_uncommitted_followup": true,
+  "web_bundle": {
+    "method": "Vite Rollup entry plus complete transitive static-import closure; excludes dynamic imports",
+    "files": [
+      {
+        "file": "assets/index.js",
+        "bytes": 203434,
+        "gzip_bytes": 65358,
+        "sha256": "0380610c892d50f0a202dac0a9a30b036f69c22ac0045cb624adcc5f30aeb99c"
+      }
+    ],
+    "total_bytes": 203434,
+    "total_gzip_bytes": 65358
+  },
+  "binary_sha256": "ad2ef74fa7bf045c475a604774ad3d9d4a9790c0664dad1c6d32c1f24bbc0b33",
+  "upstream_after_explicit_publication": "c99c7ee5fc6f570904d784a1d2c7d1d18757d817",
+  "working_repo_fsck": "passed",
+  "bare_upstream_fsck": "passed",
+  "main_checkout_clean": true,
+  "external_github_publication": false,
+  "agent_client": "purpose-built Python MCP protocol client; not an IDE model session",
+  "browser_flow": [
+    "create from actual trunk base",
+    "dialog closes and selects confirmed row",
+    "explicit command and committed required Check pass",
+    "approve exact displayed commit",
+    "upstream unchanged after approval",
+    "separate explicit publication"
+  ],
+  "earlier_failure_paths": [
+    "invalid base returns404 and preserves inputs and new branch",
+    "failed verification shown in stored history and prevents approval"
+  ],
+  "viewports_checked": [
+    320,
+    375,
+    768,
+    1440
+  ],
+  "portal_options_accessible": 4,
+  "initial_bundle_target_met": false
+}

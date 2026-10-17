@@ -14,8 +14,6 @@ import {
   AgentSandboxTask,
   CommandPalette,
   EnterpriseUser,
-  filterAgentSwarmTasks,
-  filterIssueItems,
   Icon,
   IconSpriteSheet,
   IssueItem,
@@ -24,11 +22,12 @@ import {
   LivePatItem,
   LiveSshKeyItem,
 } from "../index";
+import { filterAgentSwarmTasks } from "../patterns/worktree-filter";
+import { filterIssueItems } from "../patterns/issue-filter";
+import { NewWorktreeDialog } from "./NewWorktreeDialog";
+import { createNewWorktreeController } from "./new-worktree-controller";
 import { createLiveAuthClient } from "./live-auth-client";
-import {
-  createLiveRepoClient,
-  getLiveToken,
-} from "./live-repo-client";
+import { createLiveRepoClient, getLiveToken } from "./live-repo-client";
 import { createLiveSwarmClient } from "./live-swarm-client";
 import {
   generateActionLogs,
@@ -94,7 +93,9 @@ export const WorkbenchApp: Component = () => {
   const [actionJobs, setActionJobs] =
     createSignal<ActionJobStep[]>(INITIAL_ACTION_JOBS);
   const [activeJobId, setActiveJobId] = createSignal("job-docker");
-  const actionLogs = createMemo(() => generateActionLogs(10000));
+  const actionLogs = createMemo(() =>
+    activeTab() === "actions" ? generateActionLogs(10000) : [],
+  );
 
   const [enterpriseUsers, setEnterpriseUsers] = createSignal<EnterpriseUser[]>(
     liveMode() ? [] : INITIAL_ENTERPRISE_USERS,
@@ -156,7 +157,7 @@ export const WorkbenchApp: Component = () => {
     fileTreeNodes,
     selectedTreePath,
     blobLines,
-  } = createWorkbenchRepositoryState(liveMode);
+  } = createWorkbenchRepositoryState(liveMode, activeTab);
 
   const showQuickFeedback = (msg: string) => {
     if (toastTimer) {
@@ -197,6 +198,7 @@ export const WorkbenchApp: Component = () => {
   });
 
   const clearRepositoryView = () => {
+    newWorktree.reset();
     setHistoryTask(null);
     liveClient.resetRepoEpoch();
     liveSwarmClient.resetSwarmEpoch();
@@ -223,6 +225,22 @@ export const WorkbenchApp: Component = () => {
     open: openRepository,
     navigate,
   } = connectedRepository;
+
+  const newWorktree = createNewWorktreeController({
+    getRepository: selectedRepository,
+    liveMode,
+    sessionReady: () => Boolean(liveSession()),
+    create: liveSwarmClient.spawnLiveWorktree,
+    onCreated: (_id, worktreeId) => {
+      setSwarmFilter("");
+      queueMicrotask(() => {
+        const index = swarmTasks().findIndex(
+          (task) => task.liveId === worktreeId,
+        );
+        if (selectedRepository() && index >= 0) setFocusedSwarmIdx(index);
+      });
+    },
+  });
 
   const liveAuthClient = createLiveAuthClient({
     setLiveSession,
@@ -309,7 +327,13 @@ export const WorkbenchApp: Component = () => {
   const spawnBatchAgentSwarm = () => {
     if (!selectedRepository() || activeTab() !== "swarm") return;
     if (liveMode() || getLiveToken()) {
-      void liveSwarmClient.spawnLiveWorktree();
+      if (!liveSession()) {
+        showQuickFeedback(
+          "Your account is still loading. Try again when it is ready.",
+        );
+        return;
+      }
+      newWorktree.open();
     } else {
       demoActions.spawnDemoBatchSwarm();
     }
@@ -531,6 +555,18 @@ export const WorkbenchApp: Component = () => {
           />
         </main>
       </SidebarInset>
+
+      <Show when={newWorktree.target()} keyed>
+        {(repository) => (
+          <NewWorktreeDialog
+            repository={repository}
+            submitting={newWorktree.submitting()}
+            onSubmit={newWorktree.submit}
+            onClose={newWorktree.close}
+            onRefresh={() => void liveSwarmClient.hydrateSwarmWorktrees()}
+          />
+        )}
+      </Show>
 
       {/* Global Command Palette (Cmd+K) */}
       <Show when={historyTarget()} keyed>

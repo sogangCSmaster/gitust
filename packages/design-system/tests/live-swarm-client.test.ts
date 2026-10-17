@@ -70,7 +70,7 @@ describe("explicit approved worktree publication", () => {
     expect(tasks[0]).toMatchObject({ sandboxStatus: "merged", githubSynced: false });
     expect(tasks[0]?.operation).toBeUndefined();
     expect(tasks[0]?.publicationError).toBeTruthy();
-    expect(feedback).toHaveBeenLastCalledWith(expect.stringContaining("GitHub may already have received the commit"));
+    expect(feedback).toHaveBeenLastCalledWith(expect.stringContaining("the upstream may already have received the commit"));
     fetchMock.mockResolvedValueOnce(response(record("worktree-one", { github_synced: true })));
     await client.publishLiveWorktree(1);
     expect(tasks[0]?.githubSynced).toBe(true);
@@ -236,15 +236,19 @@ describe("shared worktree mutation ordering", () => {
   });
 
   it("retains a pending spawn through hydration and deduplicates its returned server row", async () => {
+    const createdId = "22222222-2222-4222-8222-222222222222";
+    const repoId = "11111111-1111-4111-8111-111111111111";
+    const spawned = record(createdId, { repo_id: repoId, status: "pending", branch: "agent/spawned" });
     const spawn = deferred<Response>();
-    fetchMock.mockReturnValueOnce(spawn.promise).mockResolvedValueOnce(response([record(), record("spawned")]));
-    const pending = client.spawnLiveWorktree();
+    fetchMock.mockReturnValueOnce(spawn.promise).mockResolvedValueOnce(response([record(), spawned]));
+    const input = { repoId, agent: "CodexSwarm" as const, branch: "agent/spawned", baseBranch: "main", promptSummary: "Test change" };
+    const pending = client.spawnLiveWorktree(input);
     const placeholderId = tasks.find((task) => !task.liveId)?.id;
     await client.hydrateSwarmWorktrees();
     expect(tasks.find((task) => task.id === placeholderId)?.liveId).toBeUndefined();
-    spawn.resolve(response(record("spawned", { status: "Pending" })));
+    spawn.resolve(response(spawned));
     await pending;
-    expect(tasks.filter((task) => task.liveId === "spawned")).toHaveLength(1);
-    expect(tasks.find((task) => task.liveId === "spawned")?.id).toBe(placeholderId);
+    expect(tasks.filter((task) => task.liveId === createdId)).toHaveLength(1);
+    expect(tasks.find((task) => task.liveId === createdId)?.id).toBe(placeholderId);
   });
 });

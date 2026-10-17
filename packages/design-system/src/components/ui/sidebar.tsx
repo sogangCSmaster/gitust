@@ -23,8 +23,6 @@ import {
 
 import type { PolymorphicProps } from "@kobalte/core";
 import { Polymorphic } from "@kobalte/core";
-import type { VariantProps } from "class-variance-authority";
-import { cva } from "class-variance-authority";
 
 import { cn } from "../../lib/utils";
 import type { ButtonProps } from "./button";
@@ -33,6 +31,10 @@ import { Separator } from "./separator";
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "./sheet";
 import { TextField, TextFieldInput } from "./text-field";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
+import {
+  SidebarMenuButtonBase,
+  type SidebarMenuButtonBaseProps,
+} from "./sidebar-menu-button";
 
 import {
   SidebarProvider,
@@ -346,69 +348,37 @@ const SidebarMenuItem: Component<ComponentProps<"li">> = (props) => {
   );
 };
 
-const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:!size-8 group-data-[collapsible=icon]:!p-2 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        default: "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        outline:
-          "bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
-      },
-      size: {
-        default: "h-8 text-sm",
-        sm: "h-7 text-xs",
-        lg: "h-12 text-sm group-data-[collapsible=icon]:!p-0",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  },
-);
-
 type SidebarMenuButtonProps<T extends ValidComponent = "button"> =
-  ComponentProps<T> &
-    VariantProps<typeof sidebarMenuButtonVariants> & {
-      isActive?: boolean;
-      tooltip?: string;
-    };
+  SidebarMenuButtonBaseProps<T> & { tooltip?: string };
 
 const SidebarMenuButton = <T extends ValidComponent = "button">(
-  rawProps: PolymorphicProps<T, SidebarMenuButtonProps<T>>,
+  props: PolymorphicProps<T, SidebarMenuButtonProps<T>>,
 ) => {
-  const props = mergeProps(
-    { isActive: false, variant: "default", size: "default" },
-    rawProps,
+  const [local, others] = splitProps(
+    props as SidebarMenuButtonProps & { as?: ValidComponent },
+    ["tooltip", "as", "type"],
   );
-  const [local, others] = splitProps(props as SidebarMenuButtonProps, [
-    "isActive",
-    "tooltip",
-    "variant",
-    "size",
-    "class",
-  ]);
   const { isMobile, state } = useSidebar();
-
-  const button = (
-    <Polymorphic<SidebarMenuButtonProps>
-      as="button"
-      data-sidebar="menu-button"
-      data-size={local.size}
-      data-active={local.isActive}
-      class={cn(
-        sidebarMenuButtonVariants({ variant: local.variant, size: local.size }),
-        local.class,
-      )}
-      {...others}
+  const renderButton: Component<ComponentProps<"button">> = (triggerProps) => (
+    <SidebarMenuButtonBase
+      {...triggerProps}
+      as={local.as ?? "button"}
+      type={local.type ?? triggerProps.type}
     />
   );
-
   return (
-    <Show when={local.tooltip} fallback={button}>
+    <Show
+      when={local.tooltip}
+      fallback={
+        <SidebarMenuButtonBase
+          {...others}
+          as={local.as ?? "button"}
+          type={local.type}
+        />
+      }
+    >
       <Tooltip placement="right">
-        <TooltipTrigger class="w-full">{button}</TooltipTrigger>
+        <TooltipTrigger as={renderButton} {...others} />
         <TooltipContent hidden={state() !== "collapsed" || isMobile()}>
           {local.tooltip}
         </TooltipContent>

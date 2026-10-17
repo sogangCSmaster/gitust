@@ -9,6 +9,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "../../lib/utils";
 import { createModalFocusRestore } from "./modal-focus";
+import { OverlayPortalMountContext } from "./overlay-portal-context";
 
 const Sheet = SheetPrimitive.Root;
 const SheetTrigger = SheetPrimitive.Trigger;
@@ -114,7 +115,9 @@ const SheetContent = <T extends ValidComponent = "div">(
         aria-modal={context.modal() ? true : undefined}
         {...focus}
       >
-        {local.children}
+        <OverlayPortalMountContext.Provider value={context.contentRef}>
+          {local.children}
+        </OverlayPortalMountContext.Provider>
         <SheetPrimitive.CloseButton class="absolute right-3 top-3 inline-flex min-h-touch min-w-touch items-center justify-center rounded-sm sm:min-h-8 sm:min-w-8 opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
           <svg
             xmlns="http://www.w3.org/2000/svg"

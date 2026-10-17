@@ -7,13 +7,16 @@ import {
 } from "./live-repo-client";
 import { generateLargeDiff, generateMonorepoFileTree } from "./mock-data";
 
-export const createWorkbenchRepositoryState = (liveMode: () => boolean) => {
+export const createWorkbenchRepositoryState = (
+  liveMode: () => boolean,
+  activeTab: () => string,
+) => {
   // Demo data is only available in the explicitly labelled showcase mode.
   const fallbackDiffLines = createMemo(() =>
-    liveMode() ? [] : generateLargeDiff(10000),
+    !liveMode() && activeTab() === "diff" ? generateLargeDiff(10000) : [],
   );
   const fallbackFileTreeNodes = createMemo(() =>
-    liveMode() ? [] : generateMonorepoFileTree(5000),
+    !liveMode() && activeTab() === "tree" ? generateMonorepoFileTree(5000) : [],
   );
   const [liveDiffLines, setLiveDiffLines] = createSignal<ReturnType<
     typeof generateLargeDiff

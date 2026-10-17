@@ -2,7 +2,7 @@
 
 This document separates planned capabilities from implemented behavior. It is a sequence of work, not a release commitment. A UI prototype or passing test suite alone does not establish deployment readiness.
 
-The immediate milestone is the [trusted single-user self-hosted alpha](operations/alpha-acceptance.md). Its acceptance conditions bound the current work; the full Phase 3 and Phase 4 lists are broader future scope.
+The overall execution scope now covers all four phases, following the user's instruction on 2026-10-17. The immediate release checkpoint remains the [trusted single-user self-hosted alpha](operations/alpha-acceptance.md); its acceptance conditions must be verified before that checkpoint is declared complete. Later capabilities below remain planned until implemented and verified. See the [execution plan](operations/roadmap-execution.md) for the sequence and evidence boundaries.
 
 ## Phase 1 — Interface foundations
 
@@ -43,7 +43,7 @@ In progress. Implemented portions:
 Remaining work:
 
 - Durable automatic-run scheduling/restart recovery and start/timeout/cancellation records; non-managed branch triggers and the live Actions workflow screen.
-- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is 84.17 kB gzip after deferring Files and Changes modules.
+- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is approximately 65 kB gzip after deferring optional views and tooltip dependencies. Measure the complete initial static-import closure, not just an arbitrarily split entry file.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Broader administration UI and repository lifecycle management.

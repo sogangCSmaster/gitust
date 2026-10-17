@@ -153,6 +153,11 @@ it("opens a real browse-only repository without exposing primary worktree action
 it("preserves an explicit branch snapshot across a confirmed default change and uses the new default only when selected", async () => {
   const pinned = "d".repeat(40),
     target = "e".repeat(40);
+  const openKeyboardSelect = async (trigger: HTMLElement) => {
+    trigger.focus();
+    expect(document.activeElement).toBe(trigger);
+    await fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  };
   let current = { ...primary, can_change_default_branch: true };
   const normalFetch = fetcher.getMockImplementation()!;
   fetcher.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -224,7 +229,7 @@ it("preserves an explicit branch snapshot across a confirmed default change and 
   );
   const branch = await screen.findByLabelText("Select branch");
   await screen.findByText("Snapshot aaaaaaaa. Select a branch to change it.");
-  await fireEvent.keyDown(branch, { key: "ArrowDown" });
+  await openKeyboardSelect(branch);
   await fireEvent.click(
     await screen.findByRole("option", { name: "topic · dddddddd" }),
   );
@@ -232,14 +237,17 @@ it("preserves an explicit branch snapshot across a confirmed default change and 
   await fireEvent.click(
     within(nav).getByRole("button", { name: "Overview", exact: true }),
   );
-  await fireEvent.click(
-    await screen.findByRole("button", { name: "Change default branch" }),
-  );
+  const defaultTrigger = await screen.findByRole("button", {
+    name: "Change default branch",
+  });
+  defaultTrigger.focus();
+  expect(document.activeElement).toBe(defaultTrigger);
+  await fireEvent.click(defaultTrigger);
   expect(screen.getByRole("dialog")).toBeTruthy();
   await vi.dynamicImportSettled();
   const candidate = await screen.findByLabelText("New default branch");
   await screen.findByText("Choose an existing committed branch.");
-  await fireEvent.keyDown(candidate, { key: "ArrowDown" });
+  await openKeyboardSelect(candidate);
   await fireEvent.click(
     await screen.findByRole("option", { name: "release · eeeeeeee" }),
   );
@@ -247,6 +255,7 @@ it("preserves an explicit branch snapshot across a confirmed default change and 
     screen.getByRole("button", { name: "Change default", exact: true }),
   );
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(defaultTrigger));
   const restoredNav = await screen.findByRole("navigation", {
     name: "Repository views",
   });
@@ -254,12 +263,9 @@ it("preserves an explicit branch snapshot across a confirmed default change and 
     within(restoredNav).getByRole("button", { name: "Files", exact: true }),
   );
   await screen.findByText("PINNED.txt");
-  expect((await screen.findByLabelText("Select branch")).textContent).toContain(
-    "topic · dddddddd",
-  );
-  await fireEvent.keyDown(screen.getByLabelText("Select branch"), {
-    key: "ArrowDown",
-  });
+  const restoredBranch = await screen.findByLabelText("Select branch");
+  expect(restoredBranch.textContent).toContain("topic · dddddddd");
+  await openKeyboardSelect(restoredBranch);
   await fireEvent.click(
     await screen.findByRole("option", { name: "Default (release)" }),
   );

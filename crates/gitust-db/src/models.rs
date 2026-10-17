@@ -2,48 +2,15 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
 use gitust_core::{
-    AccountStatus, AuthenticatedPrincipal, EnterpriseRole, EnterpriseSecurityPolicy, InviteId,
-    InvitePublicView, InviteTokenPurpose, PatId, PersonalAccessTokenView, RepoId, SessionId,
-    SshKeyId, SshPublicKeyView, TeamId, UserId, UserPublicProfile,
+    AccountStatus, EnterpriseRole, EnterpriseSecurityPolicy, InviteId, InvitePublicView,
+    InviteTokenPurpose, PatId, PersonalAccessTokenView, RepoId, SessionId, SshKeyId,
+    SshPublicKeyView, TeamId, UserId, UserPublicProfile,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::LOGIN_RATE_LIMIT_WINDOW_SECS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct StoredUser {
-    pub(crate) id: UserId,
-    pub(crate) username: String,
-    pub(crate) email: String,
-    pub(crate) password_hash: String,
-    pub(crate) role: EnterpriseRole,
-    pub(crate) status: AccountStatus,
-    pub(crate) team_ids: Vec<TeamId>,
-    pub(crate) created_at: DateTime<Utc>,
-}
-
-impl StoredUser {
-    pub(crate) fn to_public_profile(&self) -> UserPublicProfile {
-        UserPublicProfile {
-            id: self.id,
-            username: self.username.clone(),
-            email: self.email.clone(),
-            role: self.role,
-            status: self.status,
-            team_ids: self.team_ids.clone(),
-            created_at: self.created_at,
-        }
-    }
-
-    pub(crate) fn to_principal(&self) -> AuthenticatedPrincipal {
-        AuthenticatedPrincipal {
-            user_id: self.id,
-            username: self.username.clone(),
-            role: self.role,
-            team_ids: self.team_ids.clone(),
-        }
-    }
-}
+pub(crate) use crate::stored_user::StoredUser;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StoredInviteToken {

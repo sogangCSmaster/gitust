@@ -13,6 +13,7 @@ export type VisibilityResult =
   { kind: "saved" } | { kind: "stale" } | { kind: "error"; error: string };
 export interface VisibilityActions {
   begin: () => VisibilityIntent | null;
+  canManageMembers?: (intent: VisibilityIntent) => boolean;
   canInvite?: (intent: VisibilityIntent, original?: boolean) => boolean;
   inviteDraft?: (intent: VisibilityIntent) => GroupInviteDraft | undefined;
   setInviteDraft?: (intent: VisibilityIntent, draft: GroupInviteDraft) => void;

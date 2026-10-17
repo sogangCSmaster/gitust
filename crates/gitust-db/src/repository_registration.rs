@@ -125,6 +125,7 @@ pub struct AuthorizedRepository {
     pub can_rename: bool,
     pub can_change_visibility: bool,
     pub can_invite_to_group: bool,
+    pub can_manage_group_members: bool,
 }
 
 pub struct RegisteredRepository {
@@ -203,6 +204,7 @@ impl AuthStore {
                     can_rename: false,
                     can_change_visibility: false,
                     can_invite_to_group: false,
+                    can_manage_group_members: false,
                 }),
                 (Some(binding), Some(row))
                     if binding.valid_for(access.repo_id) && row.binding == Some(binding) =>
@@ -217,6 +219,7 @@ impl AuthStore {
                             can_rename: active.role == EnterpriseRole::SiteAdmin,
                             can_change_visibility: active.role == EnterpriseRole::SiteAdmin,
                             can_invite_to_group: active.role == EnterpriseRole::SiteAdmin,
+                            can_manage_group_members: active.role == EnterpriseRole::SiteAdmin,
                         });
                     }
                 }

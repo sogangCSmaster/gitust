@@ -29,6 +29,7 @@ pub(crate) mod quota;
 pub mod repo;
 mod repository_default_branch;
 mod repository_group_invites;
+mod repository_group_members;
 mod repository_reads;
 mod repository_registry;
 mod repository_rename;
@@ -205,6 +206,14 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/repos/{id}/default-branch",
             axum::routing::patch(repository_default_branch::change),
+        )
+        .route(
+            "/api/v1/repos/{id}/group-members",
+            get(repository_group_members::lookup),
+        )
+        .route(
+            "/api/v1/repos/{id}/group-members/{user_id}",
+            axum::routing::patch(repository_group_members::change),
         )
         .route(
             "/api/v1/repos/{id}/group-invites",

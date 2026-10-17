@@ -332,6 +332,7 @@ impl AuthStore {
                 role: assigned_role,
                 status: AccountStatus::Active,
                 team_ids,
+                membership_version: 0,
                 created_at: check_now,
             };
             let profile = user.to_public_profile();

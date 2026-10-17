@@ -35,6 +35,12 @@ const InviteForm = lazy(() =>
   })),
 );
 
+const MemberForm = lazy(() =>
+  import("./RepositoryGroupMemberForm").then((module) => ({
+    default: module.RepositoryGroupMemberForm,
+  })),
+);
+
 export const RepositoryVisibility: Component<{
   repository: ConnectedRepository;
   liveMode: boolean;
@@ -42,7 +48,14 @@ export const RepositoryVisibility: Component<{
 }> = (props) => {
   const [intent, setIntent] = createSignal<VisibilityIntent | null>(null);
   const [submitting, setSubmitting] = createSignal(false);
-  const [inviting, setInviting] = createSignal(false);
+  const [page, setPage] = createSignal<"access" | "invite" | "member">(
+    "access",
+  );
+  const inviting = () => page() === "invite";
+  const canManageMembers = () => {
+    const own = intent();
+    return !!own && props.actions?.canManageMembers?.(own) === true;
+  };
   const draft = () => {
     const own = intent();
     return (
@@ -59,12 +72,12 @@ export const RepositoryVisibility: Component<{
   const clear = () => {
     const own = intent();
     if (own) props.actions?.cancel(own);
-    setInviting(false);
+    setPage("access");
     setIntent(null);
     setSubmitting(false);
   };
   const close = () => {
-    if (!submitting() || inviting()) clear();
+    if (!submitting() || page() !== "access") clear();
   };
   const current = () => {
     const repository = props.repository;
@@ -78,8 +91,11 @@ export const RepositoryVisibility: Component<{
   };
   createEffect(() => {
     if (intent() && !current()) clear();
-    if (inviting() && !canInvite()) {
-      setInviting(false);
+    if (
+      (inviting() && !canInvite()) ||
+      (page() === "member" && !canManageMembers())
+    ) {
+      setPage("access");
       setSubmitting(false);
     }
   });
@@ -140,12 +156,18 @@ export const RepositoryVisibility: Component<{
             <DialogContent class="max-h-[90svh] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-lg">
               <DialogHeader class="pr-8 text-left">
                 <DialogTitle>
-                  {inviting() ? "Invite to owning group" : "Repository access"}
+                  {page() === "member"
+                    ? "Manage existing member"
+                    : inviting()
+                      ? "Invite to owning group"
+                      : "Repository access"}
                 </DialogTitle>
                 <DialogDescription>
-                  {inviting()
-                    ? "Create a 72-hour, one-use account invitation for the owning group."
-                    : "Choose who can access this repository. Anonymous access stays disabled."}
+                  {page() === "member"
+                    ? "Look up an existing account to manage owning-group membership."
+                    : inviting()
+                      ? "Create a 72-hour, one-use account invitation for the owning group."
+                      : "Choose who can access this repository. Anonymous access stays disabled."}
                 </DialogDescription>
               </DialogHeader>
               <p
@@ -156,29 +178,47 @@ export const RepositoryVisibility: Component<{
               </p>
               <DeferredView label="Repository access" onCancel={close}>
                 <Show
-                  when={inviting()}
+                  when={page() === "member"}
                   fallback={
-                    <Form
-                      intent={own()}
-                      actions={props.actions!}
-                      submitting={submitting()}
-                      onSubmitting={setSubmitting}
-                      onClose={close}
-                      onInvite={
-                        canInvite() ? () => setInviting(true) : undefined
+                    <Show
+                      when={inviting()}
+                      fallback={
+                        <Form
+                          intent={own()}
+                          actions={props.actions!}
+                          submitting={submitting()}
+                          onSubmitting={setSubmitting}
+                          onClose={close}
+                          onManageMembers={
+                            canManageMembers()
+                              ? () => setPage("member")
+                              : undefined
+                          }
+                          onInvite={
+                            canInvite() ? () => setPage("invite") : undefined
+                          }
+                        />
                       }
-                    />
+                    >
+                      <InviteForm
+                        draft={draft()}
+                        onDraft={(value) => {
+                          if (current() && canInvite())
+                            props.actions?.setInviteDraft?.(own(), value);
+                        }}
+                        intent={own()}
+                        actions={props.actions!}
+                        submitting={submitting()}
+                        onSubmitting={setSubmitting}
+                        onClose={close}
+                      />
+                    </Show>
                   }
                 >
-                  <InviteForm
-                    draft={draft()}
-                    onDraft={(value) => {
-                      if (current() && canInvite())
-                        props.actions?.setInviteDraft?.(own(), value);
-                    }}
+                  <MemberForm
                     intent={own()}
                     actions={props.actions!}
-                    submitting={submitting()}
+                    isPrivate={props.repository.isPrivate === true}
                     onSubmitting={setSubmitting}
                     onClose={close}
                   />

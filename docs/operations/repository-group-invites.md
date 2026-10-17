@@ -12,6 +12,9 @@ administrator authority across the installation. Developer is the form's default
 The operation does not edit existing members, create a named team, change the
 repository's owner or enable secondary push, worktrees, execution or MCP.
 
+For someone who already has an account, use the separate
+[existing-member operation](group-membership.md) instead of another invitation.
+
 The global Access invitation form retains its account-only behavior. CLI/API
 invitations can still specify their existing group lists and custom TTLs. The
 invitation list exposes actual group metadata; a missing field from an older
@@ -102,3 +105,5 @@ credentials and inactive-member fetch remain denied. Consumed/revoked replays
 preserve the existing invitation. Git refs/registration anchors and strict
 server/client `fsck` are checked independently. Private fixtures and owned
 services are removed before success is recorded. It publishes nothing to GitHub.
+The same rehearsal also checks existing-account group additions/removals and
+stale-request rejection, as described in the [membership contract](group-membership.md).

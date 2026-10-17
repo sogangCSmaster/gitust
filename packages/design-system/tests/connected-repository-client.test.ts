@@ -384,3 +384,25 @@ it("requires a typed owning-group invitation hint and defaults older catalogs to
   await client.refresh();
   expect(states.at(-1)?.repositories).toEqual([]);
 });
+
+it("accepts only a positive typed owning-group management hint and keeps old catalogs unsupported", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        response([{ ...repo, can_manage_group_members: true }]),
+      )
+      .mockResolvedValueOnce(response([repo]))
+      .mockResolvedValueOnce(
+        response([{ ...repo, can_manage_group_members: "true" }]),
+      ),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]?.canManageGroupMembers).toBe(true);
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]?.canManageGroupMembers).toBe(false);
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+});

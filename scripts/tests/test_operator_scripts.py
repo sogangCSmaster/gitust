@@ -24,6 +24,27 @@ def git(repo, *args):
 
 
 class OperatorScriptTests(unittest.TestCase):
+    def test_invitation_timestamps_keep_exact_nanosecond_expiry(self):
+        parse = load("repository-group-invite-rehearsal").utc_nanoseconds
+        duration = 72 * 3600 * 1_000_000_000
+        for suffix in ["Z", "+00:00"]:
+            for fraction in ["", ".1", ".123", ".123456", ".1234567", ".123456789"]:
+                with self.subTest(suffix=suffix, fraction=fraction):
+                    start = parse("2026-10-17T23:59:59" + fraction + suffix)
+                    end = parse("2026-10-20T23:59:59" + fraction + suffix)
+                    self.assertEqual(end - start, duration)
+        start = parse("2026-12-31T23:59:59.999999999Z")
+        exact = parse("2027-01-03T23:59:59.999999999Z")
+        early = parse("2027-01-03T23:59:59.999999998Z")
+        late = parse("2027-01-04T00:00:00Z")
+        self.assertEqual(exact - start, duration)
+        self.assertEqual(early - start, duration - 1)
+        self.assertEqual(late - start, duration + 1)
+        for value in ["2026-10-17T23:59:59", "2026-10-17T23:59:59+01:00",
+                      "2026-10-17T23:59:59.1234567890Z", "2026-02-30T00:00:00Z"]:
+            with self.subTest(invalid=value), self.assertRaises(ValueError):
+                parse(value)
+
     def test_rehearsal_git_ignores_an_inherited_repository(self):
         module = load("alpha-rehearsal")
         with tempfile.TemporaryDirectory() as directory:

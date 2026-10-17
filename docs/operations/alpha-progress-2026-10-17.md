@@ -792,3 +792,45 @@ scenario at step 19 and crash recovery at 20; hosted results must be observed fo
 the actual pushed revision. Gate B remains stopped and actual GitHub product
 publication remains deferred. Physical devices, intended IDE sessions, separate
 installation and the full alpha/roadmap acceptance conditions remain open.
+
+## Existing-account group membership and CI portability, 2026-10-18
+
+The [local membership checkpoint](evidence/group-membership-local-2026-10-18.json)
+binds this change to baseline `76ae55c` plus the recorded source hashes. An active
+SiteAdmin can find one existing account by exact username and add or remove the
+configured repository's owning-group membership. The form lives inside access
+settings and does not expose account lists or internal UUID/version fields.
+
+The server rechecks the original credential, current role and registration inside
+the auth transaction. A durable per-account version rejects concurrent stale
+writes and delayed grants after removal, including stale no-ops. Other groups,
+roles and account status remain unchanged. A positive stored version uses a shape
+that older writers reject instead of erasing the counter. Actual old-binary
+compatibility checks confirmed rejection without changing the database.
+
+The final integrated binary passed the combined three-repository rehearsal:
+existing-account additions/removals, concurrent version checks, restart, real Git
+clone/fetch and access revocation, plus the existing new-account invitation flow.
+Refs, registration anchors and server/client `fsck` remained valid. Native browser
+checks at 320, 768 and 1440 pixels exercised the live secondary repository, lookup,
+add/remove/reopen, unknown-account recovery and keyboard focus. The title stayed
+on one line; action heights were 44/32/32 pixels, with no horizontal overflow.
+The owned test services and fixtures were removed; existing user servers stayed up.
+
+Full verification passed: 418 Rust tests, two existing ignored Git benchmarks,
+295 frontend tests across 39 files, 20 Python tests, fmt, Clippy, typecheck, bundle
+freshness, fail-open and line limits. Independent backend, UI and operator reviews
+found no unresolved P0/P1/P2 in their recorded scopes. A misleading remaining-access
+message for inactive accounts was fixed in both UI and documentation.
+
+The [baseline hosted CI run](evidence/alpha-ci-76ae55c-2026-10-18.json) remains a
+failure: macOS could not find a default-branch option in a keyboard test; Linux's
+invitation rehearsal raised `ValueError`. This change restores real keyboard focus
+preconditions without relaxing assertions and parses UTC timestamps at exact
+nanosecond precision on older Python. The parser defect was reproduced locally;
+the hosted timestamp precision and macOS root cause were not directly reproduced.
+These local fixes do not establish success for a new hosted revision.
+
+Initial JavaScript remains 70,610 bytes at gzip level 9, above the 50,000-byte
+target. Physical-device checks, final-candidate installation/restore acceptance
+and actual GitHub product publication remain open. Automatic Gate B stays stopped.

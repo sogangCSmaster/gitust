@@ -292,6 +292,12 @@ export const createRepositoryWorkspace = (options: {
       setInviteDraft(null);
   });
   const visibility: VisibilityActions = {
+    canManageMembers: (intent) => {
+      const repository = selected();
+      return (
+        visibilityCurrent(intent) && repository?.canManageGroupMembers === true
+      );
+    },
     inviteDraft: (intent) => {
       const saved = inviteDraft();
       return saved &&

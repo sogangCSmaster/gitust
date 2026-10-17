@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "baseline": "76ae55c5778d2ce7fc76a74bbd27368f72fc37a7",
+  "scope": "Existing-account owning-group membership with conditional durable versions; CI timestamp portability and keyboard-test focus preconditions.",
+  "source_commit_is_base_plus_changes": true,
+  "source_sha256": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "8704a0f81be78b46cacfddaf8fa37ac2af9f34a58771233f4c58662b1c9f353a"
+    },
+    {
+      "path": "crates/gitust-db/src/invites.rs",
+      "sha256": "5d686ca9f0aae56f5cffc7a67d3ba60b8943720c62c1bcb5f0551bb3608a08c6"
+    },
+    {
+      "path": "crates/gitust-db/src/lib.rs",
+      "sha256": "a85ee08e431757285a24aa414dde1b06e2f0b648d7b7a7c1ad325a811fc98823"
+    },
+    {
+      "path": "crates/gitust-db/src/models.rs",
+      "sha256": "b45e87db120088b30233e49442c7afc4f11768376d34ddc220b138f55700c4c2"
+    },
+    {
+      "path": "crates/gitust-db/src/repository_group_members.rs",
+      "sha256": "cad0e77fa50f026249951613d876ae50d397373337bddc13e4a60d88727b08d5"
+    },
+    {
+      "path": "crates/gitust-db/src/repository_registration.rs",
+      "sha256": "da7846f3203d80cad22e2e2e2de9293b9e4c0e1873ef80a6c3ea698b5b46fb15"
+    },
+    {
+      "path": "crates/gitust-db/src/stored_user.rs",
+      "sha256": "a00d5a2481c12eb28851efba8f552665f869679cd30b91eda253a20d737f830e"
+    },
+    {
+      "path": "crates/gitust-db/src/tests_repository_group_members.rs",
+      "sha256": "9c549ed03be8f87e0eb166687dfa29de4b47dfc9d32b7fdfaec2acaf76d991c2"
+    },
+    {
+      "path": "crates/gitust-server/src/lib.rs",
+      "sha256": "ab231108e996f5baf05d4557c106f1eaeee7b39923c67bdc0c18bbb502bd6197"
+    },
+    {
+      "path": "crates/gitust-server/src/repository_group_members.rs",
+      "sha256": "ba835010ca8c4c18e35537a3b86f309f10dfca07ab8559eb07551fc8e4f6dabd"
+    },
+    {
+      "path": "crates/gitust-server/src/repository_reads.rs",
+      "sha256": "cd772c103bc65161c4ab77380f52a08fafab411203cd39f6794c5234f9c1aa13"
+    },
+    {
+      "path": "crates/gitust-server/src/tests.rs",
+      "sha256": "386f400a762383451482d086578c3ea5e025111fb7db0657c8aa3e31d0e4dab6"
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_group_members.rs",
+      "sha256": "54abe7794e4b3a86742445c2ac5851f072e041c193022e6f3c5946d2057a5f9a"
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_group_members_auth.rs",
+      "sha256": "48998e485b1cde5c43cea77d7844a123567ba546d93ffc7779ee164c36ffbd85"
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryGroupMemberForm.tsx",
+      "sha256": "13300e406a8b16aeab53a38e2e3e97c74126e75cd4499abef030d2721d7dbd68"
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryVisibility.tsx",
+      "sha256": "76e352091b8dfc0b2330e42ac27e060233d73f2e9de0111b22fbe4cc6bf56faa"
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryVisibilityForm.tsx",
+      "sha256": "d7cfd3747860daceda28d1bc295966f98e512003b00d6f3696fd77fa14216f8d"
+    },
+    {
+      "path": "packages/design-system/src/showcase/connected-repository-client.ts",
+      "sha256": "d867966eb23f5d5b28a4c979ee273ef61734d39568f04dbe30963c5ce726d009"
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-group-member.ts",
+      "sha256": "d7fbddf874c2bdf9dea11fa67b3a2dd468a3f38a805c27761c3bf7df11b384fd"
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-visibility.ts",
+      "sha256": "acea0cc74ec77312bce2395d86a45155d0db37c7bb0898b5c642b1991d440a6a"
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-workspace.ts",
+      "sha256": "84e1512ee08b7a02ccd3f2f12dae4c971bd4ad70d384345419eb3a28cc3dbbde"
+    },
+    {
+      "path": "packages/design-system/tests/connected-repository-client.test.ts",
+      "sha256": "bfe31881e9e692d1fab4a39462d24021111790835283c6f5a6e84dafec5a2277"
+    },
+    {
+      "path": "packages/design-system/tests/repository-group-members.test.tsx",
+      "sha256": "84b7a26c00670974812fb8d4542dd00d4a31f28991fde1b1513164685acc4a87"
+    },
+    {
+      "path": "packages/design-system/tests/workbench-multi-repository.test.tsx",
+      "sha256": "0bc008bef74d56b851f2c37b5d21c7b75c66011d01bbc1d15984abd800c88527"
+    },
+    {
+      "path": "scripts/group-membership-checks.py",
+      "sha256": "3b0d143fff3599d8ff028078be67c4592ff1636b02618843d8ff7426d361e349"
+    },
+    {
+      "path": "scripts/repository-group-invite-rehearsal.py",
+      "sha256": "2f3893409eba195f57d5d218a972d3cb1f5074e36110b07ca61b6559d6cec673"
+    },
+    {
+      "path": "scripts/tests/test_operator_scripts.py",
+      "sha256": "7eb248d76954b9d07fa8797840c2535833a8b08d03272389368e883a7509316a"
+    }
+  ],
+  "binary_sha256": "f6eba1cc49ca605ecd27a1c92e7d54624895397c37abcb5e3540210f0f7bfcf0",
+  "mechanical": {
+    "exit_code": 0,
+    "rust_tests": 418,
+    "existing_ignored_git_benchmarks": 2,
+    "frontend_tests": 295,
+    "frontend_files": 39,
+    "python_tests": 20,
+    "fmt_clippy_typecheck_dist_fail_open_line_gates": true
+  },
+  "independent_gate_a": {
+    "backend": "CLEAR FOR INTEGRATION",
+    "ui_and_keyboard": "CLEAR FOR INTEGRATION",
+    "root_and_ui": "CLEAR TO COMMIT for reviewed scope",
+    "timestamp": "CLEAR FOR INTEGRATION",
+    "unresolved_p0_p1_p2": 0,
+    "reviewers_excluded_their_own_authored_changes": true
+  },
+  "operating": {
+    "version": 2,
+    "passed": true,
+    "actual_repositories": 3,
+    "existing_member_group_grant_and_removal": true,
+    "membership_version_replay_and_restart": true,
+    "membership_preserves_other_groups_role_and_status": true,
+    "membership_real_git_access_revocation": true,
+    "role_anonymous_and_malformed_denials": true,
+    "one_key_concurrent_issuance": true,
+    "hash_only_token_and_72_hour_expiry": true,
+    "exact_origin_and_semantic_conflicts": true,
+    "restart_replay_preserves_identity": true,
+    "consumed_and_revoked_keys_do_not_remint": true,
+    "new_member_sees_exact_group_pair": true,
+    "other_group_and_account_only_denied": true,
+    "actual_secondary_clone_fetch_and_tags": true,
+    "secondary_push_and_worktrees_denied": true,
+    "revoked_admin_and_deactivated_member_denied": true,
+    "git_refs_and_registration_unchanged": true,
+    "git_fsck": true,
+    "external_github_publication": false,
+    "platform": "Darwin",
+    "source_commit": "76ae55c5778d2ce7fc76a74bbd27368f72fc37a7",
+    "runtime_worktree_dirty": true,
+    "binary_sha256": "f6eba1cc49ca605ecd27a1c92e7d54624895397c37abcb5e3540210f0f7bfcf0",
+    "runtime_source_sha256": {
+      "scripts/repository-group-invite-rehearsal.py": "2f3893409eba195f57d5d218a972d3cb1f5074e36110b07ca61b6559d6cec673",
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+      "scripts/multi-repository-rehearsal.py": "f2d35dfa03cdf03500580587711bb020473463fb04d5782b430267bc9c7fdc36",
+      "scripts/read-only-git-rehearsal.py": "54db1f32d1fad450a6d282b20ebd61eae0cd451edc1d57371fe776a4fef7cca2",
+      "scripts/group-membership-checks.py": "3b0d143fff3599d8ff028078be67c4592ff1636b02618843d8ff7426d361e349"
+    },
+    "owned_services_reaped": true,
+    "private_fixture_removed": true
+  },
+  "native_browser": {
+    "binary_sha256": "f6eba1cc49ca605ecd27a1c92e7d54624895397c37abcb5e3540210f0f7bfcf0",
+    "viewport_results": [
+      {
+        "width": 320,
+        "height": 740,
+        "pageWidth": 320,
+        "dialogWidth": 288,
+        "dialogHeight": 497,
+        "headingHeight": 18,
+        "lineHeight": 18,
+        "actionHeights": [
+          44,
+          44,
+          44
+        ],
+        "state": "added",
+        "focus": "Remove from group",
+        "screenshot": "group-member-final-320.jpg"
+      },
+      {
+        "buttons": [
+          {
+            "height": 32,
+            "text": "Find"
+          },
+          {
+            "height": 32,
+            "text": "Close"
+          },
+          {
+            "height": 32,
+            "text": "Add to group"
+          },
+          {
+            "height": 32,
+            "text": "Close"
+          }
+        ],
+        "dialog": [
+          {
+            "clientWidth": 382,
+            "height": 457,
+            "scrollWidth": 382,
+            "width": 384
+          }
+        ],
+        "focused": "Add to group",
+        "heading": [
+          {
+            "height": 18,
+            "lineHeight": "18px",
+            "text": "Manage existing member"
+          }
+        ],
+        "height": 1024,
+        "pageWidth": 768,
+        "width": 768,
+        "state": "removed",
+        "screenshot": "group-member-final-768.jpg"
+      },
+      {
+        "buttons": [
+          {
+            "height": 32,
+            "text": "Find"
+          },
+          {
+            "height": 32,
+            "text": "Close"
+          },
+          {
+            "height": 32,
+            "text": "Add to group"
+          },
+          {
+            "height": 32,
+            "text": "Close"
+          }
+        ],
+        "dialog": [
+          {
+            "clientWidth": 382,
+            "height": 409,
+            "scrollWidth": 382,
+            "width": 384
+          }
+        ],
+        "focused": "Add to group",
+        "heading": [
+          {
+            "height": 18,
+            "lineHeight": "18px",
+            "text": "Manage existing member"
+          }
+        ],
+        "height": 1000,
+        "pageWidth": 1440,
+        "width": 1440,
+        "state": "removed-after-reopen",
+        "screenshot": "group-member-final-1440.jpg"
+      }
+    ],
+    "real_admin_login": true,
+    "find_add_close_reopen_remove_reopen": true,
+    "unknown_account_error_then_recovery": true,
+    "keyboard_tab_escape_and_opener_focus": true,
+    "durable_snapshot_after_native_actions": {
+      "membership_version": 2,
+      "original_other_group_only": true,
+      "role_and_status_preserved": true
+    },
+    "screenshots": [
+      {
+        "name": "group-member-final-320.jpg",
+        "sha256": "ff6421f3ed4eb860ee5bf81b2291477e7a7f160eff86b6c4067236b93b608e99"
+      },
+      {
+        "name": "group-member-final-768.jpg",
+        "sha256": "e7434ca0f6d0d32ec313e015e199aab1143fbda6264cde20da3613d738b1b217"
+      },
+      {
+        "name": "group-member-final-1440.jpg",
+        "sha256": "855b9abe09bae45582cfa314fd1233aad692a0e5993fbafe5559ce2376ce6595"
+      }
+    ],
+    "owned_fixture_reaped_and_removed": true,
+    "user_services_unchanged": true,
+    "physical_device_test": false
+  },
+  "bundle_gzip9_bytes": {
+    "initial": 70610,
+    "first_overview": 75323,
+    "first_access": 99201,
+    "first_member": 102695,
+    "target": 50000,
+    "target_met": false
+  },
+  "ci_baseline": {
+    "record": "alpha-ci-76ae55c-2026-10-18.json",
+    "run_id": 39069092005,
+    "attempt": 1,
+    "completed_successfully": false,
+    "macos_failure": "Mechanical step: default-branch option lookup in a keyboard test. Actual focus preconditions restored; hosted root cause not reproduced locally.",
+    "linux_failure": "Group invitation rehearsal ValueError. Old-Python nanosecond parser incompatibility reproduced locally; actual hosted fractional precision was not observed.",
+    "new_revision_ci_pending": true
+  },
+  "limitations": [
+    "No production deployment, GitHub product publication, full alpha acceptance or physical-device claim.",
+    "Existing-group changes affect all private repositories owned by that group; other groups, role and account status are preserved.",
+    "Positive membership versions require upgraded processes sharing the auth store; old writers reject the new record shape.",
+    "Full backup rollback also rolls membership state and versions back; clients must refresh after restore.",
+    "No group roster search, named teams, global-role editor or online inventory changes.",
+    "Automatic Gate B remains stopped."
+  ],
+  "local_artifact_sha256": {
+    "backend_source": "d7c3f6c383bf327a04f86597535d8ad9a6e8e3338ae12f4be0b9816934ecb451",
+    "backend_implementation_evidence": "4a4716520a5ceb781f1be7c117dca9340914cebbd1117836a783240f24d88299",
+    "ui_source_v2": "02e290a359f264c8d8ce913a7a034343282da1f4b60b01cebfb7b6a45c15ecea",
+    "ui_dist_v2": "6e673771715769fde34c55d0a2667315f342d51ba40732902f082120ebc606a4",
+    "ui_v2_evidence": "bbe943c35c4d788f6b7cceac8e697fe5ae5e02d646d90267e9e56adc2174bf35",
+    "backend_independent_review": "67c591412960f0c41a3283f914418225a77d567aeb35875e2c71e82b848fe98d",
+    "ui_and_keyboard_independent_review": "4d01725a8241acf75d75dbebab4eda6c35a23ab21df6c2ac2dac250f5e0c821c",
+    "root_and_ui_independent_review": "7b807610aef06a298d6f1316188ed2e67741a82ac28b25bb45c8d9845a977832",
+    "timestamp_independent_review": "bf4feab22b476b75f38a42be88d567f2d6754838531c3ecc02833562ce9a4e3c",
+    "feature_before_operator": "8f758969b12038f6dff059caaf6c658202a2c8f3ef8e6e09e889031e71567c9a",
+    "final_operator": "46c2e095a21a1bd0ac3c4378515322a290f14bc3c5e216a2dea85f85f12b27eb",
+    "native_browser": "d42acbbf317dbc49387c7dd647ba7236015dc6191fd5bfe6b7b29e893dd27fcc",
+    "full_verify_log": "e3b76ef7632dd3b3a9dea96394a4819f0315279579459cd2c7c41e1b70c61f04",
+    "keyboard_fixture_evidence": "20b367849234e41be62b9168982868d25a5911a1a278924e570b1306c703e46a"
+  }
+}

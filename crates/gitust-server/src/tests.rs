@@ -561,3 +561,9 @@ mod tests_git_http_secondary_auth;
 
 #[path = "tests_credential_mutations.rs"]
 mod tests_credential_mutations;
+
+#[path = "tests_repository_group_members.rs"]
+mod tests_repository_group_members;
+
+#[path = "tests_repository_group_members_auth.rs"]
+mod tests_repository_group_members_auth;

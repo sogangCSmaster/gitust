@@ -27,6 +27,9 @@ pub use repository_group_invites::{
     RepositoryGroupInviteRequest,
 };
 mod models;
+mod repository_group_members;
+mod stored_user;
+pub use repository_group_members::{GroupMember, GroupMemberError};
 mod oauth_session;
 mod persistence;
 mod repository_registration;
@@ -41,6 +44,8 @@ mod tests_automatic_actor;
 mod tests_credential_mutations;
 #[cfg(test)]
 mod tests_persistence;
+#[cfg(test)]
+mod tests_repository_group_members;
 #[cfg(test)]
 mod tests_repository_registration;
 #[cfg(test)]
@@ -173,6 +178,7 @@ impl AuthStore {
                 role: EnterpriseRole::SiteAdmin,
                 status: AccountStatus::Active,
                 team_ids: Vec::new(),
+                membership_version: 0,
                 created_at: Utc::now(),
             };
             let profile = user.to_public_profile();

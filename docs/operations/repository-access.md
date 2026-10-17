@@ -25,6 +25,10 @@ for eligible SiteAdmins. This is a separate invitation operation: it grants a ne
 account the existing owning-group membership, possibly across several private
 repositories. It does not change the access-scope value or edit an existing member.
 
+For an existing account, [Manage existing member](group-membership.md) changes
+only its owning-group membership, with a conditional version to reject stale
+requests. Other groups, account status and site-wide roles remain unchanged.
+
 ## HTTP contract
 
 ```text

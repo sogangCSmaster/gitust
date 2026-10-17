@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Invite one new account into an owning group shared by two actual repositories."""
+"""Verify new invitations and existing membership across three real repositories."""
 import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import subprocess
@@ -27,6 +28,15 @@ def load(name):
 
 
 read_only = load("read-only-git-rehearsal")
+
+
+def utc_nanoseconds(value):
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(?:Z|\+00:00)", value)
+    if match is None:
+        raise ValueError("invalid UTC invitation timestamp")
+    whole = datetime.fromisoformat(match[1] + "+00:00")
+    elapsed = whole - datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return (elapsed.days * 86400 + elapsed.seconds) * 1_000_000_000 + int((match[2] or "0").ljust(9, "0"))
 
 
 class Rehearsal(read_only.Rehearsal):
@@ -122,6 +132,7 @@ class Rehearsal(read_only.Rehearsal):
 
     def execute(self):
         self.prepare()
+        membership = load("group-membership-checks").run(self)
         self.route = f"/api/v1/repos/{self.f.ids[0]}/group-invites"
         body = {"invite_id": str(uuid.uuid4()), "target_email": "new-group-member@company.internal",
                 "assigned_role": "Developer"}
@@ -161,9 +172,9 @@ class Rehearsal(read_only.Rehearsal):
         stored = self.stored(body["invite_id"])
         self.require(stored["token_sha256"] == list(hashlib.sha256(token.encode()).digest())
                      and token not in self.f.auth.read_text(), "invitation token is not stored hash-only")
-        start = datetime.fromisoformat(stored["created_at"].replace("Z", "+00:00"))
-        end = datetime.fromisoformat(stored["expires_at"].replace("Z", "+00:00"))
-        self.require((end - start).total_seconds() == 72 * 3600, "group invitation changed the 72-hour policy")
+        start = utc_nanoseconds(stored["created_at"])
+        end = utc_nanoseconds(stored["expires_at"])
+        self.require(end - start == 72 * 3600 * 1_000_000_000, "group invitation changed the 72-hour policy")
         self.replay(body)
         for changed in [{**body, "assigned_role": "Maintainer"},
                         {**body, "target_email": "different@company.internal"}]:
@@ -230,7 +241,7 @@ class Rehearsal(read_only.Rehearsal):
         for repo in [*self.f.repos, clone]:
             self.h.git(repo, "fsck", "--full", "--strict")
         print("PASS invited group-A pair visibility, group-B denial, real clone/fetch and retained secondary write denial", flush=True)
-        return {"version": 1, "passed": True, "actual_repositories": 3,
+        return {"version": 2, "passed": True, "actual_repositories": 3, **membership,
                 "role_anonymous_and_malformed_denials": True, "one_key_concurrent_issuance": True,
                 "hash_only_token_and_72_hour_expiry": True, "exact_origin_and_semantic_conflicts": True,
                 "restart_replay_preserves_identity": True, "consumed_and_revoked_keys_do_not_remint": True,
@@ -251,7 +262,7 @@ def main():
     script, source, binary = Path(__file__).resolve(), args.source.resolve(strict=True), args.binary.resolve(strict=True)
     h.require(not args.report.exists() and not args.report.is_symlink(), "report already exists")
     runtime_paths = [script, script.with_name("alpha-rehearsal.py"), script.with_name("multi-repository-rehearsal.py"),
-                     script.with_name("read-only-git-rehearsal.py")]
+                     script.with_name("read-only-git-rehearsal.py"), script.with_name("group-membership-checks.py")]
     runtime = {"scripts/" + p.name: h.sha256(p) for p in runtime_paths}
     commit, dirty, binary_sha = h.git(source, "rev-parse", "HEAD"), bool(h.git(source, "status", "--porcelain")), h.sha256(binary)
     with tempfile.TemporaryDirectory(prefix="gitust-group-invite-") as directory:
@@ -277,7 +288,7 @@ def main():
     with os.fdopen(os.open(args.report, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as out:
         json.dump(report, out, indent=2)
         out.write("\n")
-    print("Owning-group invitation passed; owned services and private fixtures removed.")
+    print("Owning-group invitations and membership passed; owned services and private fixtures removed.")
 
 
 if __name__ == "__main__":

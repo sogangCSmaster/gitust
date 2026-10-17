@@ -132,6 +132,7 @@ struct CatalogEntry {
     is_private: Option<bool>,
     can_change_visibility: bool,
     can_invite_to_group: bool,
+    can_manage_group_members: bool,
     can_change_default_branch: bool,
 }
 fn display_name(engine: &GitEngine, metadata: Option<&RepositoryRecord>) -> String {
@@ -201,6 +202,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                     .map(|metadata| metadata.is_private),
                 can_change_visibility: authorization.can_change_visibility,
                 can_invite_to_group: authorization.can_invite_to_group,
+                can_manage_group_members: authorization.can_manage_group_members,
                 can_change_default_branch: authorization.can_rename
                     && context.is_default
                     && context
@@ -254,6 +256,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 .map(|metadata| metadata.is_private);
             entry.can_change_visibility = current.can_change_visibility;
             entry.can_invite_to_group = current.can_invite_to_group;
+            entry.can_manage_group_members = current.can_manage_group_members;
             entry.can_change_default_branch &= current.can_rename;
         }
         Ok(Catalog { repositories })

@@ -11,6 +11,7 @@ const MAX_CHECKS_BYTES: u64 = 16_384;
 pub struct RequiredChecks {
     pub blob_oid: String,
     pub commands: Vec<String>,
+    pub auto_run: bool,
 }
 
 #[derive(Deserialize)]
@@ -18,6 +19,8 @@ pub struct RequiredChecks {
 struct ChecksConfig {
     version: u32,
     commands: Vec<String>,
+    #[serde(default)]
+    auto_run: bool,
 }
 
 impl GitEngine {
@@ -66,6 +69,7 @@ impl GitEngine {
         Ok(Some(RequiredChecks {
             blob_oid: entry.oid().to_string(),
             commands: config.commands,
+            auto_run: config.auto_run,
         }))
     }
 }

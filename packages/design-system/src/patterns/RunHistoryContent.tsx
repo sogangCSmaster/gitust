@@ -75,9 +75,11 @@ export const RunHistoryContent: Component<RunHistoryDialogProps> = (props) => {
                       {new Date(record.completedAt).toLocaleString()}
                     </time>
                     <span class="text-xs font-normal">
-                      {record.verificationRequested
-                        ? "Verification run"
-                        : "Command run"}{" "}
+                      {record.automatic
+                        ? "Automatic checks"
+                        : record.verificationRequested
+                          ? "Verification run"
+                          : "Command run"}{" "}
                       · {record.result.durationMs}ms
                     </span>
                   </Button>
@@ -102,6 +104,12 @@ export const RunHistoryContent: Component<RunHistoryDialogProps> = (props) => {
                   </div>
                   <p class="break-all font-mono">Run: {record.runId}</p>
                   <p class="break-all font-mono">Run by: {record.userId}</p>
+                  <Show when={record.automatic}>
+                    <p>
+                      Automatic checks do not grant approval. Run manual
+                      verification before approving.
+                    </p>
+                  </Show>
                   <Show when={record.checkedCommit}>
                     <p class="break-all font-mono">
                       Checked commit at execution: {record.checkedCommit}

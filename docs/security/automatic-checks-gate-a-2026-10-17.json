@@ -1,0 +1,28 @@
+{
+  "base_head": "76ca90a29dfc2bb7f659ab9652be11c5e3a0a830",
+  "reviewed_files": {
+    "README.md": "731456b48fc655e210afe0e5eb95668c06e90a1b7ea30070b054b149bd4f8b7e",
+    "crates/gitust-git/src/checks.rs": "bb5fb6bd31d3cd60c3e5512a0fa3abf80e621737f4c90e6e67b335894caa753c",
+    "crates/gitust-git/src/tests_checks.rs": "f97e9e012d9f751fec98898efde414cef35071e0205970fc6f1ee06e41ed92b6",
+    "crates/gitust-server/src/automatic_checks.rs": "6c3ef224170e8f251c06ffa93dcddb1ccd447da88c86648892098a983185e8b2",
+    "crates/gitust-server/src/git_http.rs": "c3980f7bd6a0364765a8cf9e903475fa5817138b12f1a8b943bee04864c634d6",
+    "crates/gitust-server/src/lib.rs": "f3002adeb22e10b499b9d84adb2f523f6f2532fbbb6dfba940847d1f37086e6c",
+    "crates/gitust-server/src/mcp_stdio.rs": "09247d45f7f9ee893753dfbc25d594f8bb032698dbfa76f20a0a95b6eac77adf",
+    "crates/gitust-server/src/run_history.rs": "41ba7ebdf564dabe9667466fb47a3e65a4aba021e0f4af95b8992384e9e04943",
+    "crates/gitust-server/src/state.rs": "d24db002b7b8ab168ca505e60e53dace288edb76c89065632d6125d3e9cfd9c7",
+    "crates/gitust-server/src/tests.rs": "cae6e13cb19e6dd55e381a33b76bea172a0ea8125a3647fd4cb6710356537da0",
+    "crates/gitust-server/src/tests_automatic_checks.rs": "584b594922f9de4df36b85dde83c89a52b6df878c2a6d00050e0dd84d20dfce0",
+    "crates/gitust-server/src/tests_automatic_git_http.rs": "2d6a6ac0ef6f2b9d484825c3a399999b176dd1050d22ed42e02ff447813165a7",
+    "crates/gitust-server/src/worktree_commit.rs": "f080498485bd4d6d414e97463f1ed1deb616b7a0ff09be6655d3e751a5c8a0b8",
+    "crates/gitust-server/src/worktree_execution.rs": "24a6ce0bad55695132ae3d7e4a6327598adf1ca3c7bc47946d1fc431bf67954f",
+    "crates/gitust-server/src/worktrees.rs": "3aa5a1ca14ff17c27ddb2bbc424879368d7bce30bac600abbfa8b2396ce04ca8",
+    "docs/architecture/worktree-verification.md": "ff4dc115f5765c24c9930257b68433e465d8afd028831685180d3f714c426220",
+    "docs/roadmap.md": "db7fc27c929e62470dcc966e79187f1d9375209fb64b1fecc07b027d92aa6b27",
+    "docs/security/automatic-checks-review-2026-10-17.md": "fa54227ce17abd1b8595e6c563b189f996c15222073cf9a554e2b88eeb5cb056",
+    "packages/design-system/src/patterns/RunHistoryContent.tsx": "df6ade8f93402ea9eac6b1783f7661a7f2507a054ea03fc67f611d55233a42cd",
+    "packages/design-system/src/patterns/run-history-types.ts": "bafacd61cadb3799c0bb80dd9ed62bb078cfaea415dc074e1eb61a71cb62c3f9",
+    "packages/design-system/src/showcase/live-run-history-client.ts": "28a25097e5e14168f83ecffa4b8f4f4cbaad5079596ae41ce2564166e79bf000",
+    "packages/design-system/tests/live-run-history-client.test.ts": "1c0a8feee7aad6057c3743462ce7702edbc493d5b5e2c3857fc051b1a61b3a90",
+    "packages/design-system/tests/run-history-view.test.tsx": "401bf5e3e87a7c592c439d19fc8c7f8cc34750420e3bc7ebf59905617cbebb10"
+  }
+}

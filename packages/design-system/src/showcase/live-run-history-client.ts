@@ -48,11 +48,17 @@ export function parseRunHistory(
       typeof entry.user_id !== "string" ||
       !uuid.test(entry.user_id) ||
       typeof entry.verification_requested !== "boolean" ||
+      (entry.automatic !== undefined && typeof entry.automatic !== "boolean") ||
       typeof entry.history_truncated !== "boolean" ||
       !nullableOid(entry.checked_commit) ||
       !nullableOid(entry.checks_blob_oid) ||
-      entry.verification_requested !== (entry.checked_commit !== null) ||
-      (entry.checks_blob_oid !== null && !entry.verification_requested)
+      (entry.automatic === true && entry.verification_requested) ||
+      (entry.verification_requested || entry.automatic === true) !==
+        (entry.checked_commit !== null) ||
+      (entry.automatic === true && entry.checks_blob_oid === null) ||
+      (entry.checks_blob_oid !== null &&
+        !entry.verification_requested &&
+        entry.automatic !== true)
     )
       return invalid();
     const result = entry.result;
@@ -90,7 +96,11 @@ export function parseRunHistory(
           return invalid();
         if (step.exit_code !== 0) failed = step.exit_code;
       }
-      const output = parseCommandOutput(step.output, step.exit_code === null, 1024);
+      const output = parseCommandOutput(
+        step.output,
+        step.exit_code === null,
+        1024,
+      );
       return {
         command: step.command,
         required: step.required,
@@ -105,6 +115,7 @@ export function parseRunHistory(
       completedAt: entry.completed_at,
       userId: entry.user_id,
       verificationRequested: entry.verification_requested,
+      automatic: entry.automatic === true,
       checkedCommit: entry.checked_commit,
       checksBlobOid: entry.checks_blob_oid,
       historyTruncated: entry.history_truncated,

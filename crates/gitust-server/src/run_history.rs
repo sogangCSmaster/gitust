@@ -29,6 +29,8 @@ pub(crate) struct RunRecord {
     completed_at: DateTime<Utc>,
     user_id: UserId,
     verification_requested: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) automatic: bool,
     checked_commit: Option<CommitSha>,
     checks_blob_oid: Option<String>,
     pub(crate) result: SandboxExecutionResult,
@@ -54,7 +56,9 @@ impl RunRecord {
                             && output.stderr.len() <= 1024
                     })
             })
-            && self.verification_requested == self.checked_commit.is_some()
+            && !(self.automatic && self.verification_requested)
+            && (self.verification_requested || self.automatic) == self.checked_commit.is_some()
+            && (!self.automatic || self.checks_blob_oid.is_some())
             && self
                 .checked_commit
                 .as_ref()
@@ -62,7 +66,7 @@ impl RunRecord {
             && self
                 .checks_blob_oid
                 .as_ref()
-                .is_none_or(|value| self.verification_requested && oid(value))
+                .is_none_or(|value| (self.verification_requested || self.automatic) && oid(value))
     }
 
     pub(crate) fn new(
@@ -87,6 +91,7 @@ impl RunRecord {
             completed_at: Utc::now(),
             user_id,
             verification_requested: verify,
+            automatic: false,
             checked_commit: checked,
             checks_blob_oid,
             result,
@@ -217,6 +222,9 @@ pub(crate) fn append(
     branch: &str,
     record: RunRecord,
 ) -> Result<(), Failure> {
+    if !record.valid(id) {
+        return Err(storage_error("invalid run record"));
+    }
     let dir = directory(common, true)?.ok_or_else(|| storage_error("missing history directory"))?;
     let mut records = read(common, id, branch)?;
     records.insert(0, record);

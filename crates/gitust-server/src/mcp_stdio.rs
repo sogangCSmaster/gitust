@@ -81,6 +81,8 @@ where
 {
     use tokio::io::AsyncWriteExt;
 
+    let _automatic_checks = crate::automatic_checks::start(&state)?;
+
     let caller = AuthenticatedPrincipal {
         user_id: UserId::new(),
         username: "mcp-local-agent".to_owned(),

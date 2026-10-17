@@ -30,6 +30,7 @@ In progress. Implemented portions:
 - Clean-commit verification, fast-forward approval, and separate exact-SHA publication.
 - Durable approval/publication records and explicit remote-failure retry.
 - Required Checks from committed merge-target configuration during explicit verification.
+- Opt-in automatic Checks after accepted managed-worktree MCP commits and Git HTTP pushes, with bounded latest-update coalescing and diagnostic history. Automatic success does not grant approval; explicit manual verification remains required.
 - Per-command verification outcomes, measured durations, skipped checks and expandable command-specific stdout/stderr in HTTP/MCP and the workbench; stored output is bounded separately for history.
 - Bounded durable history of completed HTTP/MCP runs, with a SiteAdmin-only read API and no restoration of approval authority.
 - A live workbench history viewer for the latest five completed runs, including per-command outcomes, captured output and execution metadata, separate from current verification authority.
@@ -39,8 +40,8 @@ In progress. Implemented portions:
 
 Remaining work:
 
-- Automatic Checks on branch updates; durable start/timeout/cancellation records.
-- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is 80.73 kB gzip.
+- Durable automatic-run scheduling/restart recovery and start/timeout/cancellation records; non-managed branch triggers and the live Actions workflow screen.
+- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is 80.79 kB gzip.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Broader administration UI and repository lifecycle management.

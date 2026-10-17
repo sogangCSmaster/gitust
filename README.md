@@ -27,7 +27,7 @@ The current milestone is a trusted single-user self-hosted alpha: operate concur
 |---|---|
 | Workspaces | Managed `agent/*` branches, linked worktrees, ownership checks, and startup recovery |
 | Execution | Local commands using macOS Seatbelt or Linux Bubblewrap |
-| Verification | Clean SHA checks, required commands from the merge target's committed `.gitust-checks.json`, and per-command results |
+| Verification | Clean SHA checks, required commands from the merge target's committed `.gitust-checks.json`, per-command results, and opt-in automatic Checks after managed-worktree MCP commits or Git HTTP pushes |
 | Approval and publication | Human-approved fast-forward merge, exact-SHA push, persisted records, and explicit retry |
 | Git hosting | Smart HTTP clone/fetch and restricted pushes to managed agent branches |
 | Mirroring | Explicit inbound synchronization that preserves local work and private agent refs |
@@ -35,7 +35,9 @@ The current milestone is a trusted single-user self-hosted alpha: operate concur
 | Accounts | CLI bootstrap, administrator-issued invitations, roles, PATs, SSH key management, and revocation |
 | Web UI | Embedded SolidJS workbench for browsing and the agent verification/approval/publication flow |
 
-SSH Git serving, automatic Checks on branch updates, full pull-request collaboration, GitHub Actions compatibility, microVM execution, SSO, and multi-node scheduling are **planned**. Some additional workbench views are UI demonstrations. The [roadmap](docs/roadmap.md) separates implementation from plans.
+SSH Git serving, full pull-request collaboration, GitHub Actions compatibility, microVM execution, SSO, and multi-node scheduling are **planned**. Some additional workbench views are UI demonstrations. The [roadmap](docs/roadmap.md) separates implementation from plans.
+
+Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Local filesystem Git commits, untracked branches and startup replay are outside this first trigger implementation. See [verification behavior](docs/architecture/worktree-verification.md).
 
 ## Build from source
 

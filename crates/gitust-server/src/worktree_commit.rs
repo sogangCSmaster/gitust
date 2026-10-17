@@ -153,12 +153,27 @@ pub(super) async fn commit_worktree(
             };
         });
         let committed = result?;
+        // A trigger failure cannot undo the already accepted Git commit. Return its identity
+        // and an explicit scheduling outcome so callers do not retry the mutation blindly.
+        let automatic_checks = match crate::automatic_checks::after_commit(
+            &state, &caller, wt.id, committed.commit.clone(),
+            matches!(authority, CommitAuthority::LocalOperator),
+        ) {
+            Ok(true) => "queued",
+            Ok(false) => "disabled",
+            Err((status, _)) => {
+                set_worktree_status(&state, wt.id, |task| task.status = WorktreeStatus::Failed);
+                tracing::warn!(worktree_id = %wt.id.0, %status, "commit accepted but automatic Checks could not be queued");
+                "unavailable"
+            }
+        };
         Ok(serde_json::json!({
             "worktree_id": committed.worktree_id.0,
             "branch": committed.branch,
             "commit": committed.commit.0,
             "parent": committed.parent.0,
-            "status": "pending",
+            "status": if automatic_checks == "unavailable" { "failed" } else { "pending" },
+            "automatic_checks": automatic_checks,
             "verification_required": true,
         }))
     })

@@ -489,5 +489,9 @@ async fn http_worktree_lifecycle_spawn_exec_approve_discard() {
         .iter()
         .all(|e| e.branch != "agent/claude/lifecycle"));
 }
+#[path = "tests_automatic_checks.rs"]
+mod tests_automatic_checks;
+#[path = "tests_automatic_git_http.rs"]
+mod tests_automatic_git_http;
 #[path = "tests_webui_assets.rs"]
 mod webui_assets;

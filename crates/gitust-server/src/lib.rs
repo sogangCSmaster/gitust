@@ -11,6 +11,7 @@ use serde::Serialize;
 use tower_http::cors::CorsLayer;
 
 pub mod auth;
+mod automatic_checks;
 pub mod git_http;
 pub mod listener;
 pub mod mcp;
@@ -260,6 +261,7 @@ pub async fn serve(
              single-user deployment"
         );
     }
+    let _automatic_checks = automatic_checks::start(&state)?;
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Gitust All-in-One Server listening on http://{addr}");

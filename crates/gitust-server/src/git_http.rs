@@ -466,10 +466,46 @@ pub(crate) async fn git_receive_pack_handler(
     }
 
     let engine = state.git_engine.clone();
+    let automatic_state = state.clone();
     let rpc_res = tokio::task::spawn_blocking(move || {
         let _held_repo = repo_guard;
         let _held_exec = held_exec_locks;
-        engine.smart_http_receive_pack(&body)
+        let before = matched_worktrees.iter().map(|(id, branch, _)| {
+            (*id, engine.resolve_branch_oid(branch))
+        }).collect::<std::collections::HashMap<_, _>>();
+        let result = engine.smart_http_receive_pack(&body);
+        // receive-pack can report per-ref rejection inside HTTP 200, or change a ref
+        // before an RPC failure. Require an actual ref update; the worker checks the checkout.
+        for (id, branch, _) in matched_worktrees {
+            let Some(update) = updates.iter().find(|u| u.refname == format!("refs/heads/{branch}")) else { continue; };
+            if update.is_deletion || update.old_oid == update.new_oid { continue; }
+            match before.get(&id) {
+                Some(Ok(previous)) if previous.as_deref() == Some(update.new_oid.as_str()) => continue,
+                Some(Ok(_)) => {}
+                _ => {
+                    crate::state::set_worktree_status(&automatic_state, id, |wt| wt.status = WorktreeStatus::Failed);
+                    tracing::warn!(worktree_id = %id.0, "push starting ref could not be inspected");
+                    continue;
+                }
+            }
+            let accepted = match engine.resolve_branch_oid(&branch) {
+                Ok(sha) => sha.as_deref() == Some(update.new_oid.as_str()),
+                Err(error) => {
+                    crate::state::set_worktree_status(&automatic_state, id, |wt| wt.status = WorktreeStatus::Failed);
+                    tracing::warn!(worktree_id = %id.0, %error, "push outcome could not be inspected");
+                    continue;
+                }
+            };
+            if accepted {
+                if let Err((status, _)) = crate::automatic_checks::after_commit(
+                    &automatic_state, &caller, id, gitust_core::CommitSha(update.new_oid.clone()), false,
+                ) {
+                    crate::state::set_worktree_status(&automatic_state, id, |wt| wt.status = WorktreeStatus::Failed);
+                    tracing::warn!(worktree_id = %id.0, %status, "push accepted but automatic Checks could not be queued");
+                }
+            }
+        }
+        result
     })
     .await;
 

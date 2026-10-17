@@ -5,6 +5,7 @@ export interface RunHistoryEntry {
   completedAt: string;
   userId: string;
   verificationRequested: boolean;
+  automatic: boolean;
   checkedCommit: string | null;
   checksBlobOid: string | null;
   historyTruncated: boolean;

@@ -36,6 +36,25 @@ const ready = (): RunHistoryState => ({
   records: parseRunHistory([historyRecord()], worktreeId),
 });
 
+it("labels automatic checks and keeps manual verification required for approval", async () => {
+  const state = ready();
+  state.records[0].automatic = true;
+  state.records[0].verificationRequested = false;
+  render(() => (
+    <RunHistoryDialog
+      branch="agent/test/automatic"
+      state={state}
+      onRefresh={vi.fn()}
+      onClose={vi.fn()}
+    />
+  ));
+  expect(await screen.findByText(/^Automatic checks\s*·/)).toBeTruthy();
+  expect(
+    screen.getByText(/Run manual verification before approving/),
+  ).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Approve$/ })).toBeNull();
+});
+
 it("returns focus to the history opener after Escape", async () => {
   const [open, setOpen] = createSignal(false);
   render(() => (

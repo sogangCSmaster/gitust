@@ -7,6 +7,31 @@ fn write_policy(repo: &Path, contents: &[u8]) {
 }
 
 #[test]
+fn automatic_checks_require_an_explicit_committed_boolean_opt_in() {
+    let tmp = TempDir::new().unwrap();
+    init_repo(tmp.path());
+    let engine = GitEngine::new(tmp.path());
+    write_policy(tmp.path(), br#"{"version":1,"commands":["true"]}"#);
+    assert!(!engine.required_checks("main").unwrap().unwrap().auto_run);
+    fs::write(
+        tmp.path().join(".gitust-checks.json"),
+        br#"{"version":1,"commands":["true"],"auto_run":true}"#,
+    )
+    .unwrap();
+    assert!(!engine.required_checks("main").unwrap().unwrap().auto_run);
+    write_policy(
+        tmp.path(),
+        br#"{"version":1,"commands":["true"],"auto_run":true}"#,
+    );
+    assert!(engine.required_checks("main").unwrap().unwrap().auto_run);
+    write_policy(
+        tmp.path(),
+        br#"{"version":1,"commands":["true"],"auto_run":"true"}"#,
+    );
+    assert!(engine.required_checks("main").is_err());
+}
+
+#[test]
 fn checks_use_committed_branch_and_reject_invalid_or_unbounded_configuration() {
     let tmp = TempDir::new().unwrap();
     init_repo(tmp.path());

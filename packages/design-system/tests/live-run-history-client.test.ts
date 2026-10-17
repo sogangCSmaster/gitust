@@ -11,6 +11,27 @@ let state: RunHistoryState;
 let fetchMock: ReturnType<typeof vi.fn>;
 const response = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
+
+it("accepts automatic diagnostics and rejects mixed approval metadata", () => {
+  const record = {
+    ...historyRecord(),
+    automatic: true,
+    verification_requested: false,
+  };
+  expect(parseRunHistory([record], worktreeId)[0].automatic).toBe(true);
+  expect(parseRunHistory([historyRecord()], worktreeId)[0].automatic).toBe(
+    false,
+  );
+  expect(() =>
+    parseRunHistory([{ ...record, verification_requested: true }], worktreeId),
+  ).toThrow();
+  expect(() =>
+    parseRunHistory([{ ...record, checks_blob_oid: null }], worktreeId),
+  ).toThrow();
+  expect(() =>
+    parseRunHistory([{ ...record, automatic: "true" }], worktreeId),
+  ).toThrow();
+});
 beforeEach(() => {
   token = "session-a";
   vi.stubGlobal("window", { localStorage: { getItem: () => token } });

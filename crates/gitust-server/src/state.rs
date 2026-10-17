@@ -120,6 +120,7 @@ pub(crate) use crate::quota::{RunStatusGuard, SpawnLifecycle, SpawnReservation};
 
 #[derive(Clone)]
 pub struct AppState {
+    pub(crate) automatic_checks: Arc<crate::automatic_checks::AutomaticChecks>,
     pub repo_id: RepoId,
     pub auth_store: AuthStore,
     pub git_engine: GitEngine,
@@ -207,6 +208,7 @@ impl AppState {
             created_at: Utc::now() - Duration::seconds(1),
         });
         Ok(Self {
+            automatic_checks: Arc::new(crate::automatic_checks::AutomaticChecks::default()),
             repo_id,
             auth_store,
             git_engine,

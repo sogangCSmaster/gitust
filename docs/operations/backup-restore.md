@@ -37,6 +37,69 @@ The tool does not start a server, verify accounts through login, restore outboun
 credentials, or infer fresh verification authority. Complete sections 4 and 5 against the
 restored service. The manual procedure below explains the same storage and recovery model.
 
+### Include configured read-only repositories
+
+For a service started with additional `--read-only-repo` paths, explicitly include every
+path in the same stopped snapshot. An auth database's repository rows are not a complete
+inventory of Git data, and the tool does not infer service paths from them.
+
+```sh
+python3 scripts/backup.py create \
+  --repo /srv/gitust/project \
+  --read-only-repo /srv/gitust/reference.git \
+  --read-only-repo /srv/gitust/library \
+  --auth-db /srv/gitust/private/auth-db.json \
+  --output /srv/private-backups/gitust-all-repositories
+```
+
+The limit is 32 repositories including the primary. Each repository must use the supported
+layout described below. The tool acquires all repository service locks in a fixed order,
+then the shared auth lock, and holds them through the final manifest. A busy repository,
+unresolved execution fence, unsupported dependency or failed copy fails the entire
+snapshot. Ordinary Git processes and editors must also remain stopped.
+
+Single-repository calls keep the version 1 snapshot layout. An explicit additional
+repository selects version 2, with one auth checkpoint and one checksum manifest for the
+whole installation. Restore accepts both versions. The primary remains `repository/`;
+additional repositories use fixed paths `read-only/0001/repository/`,
+`read-only/0002/repository/`, and so on, in command-line order. A normal checkout's managed
+worktrees sit beside its own `repository/` directory. Names and original host paths do not
+choose restore destinations. Record the path mapping privately with the service settings.
+
+For version 2, use a regular auth file without hard links, and place it and its lock outside
+every repository and managed-worktree tree. Overlapping or duplicate repository layouts
+and overlapping output paths are rejected. This prevents copying the shared auth
+checkpoint again as repository content. Existing version 1 layouts remain supported.
+To migrate an internal auth file,
+stop all writers, move it to a private operator-owned location, and update the explicit
+`--auth-db` service setting before taking the multi-repository snapshot.
+
+Use the same restore command as above. It reconnects and checks every included repository
+before publishing `RESTORED`. Start the restored server with its explicit primary,
+read-only paths and `auth/auth-db.json`; the tool does not start or reconfigure it:
+
+```sh
+gitust serve --bind 127.0.0.1:3300 \
+  --repo /srv/gitust-restore-rehearsal/repository \
+  --read-only-repo /srv/gitust-restore-rehearsal/read-only/0001/repository \
+  --read-only-repo /srv/gitust-restore-rehearsal/read-only/0002/repository \
+  --auth-db /srv/gitust-restore-rehearsal/auth/auth-db.json
+```
+
+Validate catalog identities, current team access and data from each restored path. A copied
+registration does not grant new access, and a restored read-only repository does not gain
+write or Git transport capability. The manual examples below describe one repository;
+use the scripted multi-repository procedure for a shared checkpoint.
+
+The repeatable local check is
+`python3 scripts/multi-repository-backup-rehearsal.py --binary target/debug/gitust --report /private/tmp/gitust-multi-backup.json`.
+Choose an absent report path. It uses disposable data, creates real approval and passing
+history records, makes all original paths unavailable, and checks the restored server's
+identities, current ACLs, records, dirty work and refusal to approve without fresh
+verification. It removes its services and private fixtures before writing a restricted
+public result. The [local candidate record](evidence/multi-backup-local-2026-10-18.json)
+is Darwin/Seatbelt evidence; inspect the exact-source CI run for hosted platform coverage.
+
 ## What must be preserved
 
 Resolve the repository and auth database from the actual service command. `--auth-db` defaults to `.gitust/auth-db.json` relative to the process working directory; it is not necessarily inside `--repo`.
@@ -45,10 +108,12 @@ Resolve the repository and auth database from the actual service command. `--aut
 |---|---|
 | Entire main repository directory | Working files, including ignored/untracked files, and the complete Git common directory: objects, refs, configuration, reflogs, index, and linked-worktree administration. |
 | Default managed worktree directory | For a normal checkout named `project`, the sibling `.project.gitust-worktrees/`; for a bare repository, `<common Git directory>/gitust-worktrees/`. Preserve every UUID directory, including its `.git` file and unfinished edits. |
+| `<common>/gitust-repository/{identity,registration}.json` | Configured repository identity and, when present, its registration binding. Preserve both bytes and private modes with the matching auth snapshot; metadata-only auth rows do not substitute for the repository's Git data. |
 | `<common>/worktrees/<admin name>/gitust-origin.json` | Immutable worktree ID, agent branch, original target branch, creation SHA and an optional task display label. Preserve the complete file and its association with the surrounding Git worktree administration directory. |
 | `<common>/gitust-owners/<UUID>.json` | Server-created worktree ownership by auth user ID. The matching auth snapshot is required to retain account identity. |
 | `<common>/gitust-approvals/<UUID>.json` | Durable human approval, exact approved SHA, target branch, and last publication destination. These records can restore `Merged`, subject to validation. |
 | `<common>/gitust-check-runs/<UUID>.json` | Up to five recent completed runs per worktree, with bounded command output. Historical success does not restore verification authority. |
+| `<common>/gitust-automatic-runs/` | Durable automatic Check attempts and results. Historical results do not restore verification authority, and an interrupted attempt must not be silently replayed. |
 | The configured auth JSON file | Users and password hashes, invite/reset-token state, sessions, PATs, registered SSH public keys, repository records, and security policy. Tokens are hashed, but the snapshot remains sensitive. |
 | Service configuration, separately | Binary version, startup working directory, `--repo`, `--auth-db`, `--sync-github`, sandbox flag, bind address, and any timeout settings. These settings are not reconstructed from task history. |
 
@@ -182,7 +247,7 @@ Do not invoke inbound synchronization or publication during the initial inspecti
 Verify these observable results through a fresh login and the real web/API:
 
 - Existing users retain their IDs, roles, and active/disabled state. Check a permitted login and rejection of a known disabled account. Use actual saved credentials privately; never print the auth snapshot. Restoring an older snapshot also restores its older revocations/passwords, so account and credential changes since the snapshot must be reconciled before exposing the service.
-- Managed worktree UUIDs, agent branches, creation targets, and server-created owners match the snapshot. Legacy tasks with no owner remain administrator-managed. Repository runtime IDs and display timestamps are not stable backup identifiers.
+- Configured repository UUIDs, managed worktree UUIDs, agent branches, creation targets, and server-created owners match the snapshot. Legacy tasks with no owner remain administrator-managed. Display timestamps are diagnostic values rather than backup identifiers.
 - Tasks with valid durable approval records recover as `Merged`, and their exact approved SHAs remain on the recorded target branch. Publication status applies only to the same configured destination; it is not a fresh check of the remote's current refs.
 - Unmerged tasks recover as `Pending`, with no `verified_commit` or `verified_checks_oid`. A past passing run must **not** allow immediate approval. Re-run explicit verification after enabling execution deliberately in the isolated trusted deployment, then review before approving.
 - The execution-history view returns the saved recent completed runs, with the same command/results and truncation notices. The current history is bounded diagnostics, not a full audit log; it does not record every interrupted execution.

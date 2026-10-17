@@ -48,7 +48,17 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
    and auth file are unavailable, then authenticate and serve its preserved identity.
    Restart, verify the same identities and run strict Git `fsck` on server/client
    fixtures. This uses local HTTP only and does not enable secondary transport.
-7. Kill a disposable fixture service during an actual automatic Check and require
+7. Take one stopped checkpoint of a registered primary and read-only secondary,
+   including their Git data, managed worktrees and shared auth snapshot. Make all
+   originals unavailable, restore into a different directory, and start the
+   restored server with explicit paths. Require preserved repository UUIDs,
+   team-filtered catalog access and secondary write denial against independent
+   Git refs/content and strict `fsck`. Saved ownership, origin, approval and
+   history records must survive; pending work with historical passing results
+   must still require fresh verification before approval. The report must match
+   the tested source and actual binary hash. This is a stopped disposable
+   installation rehearsal, without external GitHub publication.
+8. Kill a disposable fixture service during an actual automatic Check and require
    a fresh service to refuse the unresolved execution fence. Stop only the
    fixture's authenticated process groups, require explicit operator recovery,
    and prove ordinary execution resumes without restoring verification authority.

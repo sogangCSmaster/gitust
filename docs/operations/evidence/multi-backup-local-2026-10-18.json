@@ -1,0 +1,95 @@
+{
+  "observed_at_utc": "2026-10-17T15:41:22.639758+00:00",
+  "scope": "Dirty local candidate based on caf4161; Python operator/tool changes, unchanged Rust and UI content. No product deployment or external GitHub publication.",
+  "operating_rehearsal": {
+    "version": 1,
+    "passed": true,
+    "repository_count": 2,
+    "all_sources_unavailable": true,
+    "repository_ids_preserved": true,
+    "catalog_and_team_acl": true,
+    "secondary_writes_denied": true,
+    "refs_and_git_fsck": true,
+    "worktree_records_preserved": true,
+    "pending_requires_fresh_verification": true,
+    "single_auth_checkpoint": true,
+    "external_github_tested": false,
+    "platform": "Darwin",
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "source_commit": "caf4161108891be5283eb33f32df0f63c6b44054",
+    "source_worktree_dirty": true,
+    "binary_sha256": "cea3b99173a1aaf8470b2e165060bc847dc4b20e0fef912851f822eb09db7e5e",
+    "operator_script_sha256": "0c38735841d4faf35474643406081d1085a9fc8175fe5a0e2ef238ef3e40abc7",
+    "runtime_source_sha256": {
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+      "scripts/backup.py": "24b9e250e7c6b6097697ae3797aec4ebfca223e9ad4eb269b073815bea2275b6",
+      "scripts/multi-repository-backup-rehearsal.py": "0c38735841d4faf35474643406081d1085a9fc8175fe5a0e2ef238ef3e40abc7",
+      "scripts/multi-repository-rehearsal.py": "d62ca6024aba21bb16d5fca327797a1c984255aa454329b81abb508997775bd5"
+    },
+    "owned_services_reaped": true,
+    "private_fixture_removed": true
+  },
+  "operating_report_sha256": "33d91112bfb1414938d8a1a6f42438391d063b04f6b7522f1642b7704aea6b2b",
+  "source_manifests": {
+    "backup_three_files": "6413a0c0abadcef1a01a66aee236c48f98a13135b9ad16c11f07037c86bbe5df",
+    "operator_one_file": "6c1bae58953160b86ba0757e7da81d2c41f8a8cedae10be1b08f04cbb7b35685"
+  },
+  "mechanical_verification": {
+    "command": "scripts/verify.sh",
+    "exit_code": 0,
+    "log_sha256": "95518fbd1ebeb9e6aadcb537d419b6150a7878a223dce2f04da7693f38b5f1c0",
+    "python_tests": 19,
+    "frontend_tests": 251,
+    "frontend_test_files": 33,
+    "rust_tests": {
+      "cli": 33,
+      "core": 2,
+      "db": 37,
+      "git": 118,
+      "git_existing_ignored_benchmarks": 2,
+      "server": 145,
+      "sandbox": 30,
+      "sync": 1
+    },
+    "format_clippy_typecheck_bundle_line_and_fail_open_checks": "passed"
+  },
+  "compatibility": {
+    "v1_layout_preserved": true,
+    "v1_old_writer_new_reader_and_new_writer_old_reader": "actual originals-unavailable independent Git round trips passed",
+    "independent_report_sha256": "3841a7519cb57bc84afa75a334a4769ad87aa39150f79bdd3d4c5f0898ac1a72",
+    "independent_normal_primary_and_normal_secondary": {
+      "report_sha256": "01655ae103660210ee760bb7c9e111ecd5e3fd7f8156b23b4b7ee2d4d90db57f",
+      "originals_unavailable_and_both_external_worktrees_relinked": true,
+      "dirty_bytes_refs_auth_and_strict_fsck": "passed"
+    }
+  },
+  "regressions": [
+    {
+      "issue": "Inherited GIT selectors in backup test fixtures",
+      "before": "Synthetic child failed with inherited selectors; a separate synthetic repository served as the isolation oracle",
+      "after": "One stripped Git environment is reused by helper and direct bare clone; child regression passed"
+    },
+    {
+      "issue": "Unclaimed v2 repository payload silently omitted",
+      "before_report_sha256": "e15b47cfc32812206d6bf2e5b2c1de3e6e4a6d6414ddaad1864340d84d28b97c",
+      "before": "Three actual repositories; dropping the last descriptor kept inventory valid and incorrectly restored two with RESTORED",
+      "after": "Fixed-slot inventory validation rejects unclaimed payload before creating a restore directory"
+    },
+    {
+      "issue": "Valid UUID spelling accepted by writer but refused by reader",
+      "before_report_sha256": "cbcc8730d2d4dfa43598577e45d0ecc21e10653a2d106b187f4fc7b6a95a1c37",
+      "before": "Uppercase UUID directory produced a successful v2 snapshot that its reader rejected",
+      "after": "Existing UUID validity rules apply without path normalization; the same spelling survives originals-unavailable relocation"
+    }
+  ],
+  "evidence_limits": [
+    "Local operating evidence is Darwin/Seatbelt only; hosted Ubuntu/macOS coverage must be recorded at the later fixed source revision.",
+    "The immutable binary was built from the branch candidate then committed as caf4161; its Rust/UI bytes match caf4161. This backup slice changes only Python operations, tests, CI and documentation.",
+    "The same final operator with the old v1 tool fails at the unsupported repeated repository flag after source fixtures; no success report is created.",
+    "An earlier draft used a nonexistent local sync destination and failed existing approval recovery validation. The final fixture uses a fresh valid local bare placeholder and performs no publication.",
+    "Stopped cooperative locks do not freeze ordinary Git/editor processes; no online snapshot, power-loss durability, encryption, off-host retention, native IDE or standalone deployment claim.",
+    "Checksums detect corruption rather than authenticate a maliciously replaced manifest. No Gate B was run."
+  ]
+}

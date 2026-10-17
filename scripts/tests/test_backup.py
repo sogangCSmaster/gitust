@@ -15,8 +15,10 @@ SCRIPT = Path(__file__).resolve().parents[1] / "backup.py"
 
 def git(path, *args):
     result = subprocess.run(
-        ["git", "-C", str(path), *args], capture_output=True, check=True,
-        env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null"},
+        ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", str(path), *args],
+        capture_output=True, check=True,
+        env={**{key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+             "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
     )
     return result.stdout.decode().strip()
 
@@ -62,6 +64,28 @@ class BackupTests(unittest.TestCase):
     def restore(self, ok=True):
         return self.run_script("restore", "--backup", self.backup,
                                "--destination", self.restored, ok=ok)
+
+    def test_git_fixture_helper_does_not_select_an_inherited_repository(self):
+        victim = self.root / "unrelated"
+        victim.mkdir()
+        git(victim, "init", "-b", "main")
+        git(victim, "-c", "user.name=Test", "-c", "user.email=test@example.test",
+            "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "preserve")
+        before = git(victim, "show-ref")
+        target = self.root / "fixture target"
+        code = ("import runpy, pathlib, sys; "
+                "git=runpy.run_path(sys.argv[1])['git']; p=pathlib.Path(sys.argv[2]); p.mkdir(); "
+                "git(p,'init','-b','main'); assert (p/'.git').is_dir(); "
+                "git(p,'-c','user.name=Test','-c','user.email=test@example.test',"
+                "'-c','commit.gpgsign=false','commit','--allow-empty','-m','own fixture'); "
+                "git(p.parent,'clone','--bare',str(p),str(p.parent/'fixture-clone.git'))")
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(GIT_DIR=str(victim / ".git"), GIT_WORK_TREE=str(victim))
+        result = subprocess.run([sys.executable, "-c", code, str(Path(__file__)), str(target)],
+                                env=env, capture_output=True)
+        self.assertEqual(result.returncode, 0, "fixture Git must ignore inherited repository selectors")
+        self.assertEqual(git(victim, "show-ref"), before)
+        self.assertEqual(git(victim, "status", "--porcelain"), "")
 
     def test_unconfirmed_execution_blocks_backup_even_after_service_lock_is_released(self):
         fences = self.common / "gitust-active-executions"
@@ -171,8 +195,7 @@ class BackupTests(unittest.TestCase):
 
     def test_bare_repository_relocates_internal_worktrees(self):
         bare = self.root / "source.git"
-        subprocess.run(["git", "clone", "--bare", str(self.repo), str(bare)],
-                       check=True, capture_output=True)
+        git(self.root, "clone", "--bare", str(self.repo), str(bare))
         git(bare, "worktree", "add", "-b", "agent/test/bare",
             str(bare / "gitust-worktrees" / self.wt_id), "main")
         self.repo = bare

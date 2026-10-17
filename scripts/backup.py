@@ -15,6 +15,7 @@ import sys
 import uuid
 
 MAX_MANIFEST_BYTES = 64 * 1024 * 1024
+MAX_REPOSITORIES = 32
 
 
 def git(repo, *args):
@@ -176,36 +177,88 @@ def new_directory(path):
     path.mkdir(mode=0o700)
 
 
+def repository_path(index):
+    return Path("repository") if index == 0 else Path(f"read-only/{index:04d}/repository")
+
+
+def relocated_linked(linked, index):
+    parent = repository_path(index).parent
+    return [{"checkout": (parent / row["checkout"]).as_posix(), "admin": row["admin"]}
+            for row in linked]
+
+
+def source_layouts(args, auth, target):
+    sources = [args.repo, *getattr(args, "read_only_repo", [])]
+    if len(sources) > MAX_REPOSITORIES:
+        raise ValueError("at most 32 repositories may share one backup checkpoint")
+    multi = len(sources) > 1
+    if multi and auth.stat().st_nlink != 1:
+        raise ValueError("multi-repository auth database must not have hardlink aliases")
+    if multi and any(source.is_symlink() for source in sources):
+        raise ValueError("repository roots must not be symlinks")
+    layouts = [layout(source) for source in sources]
+    roots = []
+    identities = set()
+    for repo, common, base, bare in layouts:
+        identity = (common.stat().st_dev, common.stat().st_ino)
+        if identity in identities:
+            raise ValueError("duplicate Git common directory")
+        identities.add(identity)
+        coverage = [repo, *([] if bare else [base.resolve()])]
+        if any(inside(path, other) or inside(other, path) for path in coverage for other in roots):
+            raise ValueError("source repository and managed-worktree trees must not overlap")
+        roots.extend(coverage)
+    if multi and any(inside(path, root) for root in roots
+                     for path in [auth, Path(str(auth) + ".lock").resolve()]):
+        raise ValueError("multi-repository auth database and lock must be outside every source tree")
+    if any(inside(target, parent) or inside(parent, target) for parent in [*roots, auth]):
+        raise ValueError("backup output must be separate from all source paths")
+    if multi and args.output.is_symlink():
+        raise ValueError("backup output must not be a symlink")
+    return layouts
+
+
 def create(args):
-    repo, common, base, bare = layout(args.repo)
     auth = args.auth_db.absolute()
     regular(auth)
     auth = auth.resolve(strict=True)
     target = args.output.resolve()
-    if any(inside(target, parent) or inside(parent, target) for parent in [repo, base, auth]):
-        raise ValueError("backup output must be separate from all source paths")
+    layouts = source_layouts(args, auth, target)
     with ExitStack() as locks:
-        locks.enter_context(exclusive_lock(common / "gitust-worktree-service.lock"))
-        require_no_unconfirmed_execution(common)
+        for common in sorted((entry[1] for entry in layouts), key=str):
+            locks.enter_context(exclusive_lock(common / "gitust-worktree-service.lock"))
+        for _, common, _, _ in layouts:
+            require_no_unconfirmed_execution(common)
         locks.enter_context(exclusive_lock(Path(str(auth) + ".lock")))
-        validate_git_storage(common, base, bare)
-        linked = linked_worktrees(repo, common, base, bare)
-        git(repo, "fsck", "--full", "--strict")
-        # Check special files before creating output; directory copies retain ignored/dirty files.
-        inventory(repo)
-        if not bare and base.exists():
-            inventory(base)
+        records = []
+        for index, (repo, common, base, bare) in enumerate(layouts):
+            if layout(repo) != (repo, common, base, bare):
+                raise ValueError("source repository layout changed while acquiring ownership")
+            validate_git_storage(common, base, bare)
+            linked = linked_worktrees(repo, common, base, bare)
+            git(repo, "fsck", "--full", "--strict")
+            inventory(repo)
+            if not bare and base.exists():
+                inventory(base)
+            records.append({"bare": bare, "linked": relocated_linked(linked, index)})
         new_directory(target)
         try:
-            shutil.copytree(repo, target / "repository", symlinks=True)
-            if not bare and base.exists():
-                shutil.copytree(base, target / ".repository.gitust-worktrees", symlinks=True)
+            if len(layouts) > 1:
+                (target / "read-only").mkdir(mode=0o700)
+            for index, (repo, _, base, bare) in enumerate(layouts):
+                destination = target / repository_path(index)
+                if index:
+                    destination.parent.mkdir(mode=0o700)
+                shutil.copytree(repo, destination, symlinks=True)
+                if not bare and base.exists():
+                    shutil.copytree(base, destination.parent / ".repository.gitust-worktrees", symlinks=True)
             (target / "auth").mkdir(mode=0o700)
             shutil.copyfile(auth, target / "auth/auth-db.json")
             (target / "auth/auth-db.json").chmod(0o600)
-            manifest = {"version": 1, "bare": bare, "linked": linked,
-                        "files": inventory(target)}
-            # A manifest is the completion marker. An interrupted directory is not restorable.
+            manifest = ({"version": 1, **records[0]} if len(layouts) == 1
+                        else {"version": 2, "repositories": records})
+            manifest["files"] = inventory(target)
+            # One completion marker binds all payloads to the same locked auth checkpoint.
             with (target / "manifest.json").open("x") as out:
                 json.dump(manifest, out, sort_keys=True)
                 if out.tell() > MAX_MANIFEST_BYTES:
@@ -234,69 +287,121 @@ def real_directory_chain(path, root):
     raise ValueError("snapshot path is outside the restore destination")
 
 
+def manifest_repositories(manifest):
+    if not isinstance(manifest, dict):
+        raise ValueError("snapshot manifest must be an object")
+    if manifest.get("version") == 1 and type(manifest.get("bare")) is bool:
+        return [{"bare": manifest["bare"], "linked": manifest["linked"]}]
+    if (type(manifest.get("version")) is not int or manifest["version"] != 2
+            or set(manifest) != {"version", "repositories", "files"}):
+        raise ValueError("unsupported snapshot version/layout")
+    records = manifest["repositories"]
+    if not isinstance(records, list) or not 2 <= len(records) <= MAX_REPOSITORIES:
+        raise ValueError("invalid repository checkpoint count")
+    for index, record in enumerate(records):
+        if (not isinstance(record, dict) or set(record) != {"bare", "linked"}
+                or type(record["bare"]) is not bool or not isinstance(record["linked"], list)):
+            raise ValueError("invalid repository checkpoint layout")
+        expected = repository_path(index)
+        prefix = (expected / "gitust-worktrees" if record["bare"] else
+                  expected.parent / ".repository.gitust-worktrees")
+        checkouts, admins = set(), set()
+        for linked in record["linked"]:
+            if (not isinstance(linked, dict) or set(linked) != {"checkout", "admin"}
+                    or not all(isinstance(value, str) for value in linked.values())):
+                raise ValueError("invalid managed worktree record")
+            relative, admin = relative_path(linked["checkout"]), relative_path(linked["admin"])
+            if (relative.parent != prefix or linked["checkout"] != relative.as_posix()
+                    or len(admin.parts) != 1 or linked["admin"] != admin.as_posix()
+                    or relative in checkouts or admin in admins):
+                raise ValueError("managed worktree record crosses its repository layout")
+            uuid.UUID(relative.name)
+            checkouts.add(relative)
+            admins.add(admin)
+    return records
+
+
 def restore(args):
     backup = args.backup.resolve(strict=True)
     regular(backup / "manifest.json")
     if (backup / "manifest.json").stat().st_size > MAX_MANIFEST_BYTES:
         raise ValueError("manifest exceeds 64 MiB")
     manifest = json.loads((backup / "manifest.json").read_text())
-    if manifest.get("version") != 1 or type(manifest.get("bare")) is not bool:
-        raise ValueError("unsupported snapshot version/layout")
+    records = manifest_repositories(manifest)
+    if manifest["version"] == 2 and (args.backup.is_symlink() or args.destination.is_symlink()):
+        raise ValueError("multi-repository backup and destination roots must not be symlinks")
     for raw in manifest["files"]:
         relative_path(raw)
     actual = inventory(backup)
     actual.pop("manifest.json")
     if actual != manifest["files"]:
         raise ValueError("snapshot integrity check failed")
-    for path in [backup / "repository", backup / "auth"]:
-        if not path.is_dir() or path.is_symlink():
-            raise ValueError("snapshot payload roots must be real directories")
+    payloads = [Path("auth")]
+    for index, record in enumerate(records):
+        repo = repository_path(index)
+        payloads.append(repo)
+        if not record["bare"] and (backup / repo.parent / ".repository.gitust-worktrees").exists():
+            payloads.append(repo.parent / ".repository.gitust-worktrees")
+    if manifest["version"] == 2:
+        containers = {parent for root in payloads for parent in root.parents if parent != Path(".")}
+        for raw in manifest["files"]:
+            relative = relative_path(raw)
+            if (raw != relative.as_posix() or
+                    not (relative in containers or any(inside(relative, root) for root in payloads))):
+                raise ValueError("snapshot contains payload outside its fixed repository slots")
+    for relative in payloads:
+        real_directory_chain(backup / relative, backup)
     regular(backup / "auth/auth-db.json")
     target = args.destination.resolve()
     if inside(target, backup) or inside(backup, target):
         raise ValueError("restore destination must be separate from backup")
     new_directory(target)
     try:
-        for name in ["repository", "auth", ".repository.gitust-worktrees"]:
-            source = backup / name
-            if source.exists():
-                if source.is_symlink():
-                    raise ValueError("snapshot payload roots must not be symlinks")
-                shutil.copytree(source, target / name, symlinks=True)
-        common = target / "repository" if manifest["bare"] else target / "repository/.git"
-        real_directory_chain(common, target)
-        base = (target / "repository/gitust-worktrees" if manifest["bare"]
-                else target / ".repository.gitust-worktrees")
-        validate_git_storage(common, base, manifest["bare"])
-        expected_prefix = "repository/gitust-worktrees" if manifest["bare"] else ".repository.gitust-worktrees"
-        for linked in manifest["linked"]:
-            relative = relative_path(linked["checkout"])
-            if relative.parent.as_posix() != expected_prefix:
-                raise ValueError("unsupported managed worktree destination")
-            uuid.UUID(relative.name)
-            admin_name = relative_path(linked["admin"])
-            if len(admin_name.parts) != 1:
-                raise ValueError("invalid worktree administration name")
-            checkout = target / relative
-            admin = common / "worktrees" / admin_name
-            real_directory_chain(checkout, target)
-            real_directory_chain(admin, target)
-            for path in [checkout / ".git", admin / "gitdir", admin / "commondir"]:
-                regular(path)
-            # Rewrite only the destination copy. Git repair can follow an old .git pointer
-            # back into a still-existing original checkout; never invoke it before relinking.
-            (checkout / ".git").write_text(f"gitdir: {admin}\n")
-            (admin / "gitdir").write_text(f"{checkout / '.git'}\n")
-            (admin / "commondir").write_text("../..\n")
+        if len(records) > 1:
+            (target / "read-only").mkdir(mode=0o700)
+        for relative in payloads:
+            destination = target / relative
+            if relative.parts[0] == "read-only" and not destination.parent.exists():
+                destination.parent.mkdir(mode=0o700)
+            shutil.copytree(backup / relative, destination, symlinks=True)
+        for index, record in enumerate(records):
+            repo = target / repository_path(index)
+            common = repo if record["bare"] else repo / ".git"
+            real_directory_chain(common, target)
+            base = repo / "gitust-worktrees" if record["bare"] else repo.parent / ".repository.gitust-worktrees"
+            validate_git_storage(common, base, record["bare"])
+            expected_prefix = base.relative_to(target)
+            for linked in record["linked"]:
+                relative = relative_path(linked["checkout"])
+                if relative.parent != expected_prefix:
+                    raise ValueError("unsupported managed worktree destination")
+                uuid.UUID(relative.name)
+                admin_name = relative_path(linked["admin"])
+                if len(admin_name.parts) != 1:
+                    raise ValueError("invalid worktree administration name")
+                checkout, admin = target / relative, common / "worktrees" / admin_name
+                real_directory_chain(checkout, target)
+                real_directory_chain(admin, target)
+                for path in [checkout / ".git", admin / "gitdir", admin / "commondir"]:
+                    regular(path)
+                # Relink every copy before any Git command can follow a source pointer.
+                (checkout / ".git").write_text(f"gitdir: {admin}\n")
+                (admin / "gitdir").write_text(f"{checkout / '.git'}\n")
+                (admin / "commondir").write_text("../..\n")
         (target / "auth").chmod(0o700)
         (target / "auth/auth-db.json").chmod(0o600)
-        repo, common, base, bare = layout(target / "repository")
-        if linked_worktrees(repo, common, base, bare) != manifest["linked"]:
-            raise ValueError("restored worktree inventory differs from the snapshot")
-        git(target / "repository", "fsck", "--full", "--strict")
-        for linked in manifest["linked"]:
-            git(target / linked["checkout"], "fsck", "--full", "--strict")
-        (target / "RESTORED").write_text("Restart Gitust with repository/ and auth/auth-db.json; reverify pending work.\n")
+        for index, record in enumerate(records):
+            repo, common, base, bare = layout(target / repository_path(index))
+            if relocated_linked(linked_worktrees(repo, common, base, bare), index) != record["linked"]:
+                raise ValueError("restored worktree inventory differs from the snapshot")
+            git(repo, "fsck", "--full", "--strict")
+            for linked in record["linked"]:
+                git(target / linked["checkout"], "fsck", "--full", "--strict")
+        text = "Restart Gitust with repository/ and auth/auth-db.json; reverify pending work.\n"
+        if len(records) > 1:
+            text += "Configure read-only repositories explicitly: " + ", ".join(
+                repository_path(index).as_posix() for index in range(1, len(records))) + "\n"
+        (target / "RESTORED").write_text(text)
     except BaseException:
         shutil.rmtree(target)
         raise
@@ -308,6 +413,7 @@ def main():
     sub = parser.add_subparsers(dest="action", required=True)
     backup = sub.add_parser("create", help="stop every writer, then take a private offline snapshot")
     backup.add_argument("--repo", type=Path, required=True)
+    backup.add_argument("--read-only-repo", type=Path, action="append", default=[])
     backup.add_argument("--auth-db", type=Path, required=True)
     backup.add_argument("--output", type=Path, required=True)
     restored = sub.add_parser("restore", help="restore into a new, absent directory")

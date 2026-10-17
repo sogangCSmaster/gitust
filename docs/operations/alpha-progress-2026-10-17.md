@@ -428,3 +428,49 @@ controls have behavioral tests and real HTTP keyset pagination has the operating
 rehearsal. Branch mutation, secondary writes, standalone installation, native IDE
 integration, actual GitHub product publication and deployment remain outside this
 candidate. A later hosted run must be recorded at its exact tested source.
+
+The subsequent [fixed-source branch checkpoint](evidence/alpha-ci-caf4161-2026-10-18.json)
+records [run 39045033914](https://github.com/sogangCSmaster/gitust/actions/runs/39045033914),
+attempt 1, for `caf4161108891be5283eb33f32df0f63c6b44054`. Ubuntu 22.04 and macOS 15
+both passed all required gates, ten operating tasks, two-repository startup checks,
+empty-create and branch-page checks including the maximum cursor, and execution-crash
+recovery. This exact-source result does not cover subsequent multi-repository backup
+changes or establish product GitHub publication, standalone installation or native IDE
+integration.
+
+## Multi-repository stopped backup candidate, 2026-10-18
+
+The [local checkpoint](evidence/multi-backup-local-2026-10-18.json) records the dirty
+candidate based on `caf4161`. A repeated `--read-only-repo` includes up to 32 explicit
+repositories in a version 2 snapshot under all service locks and one shared auth lock.
+Fixed ordinal payload paths preserve each repository's Git data and managed worktrees;
+AuthDB rows do not infer service paths. Single-repository writes retain version 1.
+Independent old-writer/new-reader and new-writer/old-reader round trips passed with
+the original repository, managed-worktree base and auth file unavailable.
+
+The actual Darwin/Seatbelt rehearsal made the entire original installation unavailable,
+restored both repositories and the auth checkpoint, and started only the restored paths.
+It checked stable UUIDs and registration, renamed catalog entries, current team access,
+outsider denial and secondary write/transport denial against independent Git refs,
+objects and strict `fsck`. Origin/owner/approval/history bytes and modes, an annotated tag
+and dirty files in both repositories survived. Durable approval recovered `Merged`;
+an unmerged task with passing history recovered `Pending`, null verification fields,
+and an approval rejection without changing refs. All owned services and fixtures were
+removed before the report was published. The same final operator reaches the old
+tool's unsupported multi-repository flag and fails without a success report.
+
+Review caught a version 2 inventory mismatch that could ignore an unclaimed third
+repository while declaring a two-repository restore complete. Fixed-slot inventory
+validation now refuses that inconsistent snapshot before creating output. A valid
+uppercase UUID path also exposed a writer/reader mismatch; both now use the existing
+UUID validity rule while retaining the original spelling. Both actual before cases are
+covered by the final consolidated regressions. The touched backup test Git helpers
+also strip inherited repository selectors, including the direct bare-clone path.
+
+The integrated mechanical gate passed Python19, CLI33, DB37, Git118, server145,
+sandbox30 and frontend251, with formatting, Clippy, typechecks and bundle/line/fail-open
+checks. The new operating rehearsal is required on both CI platforms, but hosted
+evidence for this later checkpoint is still separate from `caf4161`'s successful run.
+No Rust or UI behavior changed in this slice. This is a stopped cooperative snapshot,
+without an online or power-loss guarantee. Product GitHub publication remains deferred;
+native IDE integration, standalone installation and deployment acceptance remain open.

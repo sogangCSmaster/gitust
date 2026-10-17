@@ -199,6 +199,39 @@ jobs:
               output.write("### Empty creation and first push\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY
 
+      - name: Restore all repositories from one stopped checkpoint
+        run: |
+          python3 scripts/multi-repository-backup-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-multi-backup.json"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-multi-backup.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          platform = {"Linux": "Linux", "macOS": "Darwin"}[os.environ["RUNNER_OS"]]
+          digest = hashlib.sha256()
+          with Path("target/debug/gitust").open("rb") as binary:
+              for block in iter(lambda: binary.read(1024 * 1024), b""):
+                  digest.update(block)
+          if (report["source_commit"] != expected or report["source_worktree_dirty"] is not False
+              or report["binary_sha256"] != digest.hexdigest() or report["platform"] != platform
+              or report["repository_count"] != 2 or report["external_github_tested"] is not False):
+              raise SystemExit("The multi-backup rehearsal has invalid source or scope evidence")
+          checks = ["passed", "all_sources_unavailable", "repository_ids_preserved",
+                    "catalog_and_team_acl", "secondary_writes_denied", "refs_and_git_fsck",
+                    "worktree_records_preserved", "pending_requires_fresh_verification",
+                    "single_auth_checkpoint"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("The multi-backup rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "repository_count", "external_github_tested", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### All-repository stopped restoration\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
       - name: Reject unsafe service restart after an interrupted command
         run: |
           python3 scripts/execution-crash-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-execution-crash.json"

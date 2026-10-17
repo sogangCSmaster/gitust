@@ -12,6 +12,7 @@ import type { RunHistoryState } from "./run-history-types";
 export interface RunHistoryDialogProps {
   branch: string;
   state: RunHistoryState;
+  initialRunId?: string;
   onRefresh: () => void;
   onClose: () => void;
 }

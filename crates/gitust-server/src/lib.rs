@@ -14,6 +14,7 @@ pub mod auth;
 mod automatic_checks;
 mod automatic_run_api;
 mod automatic_run_model;
+mod automatic_run_page;
 mod automatic_run_recovery;
 mod automatic_run_store;
 pub mod git_http;
@@ -187,6 +188,7 @@ pub fn build_router(state: AppState) -> Router {
         // Team Repository BOLA Routes
         .route("/api/v1/repos", post(auth::create_team_repo_handler))
         .route("/api/v1/repos/{id}", get(auth::get_team_repo_handler))
+        .route("/api/v1/repo/automatic-runs", get(automatic_run_page::list))
         // Agent Swarm, Sync & MCP Routes (Authenticated & Team/Role BOLA protected)
         .route(
             "/api/v1/swarm/worktrees",

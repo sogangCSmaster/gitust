@@ -17,7 +17,9 @@ import {
 import type { RunHistoryDialogProps } from "./RunHistoryDialog";
 
 export const RunHistoryContent: Component<RunHistoryDialogProps> = (props) => {
-  const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  const [selectedId, setSelectedId] = createSignal<string | null>(
+    props.initialRunId ?? null,
+  );
   const activity = createMemo(() =>
     props.state.status === "ready"
       ? mergeRunActivity(props.state.records, props.state.jobs)
@@ -25,7 +27,8 @@ export const RunHistoryContent: Component<RunHistoryDialogProps> = (props) => {
   );
   const selected = createMemo(
     () =>
-      activity().find((entry) => entry.runId === selectedId()) ?? activity()[0],
+      activity().find((entry) => entry.runId === selectedId()) ??
+      (props.initialRunId ? undefined : activity()[0]),
   );
   return (
     <div class="min-w-0 space-y-3">
@@ -49,8 +52,16 @@ export const RunHistoryContent: Component<RunHistoryDialogProps> = (props) => {
       </Show>
       <Show when={props.state.status === "ready" && !activity().length}>
         <EmptyState
-          title="No activity yet"
-          description="Completed runs and automatic attempts appear here. Retained history is limited."
+          title={
+            props.initialRunId
+              ? "This run is no longer retained"
+              : "No activity yet"
+          }
+          description={
+            props.initialRunId
+              ? "The selected attempt is not available in this worktree's retained activity. Refresh to check again."
+              : "Completed runs and automatic attempts appear here. Retained history is limited."
+          }
         />
       </Show>
       <Show when={activity().length}>
@@ -96,6 +107,12 @@ export const RunHistoryContent: Component<RunHistoryDialogProps> = (props) => {
               )}
             </For>
           </ol>
+          <Show when={props.initialRunId && !selected()}>
+            <EmptyState
+              title="This run is no longer retained"
+              description="The selected attempt is not available in this worktree's retained activity. Choose another listed run explicitly or refresh."
+            />
+          </Show>
           <Show when={selected()} keyed>
             {(entry) => (
               <section

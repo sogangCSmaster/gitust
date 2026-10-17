@@ -506,3 +506,6 @@ mod webui_assets;
 mod tests_automatic_intents;
 #[path = "tests_automatic_restart.rs"]
 mod tests_automatic_restart;
+
+#[path = "tests_repository_automatic_runs.rs"]
+mod tests_repository_automatic_runs;

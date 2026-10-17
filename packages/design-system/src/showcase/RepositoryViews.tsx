@@ -156,10 +156,10 @@ export const RepositoryOverview: Component<{
   repository: ConnectedRepository;
   liveMode: boolean;
   worktrees: number;
-  onNavigate: (tab: "swarm" | "tree" | "diff") => void;
+  onNavigate: (tab: "swarm" | "tree" | "diff" | "actions") => void;
 }> = (props) => {
   const destinations: Array<{
-    id: "swarm" | "tree" | "diff";
+    id: "swarm" | "tree" | "diff" | "actions";
     label: string;
     detail: string;
     icon: IconName;
@@ -182,6 +182,16 @@ export const RepositoryOverview: Component<{
       detail: "Inspect commits and file diffs.",
       icon: "diff",
     },
+    ...(props.liveMode
+      ? [
+          {
+            id: "actions" as const,
+            label: "Actions",
+            detail: "Inspect retained automatic Checks attempts.",
+            icon: "play" as const,
+          },
+        ]
+      : []),
   ];
   return (
     <section

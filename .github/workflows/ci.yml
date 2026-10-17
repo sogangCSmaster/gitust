@@ -149,14 +149,18 @@ jobs:
           backend = {"Linux": "linux_bubblewrap", "macOS": "macos_seatbelt"}[os.environ["RUNNER_OS"]]
           if report["source_commit"] != expected or report["runtime_worktree_dirty"] is not False:
               raise SystemExit("The crash rehearsal used a different or dirty source revision")
-          if report["backend"] != backend or report["verification_restored"] is not False:
+          if (report["backend"] != backend or report["verification_restored"] is not False
+              or report["interrupted_automatic_attempt_replayed"] is not False):
               raise SystemExit("The crash rehearsal has invalid backend or verification evidence")
           if not all(report[key] is True for key in ["passed", "fresh_service_rejected",
-                     "explicit_recovery_required", "post_recovery_execution_passed"]):
+                     "explicit_recovery_required", "post_recovery_execution_passed",
+                     "automatic_attempt_retained_as_interrupted", "repository_actions_running_and_interrupted"]):
               raise SystemExit("The crash recovery rehearsal is incomplete")
           public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform", "backend",
                     "old_command_survived_sigkill", "fresh_service_rejected", "explicit_recovery_required",
-                    "verification_restored", "post_recovery_execution_passed", "git_fsck"]}
+                    "verification_restored", "post_recovery_execution_passed", "git_fsck",
+                    "automatic_attempt_retained_as_interrupted", "interrupted_automatic_attempt_replayed",
+                    "repository_actions_running_and_interrupted"]}
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
               output.write("### Execution crash recovery\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY

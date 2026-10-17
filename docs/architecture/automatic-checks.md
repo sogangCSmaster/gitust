@@ -3,8 +3,8 @@
 Automatic Checks are repository-policy jobs created by accepted managed-worktree
 MCP commits and Git HTTP pushes. They run only in the explicitly enabled trusted
 single-user sandbox. Success is diagnostic: it never restores verification,
-approval or publication authority. Non-managed branch triggers and the broader
-Actions workflow screen remain separate work.
+approval or publication authority. Non-managed branch triggers and a
+GitHub-compatible workflow engine remain separate work.
 
 Before publishing a tracked ref, Gitust writes a private `Prepared` intent bound
 to its stable repository ID, worktree, branch, expected commit and committed
@@ -25,13 +25,33 @@ in the existing bounded run history; matching run IDs make history writes
 idempotent. The lifecycle endpoint is SiteAdmin-only:
 `GET /api/v1/swarm/worktrees/{id}/automatic-runs`.
 
+`GET /api/v1/repo/automatic-runs?limit=10&cursor=...` provides SiteAdmin-only
+diagnostics for the configured repository's currently tracked worktrees. A page
+reads at most twenty worktree documents (ten by default), with up to eight
+lifecycle records per worktree. Worktrees use ascending UUID keyset order; runs
+within each group use creation time descending, then run ID descending. The
+repository-bound cursor advances past the last inspected worktree. Empty groups
+and positively discarded worktrees can leave a page without attempts while a
+next cursor remains. This is a live traversal, not a snapshot, global newest-run
+order, total count or archive of deleted worktrees.
+Selected branch and base names share a 32 KiB UTF-8 metadata budget, aligned with
+creation records. Oversized selected metadata fails explicitly without truncating
+names or blocking earlier pages. The client bounds each page body to 2 MiB.
+
+The live Actions view reads these pages without starting, retrying or replaying
+commands. Next continues the traversal; Refresh returns to the first page. It
+shows retained automatic attempts only, with no sample-data fallback on errors.
+
 The selected worktree's Activity dialog combines those lifecycle records with the
 latest five completed results from `/runs`. It shows at most thirteen distinct
 run IDs and joins output only when the automatic-run marker, actor, commit and Checks
 blob agree. A lifecycle-only completion is neutral, and queued, interrupted or
 cancelled attempts never imply a passing command. Both reads belong to the same
-session and selection; either failure clears the combined view. This is a
-worktree diagnostic viewer, not the repository-wide Actions screen.
+session and selection; either failure clears the combined view. An Actions row
+opens Activity for that exact run ID. If it is no longer retained, the dialog
+reports that state instead of displaying another run's output; another listed
+run can still be selected explicitly. Neither viewer grants execution or approval
+authority.
 
 On restart, prepared intents are reconciled against actual Git state. Never-started
 queued jobs may resume after current account existence, active SiteAdmin role,

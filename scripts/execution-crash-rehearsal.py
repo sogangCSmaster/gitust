@@ -110,6 +110,23 @@ class CrashRehearsal:
                     seen.add(ancestor["pid"])
                     ancestor = rows.get(ancestor["parent"])
 
+    def repository_attempt(self, client, task, repo_id, attempt, phase, commit, actor, policy):
+        page = client.request("GET", "/api/v1/repo/automatic-runs?limit=1")
+        require(page["repo_id"] == repo_id and page["order"] == "worktree_id_asc"
+                and page["scanned_worktrees"] == 1 and page["next_cursor"] is None
+                and len(page["worktrees"]) == 1,
+                "repository Actions page has the wrong scope or pagination")
+        group = page["worktrees"][0]
+        require(group["worktree_id"] == task["worktree_id"]
+                and group["branch"] == task["branch"] and group["base_branch"] == "main",
+                "repository Actions page has the wrong worktree binding")
+        matches = [row for row in group["runs"] if row["run_id"] == attempt]
+        require(len(matches) == 1 and matches[0]["phase"] == phase
+                and matches[0]["expected"] == commit and matches[0]["user_id"] == actor
+                and matches[0]["checks_oid"] == policy and matches[0]["origin"] == "mcp"
+                and matches[0]["purpose"] == "automatic_checks",
+                "repository Actions lost the actual automatic attempt or its identity")
+
     def cleanup(self):
         rows = self.ps()
         for process in self.servers:
@@ -150,6 +167,8 @@ class CrashRehearsal:
         login = self.helper.Client(url).request("POST", "/api/v1/auth/login", {
             "identifier": "crash-operator", "password": self.password})
         client = self.helper.Client(url, login["raw_session_token"])
+        repo_id = client.request("GET", "/api/v1/repo")["id"]
+        policy = git(self.repo, "rev-parse", "refs/heads/main:.gitust-checks.json")
         task = client.tool("gitust_worktree_spawn", {
             "branch": "agent/codex/" + self.nonce, "base_branch": "main", "agent": "codex",
             "prompt_summary": "Synthetic execution crash regression"})
@@ -161,6 +180,12 @@ class CrashRehearsal:
             "paths": ["README.md"], "message": "test: trigger crash regression"})
         require(result.get("automatic_checks") == "queued", "automatic execution was not queued")
         wait_for(lambda: (checkout / started).is_file(), 10, "command did not start")
+        rows = self.ps()
+        self.remember_groups(original, rows)
+        require(self.groups, "no actual host execution group observed")
+        server = rows.get(original.pid)
+        require(server and str(self.binary) in server["args"] and str(self.repo) in server["args"],
+                "fixture service identity changed")
         lifecycle_route = "/api/v1/swarm/worktrees/" + task["worktree_id"] + "/automatic-runs"
         running = [row for row in client.request("GET", lifecycle_route) if row["phase"] == "running"]
         require(len(running) == 1, "started command has no unique durable Running attempt")
@@ -169,12 +194,8 @@ class CrashRehearsal:
                 and attempt["user_id"] == login["user"]["id"]
                 and attempt["origin"] == "mcp" and attempt["purpose"] == "automatic_checks",
                 "durable automatic attempt has the wrong commit or actor binding")
-        rows = self.ps()
-        self.remember_groups(original, rows)
-        require(self.groups, "no actual host execution group observed")
-        server = rows.get(original.pid)
-        require(server and str(self.binary) in server["args"] and str(self.repo) in server["args"],
-                "fixture service identity changed")
+        self.repository_attempt(client, task, repo_id, attempt["run_id"], "running",
+                                result["commit"], login["user"]["id"], policy)
         original.kill()
         original.wait(timeout=5)
         survived = bool(self.live_owned())
@@ -208,6 +229,8 @@ class CrashRehearsal:
                 "uncertain execution was not retained as the same interrupted attempt")
         require(not any(row["phase"] in ["prepared", "queued", "running"] for row in records),
                 "uncertain automatic attempt was rescheduled")
+        self.repository_attempt(client, task, repo_id, attempt["run_id"], "interrupted",
+                                attempt["expected"], login["user"]["id"], policy)
         result = client.tool("gitust_sandbox_exec", {
             "worktree_id": task["worktree_id"], "command": "true", "verify": False,
             "timeout_secs": 5})
@@ -228,6 +251,7 @@ class CrashRehearsal:
                 "post_recovery_execution_passed": True, "git_fsck": "passed",
                 "automatic_attempt_retained_as_interrupted": True,
                 "interrupted_automatic_attempt_replayed": False,
+                "repository_actions_running_and_interrupted": True,
                 "external_connections": False}
 
 

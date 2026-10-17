@@ -76,10 +76,11 @@ export function registerWorkbenchShortcuts(
     }),
     shortcutManager.register({
       id: "nav.actions",
-      title: "Go to Actions demo",
+      title: "Go to Actions",
       category: "Navigation",
       keys: "g a",
-      description: "Explore sample pipeline jobs and logs.",
+      description:
+        "Browse automatic Checks; demo mode shows a sample pipeline.",
       handler: () => cb.setActiveTab("actions"),
     }),
     shortcutManager.register({

@@ -122,6 +122,8 @@ pub(crate) use crate::quota::{RunStatusGuard, SpawnLifecycle, SpawnReservation};
 pub struct AppState {
     pub(crate) automatic_checks: Arc<crate::automatic_checks::AutomaticChecks>,
     pub repo_id: RepoId,
+    #[cfg(test)]
+    pub(crate) automatic_run_page_hook: Arc<Mutex<Option<crate::automatic_run_page::TestHook>>>,
     pub auth_store: AuthStore,
     pub git_engine: GitEngine,
     pub sandbox_executor: LocalSandboxExecutor,
@@ -225,6 +227,8 @@ impl AppState {
         Ok(Self {
             automatic_checks: Arc::new(crate::automatic_checks::AutomaticChecks::default()),
             repo_id,
+            #[cfg(test)]
+            automatic_run_page_hook: Arc::new(Mutex::new(None)),
             auth_store,
             git_engine,
             sandbox_executor: LocalSandboxExecutor::new(16),

@@ -29,6 +29,12 @@ function instant(value: unknown): bigint | undefined {
 }
 export const isUtcTime = (value: unknown): value is string =>
   instant(value) !== undefined;
+export function compareAutomaticRunTimes(left: string, right: string): number {
+  const first = instant(left);
+  const second = instant(right);
+  if (first === undefined || second === undefined) return invalidActivity();
+  return first < second ? -1 : first > second ? 1 : 0;
+}
 const phases: readonly AutomaticRunPhase[] = [
   "prepared",
   "queued",

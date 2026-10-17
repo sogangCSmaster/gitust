@@ -28,7 +28,8 @@ const parseRepository = (value: unknown): ConnectedRepository => {
     raw.name.length > 1024 ||
     typeof raw.branch !== "string" ||
     !raw.branch.trim() ||
-    raw.branch.length > 1024 ||
+    raw.branch.length > 32 * 1024 ||
+    new TextEncoder().encode(raw.branch).length > 32 * 1024 ||
     typeof raw.head_commit !== "string" ||
     !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(raw.head_commit)
   )

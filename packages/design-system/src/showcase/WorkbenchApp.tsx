@@ -46,7 +46,10 @@ import { SidebarProvider, SidebarInset } from "../components/ui/sidebar";
 import { WorkbenchNavigation, workbenchNavItems } from "./WorkbenchNavigation";
 import { createWorkbenchRepositoryState } from "./workbench-repository-state";
 import { readWorkbenchAccessLink } from "./workbench-access-link";
-import { createRepositoryWorkspace } from "./repository-workspace";
+import {
+  createRepositoryWorkspace,
+  isRepositoryTab,
+} from "./repository-workspace";
 import { RepositoryLanding, RepositoryOverview } from "./RepositoryViews";
 
 export type WorkbenchTab =
@@ -94,7 +97,7 @@ export const WorkbenchApp: Component = () => {
     createSignal<ActionJobStep[]>(INITIAL_ACTION_JOBS);
   const [activeJobId, setActiveJobId] = createSignal("job-docker");
   const actionLogs = createMemo(() =>
-    activeTab() === "actions" ? generateActionLogs(10000) : [],
+    !liveMode() && activeTab() === "actions" ? generateActionLogs(10000) : [],
   );
 
   const [enterpriseUsers, setEnterpriseUsers] = createSignal<EnterpriseUser[]>(
@@ -371,7 +374,9 @@ export const WorkbenchApp: Component = () => {
       spawnBatchAgentSwarm,
       toggleIssueStatus: demoActions.toggleIssueStatus,
       createOptimisticIssue: demoActions.createOptimisticIssue,
-      rerunAllActionJobs: demoActions.rerunAllActionJobs,
+      rerunAllActionJobs: () => {
+        if (!liveMode() && !getLiveToken()) demoActions.rerunAllActionJobs();
+      },
       focusFilterInput: () => queueMicrotask(() => filterInputRef?.focus()),
       showQuickFeedback,
     });
@@ -407,7 +412,7 @@ export const WorkbenchApp: Component = () => {
             "Repositories"
           }
           repositoryName={
-            ["overview", "swarm", "tree", "diff"].includes(activeTab())
+            isRepositoryTab(activeTab(), liveMode())
               ? selectedRepository()?.name
               : undefined
           }
@@ -451,6 +456,7 @@ export const WorkbenchApp: Component = () => {
           </Show>
 
           <WorkbenchTabViews
+            repositoryId={selectedRepository()?.id}
             activeTab={activeTab()}
             liveMode={liveMode()}
             swarmTasks={swarmTasks()}

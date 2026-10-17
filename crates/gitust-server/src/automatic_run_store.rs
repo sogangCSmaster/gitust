@@ -32,8 +32,26 @@ struct Header {
     version: u32,
     repo_id: RepoId,
 }
+pub(crate) enum DiagnosticReadError {
+    Retired,
+    Storage(Failure),
+}
+impl From<Failure> for DiagnosticReadError {
+    fn from(error: Failure) -> Self {
+        Self::Storage(error)
+    }
+}
+#[cfg(test)]
+pub(crate) type ReadHook = (
+    tokio::sync::oneshot::Sender<()>,
+    std::sync::mpsc::Receiver<()>,
+);
 pub(crate) struct Store {
     directory: File,
+    #[cfg(test)]
+    pub(crate) document_reads: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    pub(crate) diagnostic_read_hook: Mutex<Option<ReadHook>>,
     #[cfg(test)]
     path: std::path::PathBuf,
     repo_id: RepoId,
@@ -215,6 +233,10 @@ impl Store {
         Ok(Self {
             directory,
             #[cfg(test)]
+            document_reads: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            diagnostic_read_hook: Mutex::new(None),
+            #[cfg(test)]
             path,
             repo_id,
             slots: Mutex::new(slots),
@@ -272,23 +294,59 @@ impl Store {
         branch: &str,
         base: &str,
     ) -> Result<Option<Document>, Failure> {
+        self.read_document(id, branch, base, false)
+            .map_err(|error| match error {
+                DiagnosticReadError::Retired => invalid(),
+                DiagnosticReadError::Storage(error) => error,
+            })
+    }
+    /// Only the positively observed completion of this store's own discard is omitted.
+    pub fn diagnostic_document(
+        &self,
+        id: WorktreeId,
+        branch: &str,
+        base: &str,
+    ) -> Result<Option<Document>, DiagnosticReadError> {
+        self.read_document(id, branch, base, true)
+    }
+    fn read_document(
+        &self,
+        id: WorktreeId,
+        branch: &str,
+        base: &str,
+        diagnostic: bool,
+    ) -> Result<Option<Document>, DiagnosticReadError> {
         validate(&self.directory, true)?;
         let slot = match self.slots.lock().get(&id).cloned() {
             Some(slot) => slot,
             None => return Ok(None),
         };
+        #[cfg(test)]
+        if diagnostic {
+            let hook = self.diagnostic_read_hook.lock().take();
+            if let Some((entered, release)) = hook {
+                entered.send(()).map_err(|_| invalid())?;
+                release.recv().map_err(|_| invalid())?;
+            }
+        }
+        // The mode only affects test observation; strict callers reject Retired below.
+        #[cfg(not(test))]
+        let _diagnostic = diagnostic;
         let written = slot.lock();
         if *written == Slot::Retired {
-            return Err(invalid());
+            return Err(DiagnosticReadError::Retired);
         }
+        #[cfg(test)]
+        self.document_reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let bytes = match read_bytes(&self.directory, &format!("{}.json", id.0))? {
             Some(bytes) => bytes,
             None if *written == Slot::Absent => return Ok(None),
-            None => return Err(invalid()),
+            None => return Err(invalid().into()),
         };
         let doc: Document = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
         if !doc.valid(self.repo_id, id) || doc.branch != branch || doc.base_branch != base {
-            return Err(invalid());
+            return Err(invalid().into());
         }
         Ok(Some(doc))
     }
@@ -303,6 +361,9 @@ impl Store {
         let mut docs = Vec::new();
         for (id, slot) in ids {
             let written = slot.lock();
+            #[cfg(test)]
+            self.document_reads
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let bytes = read_bytes(&self.directory, &format!("{}.json", id.0))?;
             match bytes {
                 Some(bytes) => {

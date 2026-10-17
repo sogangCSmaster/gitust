@@ -38,6 +38,7 @@ In progress. Implemented portions:
 - Bounded durable history of completed HTTP/MCP runs, with a SiteAdmin-only read API and no restoration of approval authority.
 - Durable execution fences reject replacement service ownership and further mutations after an unconfirmed run. Explicit operator recovery is required; this prevents overlap but does not implement automatic orphan termination.
 - A live workbench Activity viewer combining the latest five completed results with bounded automatic-run lifecycle records. It includes per-command output when retained, makes queued/interrupted attempts explicit, and keeps diagnostics separate from current verification authority.
+- A SiteAdmin-only read-only Actions view and bounded repository API for current tracked worktrees. Pages follow worktree ID order and link to the exact retained run in Activity; they do not provide a global newest-run feed or workflow execution controls.
 - A live worktree-to-diff review entry that pins head/base commits across file switches, refuses unknown targets and keeps tree/blob snapshots consistent. The follow-up passed local checks and Gate A; its Gate B exception was approved before automatic Gate B reviews were stopped by the user.
 - Bounded task display labels in creation metadata, preserved on restart and relocation for new tasks. Legacy records retain a generic recovered label; labels do not restore verification authority.
 - Stable configured repository IDs across restart and complete offline relocation, with bounded private metadata and collision rejection. This does not implement repository routing or team ACL binding.
@@ -45,7 +46,7 @@ In progress. Implemented portions:
 
 Remaining work:
 
-- Non-managed branch triggers and the live Actions workflow screen.
+- Non-managed branch triggers and workflow execution beyond managed-worktree automatic Checks. GitHub Actions-compatible workflows remain Phase 4 work.
 - Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is approximately 65 kB gzip after deferring optional views and tooltip dependencies. Measure the complete initial static-import closure, not just an arbitrarily split entry file.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.

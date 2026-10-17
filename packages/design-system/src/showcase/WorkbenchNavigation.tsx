@@ -24,7 +24,7 @@ export interface WorkbenchNavItem {
   group: "workspace" | "repository" | "explore";
 }
 export const workbenchNavItems = (
-  _liveMode: boolean,
+  liveMode: boolean,
   count: number,
 ): WorkbenchNavItem[] => [
   {
@@ -72,9 +72,9 @@ export const workbenchNavItems = (
   },
   {
     id: "actions",
-    label: "Actions · Demo",
+    label: liveMode ? "Actions" : "Actions · Demo",
     icon: <Icon name="play" />,
-    group: "explore",
+    group: liveMode ? "repository" : "explore",
   },
   {
     id: "primitives",
@@ -93,6 +93,10 @@ export const WorkbenchNavigation: Component<{
 }> = (props) => {
   const sidebar = useSidebar();
   const [exploreOpen, setExploreOpen] = createSignal(false);
+  const exploring = () =>
+    props.items.some(
+      (item) => item.group === "explore" && item.id === props.active,
+    );
   const select = (tab: WorkbenchTab) => {
     props.onSelect(tab);
     sidebar.setOpenMobile(false);
@@ -164,21 +168,13 @@ export const WorkbenchNavigation: Component<{
             variant="ghost"
             size="sm"
             class="mb-1 h-8 w-full justify-start gap-2 px-3 text-xs font-normal text-muted-foreground"
-            aria-expanded={
-              exploreOpen() ||
-              ["issues", "actions", "primitives"].includes(props.active)
-            }
+            aria-expanded={exploreOpen() || exploring()}
             onClick={() => setExploreOpen((open) => !open)}
           >
             <Icon name="sliders" size={13} />
             Explore previews
           </Button>
-          <Show
-            when={
-              exploreOpen() ||
-              ["issues", "actions", "primitives"].includes(props.active)
-            }
-          >
+          <Show when={exploreOpen() || exploring()}>
             <SidebarGroupContent>
               <nav aria-label="Demo and component previews">
                 {menu("explore")}

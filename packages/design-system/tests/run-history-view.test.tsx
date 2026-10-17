@@ -37,6 +37,46 @@ const ready = (): RunHistoryState => ({
   records: parseRunHistory([historyRecord()], worktreeId),
 });
 
+it("never substitutes a different retained run for an initial run target", async () => {
+  const [state, setState] = createSignal(ready());
+  render(() => (
+    <RunHistoryDialog
+      branch="agent/test/exact"
+      initialRunId="abcdefab-cdef-4abc-8def-abcdefabcdef"
+      state={state()}
+      onRefresh={vi.fn()}
+      onClose={vi.fn()}
+    />
+  ));
+  await screen.findByText("This run is no longer retained");
+  expect(screen.queryByText("checked", { exact: true })).toBeNull();
+  setState({ status: "ready", records: [] });
+  expect(screen.getByText("This run is no longer retained")).toBeTruthy();
+  expect(screen.queryByText("No activity yet")).toBeNull();
+});
+
+it("selects a retained initial run even when a different result is newer", async () => {
+  const targetId = "abcdefab-cdef-4abc-8def-abcdefabcdef";
+  const target = historyRecord(targetId);
+  target.result.stdout = "requested output";
+  render(() => (
+    <RunHistoryDialog
+      branch="agent/test/exact"
+      initialRunId={targetId}
+      state={{
+        status: "ready",
+        records: parseRunHistory([historyRecord(), target], worktreeId),
+      }}
+      onRefresh={vi.fn()}
+      onClose={vi.fn()}
+    />
+  ));
+  expect(
+    await screen.findByText("requested output", { exact: true }),
+  ).toBeTruthy();
+  expect(screen.getByText(`Run: ${targetId}`)).toBeTruthy();
+});
+
 it("labels automatic checks and keeps manual verification required for approval", async () => {
   const state = ready();
   state.records[0].automatic = true;

@@ -39,6 +39,8 @@ SSH Git serving, full pull-request collaboration, GitHub Actions compatibility, 
 
 Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Durable queued jobs can resume after current authority and Git state are rechecked; uncertain running jobs become interrupted and are never automatically replayed. Local filesystem Git commits and untracked branches remain outside these triggers. See [verification behavior](docs/architecture/worktree-verification.md) and [automatic-run recovery](docs/architecture/automatic-checks.md).
 
+SiteAdmins can browse retained automatic attempts in the repository's read-only **Actions** view and open the exact run in **Activity**. This view does not start workflows.
+
 ## Build from source
 
 You need Rust, Git, Node.js, and pnpm 10. The current development checks run with Rust 1.92.0. Repository identity storage currently supports macOS and Linux. Sandbox execution requires macOS with `sandbox-exec`, or Linux with `bwrap` and the necessary namespace support. Windows sandbox execution is not implemented.
@@ -89,7 +91,7 @@ For frontend development, keep the Rust server running on `127.0.0.1:3000` and s
 pnpm --filter @gitust/design-system dev
 ```
 
-Open [localhost:4200](http://127.0.0.1:4200). Vite forwards API, MCP, OAuth, discovery, and Git requests to the Rust server. Sign in through **Access** with the CLI-created account to use real repository data. Worktrees, repository browsing, and account controls connect to the server; Issues and Actions remain labelled interface demos. The Components view is a design reference. Use a separate clone for experiments when your development checkout has uncommitted work.
+Open [localhost:4200](http://127.0.0.1:4200). Vite forwards API, MCP, OAuth, discovery, and Git requests to the Rust server. Sign in through **Access** with the CLI-created account to use real repository data. Worktrees, repository browsing, account controls, and read-only Actions connect to the server; Issues remains a labelled interface demo, as does Actions when signed out. The Components view is a design reference. Use a separate clone for experiments when your development checkout has uncommitted work.
 
 
 ## CLI and agent workflow

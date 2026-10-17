@@ -230,3 +230,10 @@ fixed script's successful `require` -> report path; raw private report JSON was 
 collected. Exact-source/backend checks and strict Git `fsck` passed. This fixed-checkpoint
 record excludes later activity UI changes. Actual GitHub product publication remains
 deferred by the user, and native agent-client proof remains incomplete.
+
+The selected-worktree Activity viewer at `b2433779b6f28624eb2c9384d01380b9f99ee1b4`
+also passed [CI run 39015002517](https://github.com/sogangCSmaster/gitust/actions/runs/39015002517)
+on both operating systems. Each job passed 197 frontend tests, all mechanical gates,
+the ten-task rehearsal and the actual crash-recovery rehearsal. The [fixed-source
+record](evidence/alpha-ci-b243377-2026-10-17.json) excludes subsequent repository-wide
+Actions changes; it does not close the deferred publication or native-client criteria.

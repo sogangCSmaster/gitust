@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "source_commit": "b2433779b6f28624eb2c9384d01380b9f99ee1b4",
+  "scope": "fixed-source hosted CI for the selected-worktree Activity viewer",
+  "run": {
+    "id": 39015002517,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39015002517",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "evidence_basis": [
+    "Exact-source GitHub run/job terminal metadata and decoded job logs",
+    "Frontend 197 passed; all mechanical gates, PASS01..10 and actual crash-rehearsal completion in both job logs",
+    "The fixed crash helper requires same-ID Interrupted retention and no replay before completion; raw private runtime reports were not collected"
+  ],
+  "jobs": [
+    {
+      "id": 117345191746,
+      "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39015002517/job/117345191746",
+      "runner_image": "ubuntu-22.04",
+      "started_at": "2026-10-17T07:48:24Z",
+      "completed_at": "2026-10-17T07:52:26Z",
+      "conclusion": "success",
+      "frontend_tests_passed": 197,
+      "git_tests_passed": 105,
+      "git_benchmarks_ignored": 2,
+      "db_tests_passed": 29,
+      "server_tests_passed": 106,
+      "sandbox_tests_passed": 30,
+      "mechanical_gates": "passed",
+      "operating_tasks_passed": 10,
+      "execution_crash_rehearsal": "passed"
+    },
+    {
+      "id": 117345191871,
+      "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39015002517/job/117345191871",
+      "runner_image": "macos-15",
+      "started_at": "2026-10-17T07:48:30Z",
+      "completed_at": "2026-10-17T07:53:31Z",
+      "conclusion": "success",
+      "frontend_tests_passed": 197,
+      "git_tests_passed": 105,
+      "git_benchmarks_ignored": 2,
+      "db_tests_passed": 29,
+      "server_tests_passed": 106,
+      "sandbox_tests_passed": 30,
+      "mechanical_gates": "passed",
+      "operating_tasks_passed": 10,
+      "execution_crash_rehearsal": "passed"
+    }
+  ],
+  "boundaries": {
+    "later_actions_page_changes_covered": false,
+    "actual_ide_agent_session": false,
+    "external_github_publication": false,
+    "github_product_publication": "deferred_by_user",
+    "private_runtime_reports_published": false
+  }
+}

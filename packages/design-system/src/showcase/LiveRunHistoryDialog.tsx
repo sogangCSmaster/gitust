@@ -14,6 +14,7 @@ import {
 export const LiveRunHistoryDialog: Component<{
   worktreeId: string;
   branch: string;
+  initialRunId?: string;
   onClose: () => void;
 }> = (props) => {
   const [state, setState] = createSignal<RunHistoryState>({
@@ -42,6 +43,7 @@ export const LiveRunHistoryDialog: Component<{
     <RunHistoryDialog
       branch={props.branch}
       state={state()}
+      initialRunId={props.initialRunId}
       onRefresh={() => void client.load(props.worktreeId)}
       onClose={close}
     />

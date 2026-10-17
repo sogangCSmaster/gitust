@@ -31,6 +31,11 @@ const ActionsPipelineView = lazy(() =>
     default: module.ActionsPipelineView,
   })),
 );
+const LiveActionsView = lazy(() =>
+  import("./LiveActionsView").then((module) => ({
+    default: module.LiveActionsView,
+  })),
+);
 const RepositoryChangesView = lazy(() =>
   import("./RepositoryChangesView").then((module) => ({
     default: module.RepositoryChangesView,
@@ -55,6 +60,7 @@ const PrimitivesTab = lazy(() =>
 export interface WorkbenchTabViewsProps {
   activeTab: WorkbenchTab;
   liveMode: boolean;
+  repositoryId?: string;
   swarmTasks: AgentSandboxTask[];
   focusedSwarmIdx: number;
   onFocusedSwarmIdxChange: (idx: number) => void;
@@ -185,21 +191,37 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
     <Show when={props.activeTab === "actions"}>
       <PageHeading
         title="Actions"
-        description="Interface demo with generated logs and simulated jobs. Replay the sample pipeline to explore its states."
+        description={
+          props.liveMode
+            ? "Read-only automatic Checks diagnostics for this repository."
+            : "Interface demo with generated logs and simulated jobs. Replay the sample pipeline to explore its states."
+        }
       />
-      <DeferredView label="Actions demo">
-        <ActionsPipelineView
-          workflowName="ci-enterprise-release.yml"
-          commitSha="5edd70a"
-          branch="main"
-          jobs={props.actionJobs}
-          activeJobId={props.activeJobId}
-          onSelectJob={props.onSelectJob}
-          onRerunAll={props.onRerunAllActionJobs}
-          logs={props.actionLogs}
-          height={440}
-        />
-      </DeferredView>
+      <Show
+        when={props.liveMode}
+        fallback={
+          <DeferredView label="Actions demo">
+            <ActionsPipelineView
+              workflowName="ci-enterprise-release.yml"
+              commitSha="5edd70a"
+              branch="main"
+              jobs={props.actionJobs}
+              activeJobId={props.activeJobId}
+              onSelectJob={props.onSelectJob}
+              onRerunAll={props.onRerunAllActionJobs}
+              logs={props.actionLogs}
+              height={440}
+            />
+          </DeferredView>
+        }
+      >
+        <DeferredView label="Automatic Actions">
+          <LiveActionsView
+            repositoryId={props.repositoryId}
+            role={props.adminAuthProps?.liveSession?.role}
+          />
+        </DeferredView>
+      </Show>
     </Show>
     <Show when={props.activeTab === "admin"}>
       <PageHeading

@@ -20,6 +20,34 @@ afterEach(() => {
   vi.unstubAllGlobals();
   token = "session-a";
 });
+it("preserves existing long branch names and enforces the UTF-8 readback limit", async () => {
+  const longBranch = `agent/${Array.from({ length: 24 }, (_, index) => `segment${String(index).padStart(3, "0")}${"x".repeat(40)}`).join("/")}`;
+  const boundary = `agent/${"가".repeat(10920)}ab`;
+  const states: ConnectedRepositoryState[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...repo, branch: longBranch })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...repo, branch: boundary })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...repo, branch: `${boundary}c` })),
+      ),
+  );
+  const client = createConnectedRepositoryClient((state) => states.push(state));
+  await client.refresh();
+  expect(states.at(-1)?.repository?.branch).toBe(longBranch);
+  await client.refresh();
+  expect(new TextEncoder().encode(boundary)).toHaveLength(32 * 1024);
+  expect(states.at(-1)?.repository?.branch).toBe(boundary);
+  await client.refresh();
+  expect(states.at(-1)?.repository).toBeNull();
+  expect(states.at(-1)?.error).toMatch(/invalid repository metadata/i);
+});
 it("loads the configured repository and rejects malformed or denied metadata without demo fallback", async () => {
   const states: ConnectedRepositoryState[] = [];
   const fetcher = vi

@@ -7,6 +7,10 @@ import {
 } from "./connected-repository-client";
 import { DEMO_REPOSITORY } from "./RepositoryViews";
 
+export const isRepositoryTab = (tab: WorkbenchTab, liveMode: boolean) =>
+  ["overview", "swarm", "tree", "diff"].includes(tab) ||
+  (liveMode && tab === "actions");
+
 export const createRepositoryWorkspace = (options: {
   liveMode: () => boolean;
   setActiveTab: (tab: WorkbenchTab) => void;
@@ -40,10 +44,7 @@ export const createRepositoryWorkspace = (options: {
       client.invalidate();
       setSelectedId(null);
       options.setActiveTab(tab);
-    } else if (
-      ["overview", "swarm", "tree", "diff"].includes(tab) &&
-      !selected()
-    ) {
+    } else if (isRepositoryTab(tab, options.liveMode()) && !selected()) {
       const repo = repository();
       if (repo) open(repo, tab);
       else options.setActiveTab("repositories");

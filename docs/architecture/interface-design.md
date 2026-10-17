@@ -9,11 +9,13 @@ an Apple product or an official Apple design.
 
 - **Workspace:** Repositories and Access are global destinations. The sidebar
   brand is a single logo button; repeated product and workspace labels are omitted.
-- **Repository:** Open a repository to see Overview, Worktrees, Files, and Changes.
+- **Repository:** Open a repository to see Overview, Worktrees, Files, and Changes,
+  plus live Actions diagnostics for SiteAdmins. Actions groups retained automatic
+  attempts by worktree and opens the exact run in Activity; it has no execution controls.
   A visible back action returns to Repositories. The current server exposes one
   configured repository; this screen does not imply multi-repository provisioning.
-- **Previews:** Issues, Actions, and Components are grouped separately and remain
-  labelled demonstrations. Their sample data never establishes live capabilities.
+- **Previews:** Issues, signed-out Actions, and Components are grouped separately
+  as previews. Their sample data never establishes live capabilities.
 
 ## Layout and density
 

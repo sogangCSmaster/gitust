@@ -406,3 +406,36 @@ it("accepts only a positive typed owning-group management hint and keeps old cat
   await client.refresh();
   expect(states.at(-1)?.repositories).toEqual([]);
 });
+
+it("uses current ordinary-push hints without granting them to older catalogs", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        response([
+          { ...repo, can_push: false },
+          { ...secondary, can_push: true },
+        ]),
+      )
+      .mockResolvedValueOnce(response([repo, secondary]))
+      .mockResolvedValueOnce(response([{ ...secondary, can_push: false }]))
+      .mockResolvedValueOnce(response([{ ...secondary, can_push: "true" }])),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories.map((row) => row.canPush)).toEqual([
+    false,
+    true,
+  ]);
+  await client.refresh();
+  expect(states.at(-1)?.repositories.map((row) => row.canPush)).toEqual([
+    false,
+    false,
+  ]);
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]?.canPush).toBe(false);
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+  expect(states.at(-1)?.error).toContain("invalid repository metadata");
+});

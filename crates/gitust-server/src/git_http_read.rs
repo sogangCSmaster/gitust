@@ -1,4 +1,4 @@
-//! Authenticated UUID Smart HTTP reads; secondary repositories have no receive-pack route.
+//! Authenticated hosted reads and primary advertisements, with original credential rechecks.
 use crate::{
     git_http_auth::{extract_git_http_principal, git_auth_err_response},
     repository_registry::{ReadRepository, RepositoryRegistry},
@@ -106,16 +106,20 @@ async fn execute(
     .await
     .map_err(unavailable)?
 }
-fn response(value: Result<Vec<u8>, ApiError>, advertisement: bool) -> Response {
+fn response(
+    value: Result<Vec<u8>, ApiError>,
+    service: SmartHttpService,
+    advertisement: bool,
+) -> Response {
     let mut response = match value {
         Ok(bytes) => (
             StatusCode::OK,
             [(
                 header::CONTENT_TYPE,
                 if advertisement {
-                    SmartHttpService::UploadPack.advertisement_content_type()
+                    service.advertisement_content_type()
                 } else {
-                    SmartHttpService::UploadPack.result_content_type()
+                    service.result_content_type()
                 },
             )],
             bytes,
@@ -137,22 +141,30 @@ fn response(value: Result<Vec<u8>, ApiError>, advertisement: bool) -> Response {
     response
 }
 pub(crate) async fn advertise(state: AppState, raw: String, headers: HeaderMap) -> Response {
+    advertise_service(state, raw, headers, SmartHttpService::UploadPack).await
+}
+pub(crate) async fn advertise_service(
+    state: AppState,
+    raw: String,
+    headers: HeaderMap,
+    service: SmartHttpService,
+) -> Response {
     let value = match prepare(state.clone(), raw, headers.clone()).await {
         Ok(target) => {
-            execute(state, headers, target, |engine| {
-                engine.smart_http_advertise_refs(SmartHttpService::UploadPack)
+            execute(state, headers, target, move |engine| {
+                engine.smart_http_advertise_refs(service)
             })
             .await
         }
         Err(error) => Err(error),
     };
-    response(value, true)
+    response(value, service, true)
 }
 pub(crate) async fn upload(state: AppState, raw: String, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let target = match prepare(state.clone(), raw, parts.headers.clone()).await {
         Ok(target) => target,
-        Err(error) => return response(Err(error), false),
+        Err(error) => return response(Err(error), SmartHttpService::UploadPack, false),
     };
     let body = match body::to_bytes(body, MAX_SMART_HTTP_BODY_BYTES).await {
         Ok(body) => body,
@@ -162,6 +174,7 @@ pub(crate) async fn upload(state: AppState, raw: String, request: Request) -> Re
                     StatusCode::PAYLOAD_TOO_LARGE,
                     "upload-pack body exceeds its limit".into(),
                 )),
+                SmartHttpService::UploadPack,
                 false,
             )
         }
@@ -171,6 +184,7 @@ pub(crate) async fn upload(state: AppState, raw: String, request: Request) -> Re
             engine.smart_http_upload_pack(&body)
         })
         .await,
+        SmartHttpService::UploadPack,
         false,
     )
 }

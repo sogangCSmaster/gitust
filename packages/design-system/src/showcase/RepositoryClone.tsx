@@ -171,8 +171,9 @@ export const RepositoryClone: Component<{
                   Git password.
                   <Show when={props.repository.capability === "browse"}>
                     <span class="mt-2 block">
-                      Clone and fetch only. Push is disabled for this
-                      repository.
+                      {props.repository.canPush
+                        ? "Clone, fetch, and push ordinary branches and tags. Agent worktrees and execution are unavailable here."
+                        : "Clone and fetch with your current access."}
                     </span>
                   </Show>
                 </DialogDescription>

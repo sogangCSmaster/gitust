@@ -17,6 +17,7 @@ export interface ConnectedRepository {
   isPrivate?: boolean;
   canChangeVisibility?: boolean;
   canClone?: boolean;
+  canPush?: boolean;
   canInviteToGroup?: boolean;
   canManageGroupMembers?: boolean;
 }
@@ -68,6 +69,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
           Number(Object.hasOwn(raw, "is_private")) +
           Number(Object.hasOwn(raw, "can_change_visibility")) +
           Number(Object.hasOwn(raw, "can_clone")) +
+          Number(Object.hasOwn(raw, "can_push")) +
           Number(Object.hasOwn(raw, "can_invite_to_group")) +
           Number(Object.hasOwn(raw, "can_manage_group_members")) ||
       (Object.hasOwn(raw, "can_rename") &&
@@ -79,6 +81,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       (Object.hasOwn(raw, "can_change_visibility") &&
         typeof raw.can_change_visibility !== "boolean") ||
       (Object.hasOwn(raw, "can_clone") && typeof raw.can_clone !== "boolean") ||
+      (Object.hasOwn(raw, "can_push") && typeof raw.can_push !== "boolean") ||
       (Object.hasOwn(raw, "can_manage_group_members") &&
         typeof raw.can_manage_group_members !== "boolean") ||
       (Object.hasOwn(raw, "can_invite_to_group") &&
@@ -120,6 +123,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
         typeof raw.is_private === "boolean" ? raw.is_private : undefined,
       canChangeVisibility: raw.can_change_visibility === true,
       canClone: typeof raw.can_clone === "boolean" ? raw.can_clone : undefined,
+      canPush: raw.can_push === true,
       canInviteToGroup: raw.can_invite_to_group === true,
       canManageGroupMembers: raw.can_manage_group_members === true,
     };

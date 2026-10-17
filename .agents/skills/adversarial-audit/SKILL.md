@@ -166,6 +166,7 @@ Origin: P1 (2026-10-16) — `open_persistent()` read the JSON and then `stat()`-
 - Git status is not independent evidence when index flags hide tracked changes. Reject `assume-unchanged` and `skip-worktree` during verification, or compare contents without trusting those flags. Include both cases in regression tests.
 - Ordinary agent editing commands must remain distinct from verification. Clear verification evidence on new execution, failure, cancellation, or an authorized push attempt; never restore old authority after an indeterminate RPC result.
 - Bound Git inspection time and output, and retain operation guards through final validation and state updates.
+- Before resolving managed refs, preparing automatic Checks or running native receive-pack, validate the raw destination ref kind and reject symbolic refs and filesystem aliases. Use bounded regular-file reads without following links or blocking on special files; include parent components. Packed direct refs and genuinely missing refs remain supported; other read errors fail closed. Keep original-credential reauthorization after this validation and sweep primary and secondary receive paths. This does not coordinate arbitrary concurrent host Git writers.
 
 ## 2.5 Fix-Sweep Rule (Do Not Patch Only the Reported Line)
 

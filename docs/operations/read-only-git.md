@@ -17,11 +17,12 @@ and `gitust` continue to select only the primary repository.
 
 ## Authority and limits
 
-Only `git-upload-pack` advertisement and RPC are enabled for additional
-repositories. `git-receive-pack` advertisement, RPC and native push return 404
+Only `git-upload-pack` advertisement and RPC are enabled for repositories configured
+with `--read-only-repo`. Their `git-receive-pack` advertisement, RPC and native push return 404
 even for a SiteAdmin. This does not add secondary worktrees, execution, Checks,
 MCP, approval, synchronization or an SSH Git server. Ordinary primary push keeps
-its existing permissions and managed-agent-branch restrictions.
+its existing permissions and managed-agent-branch restrictions. Separately configured
+[Git-write entries](secondary-git-hosting.md) have their own ordinary-push contract.
 
 Login sessions and PATs use the existing Git HTTP authentication policy, including
 Basic PAT authentication. MCP-purpose sessions are rejected. Anonymous, revoked,
@@ -44,9 +45,9 @@ failures remain errors; failures do not fall back to the primary repository.
 
 The catalog's optional `can_clone` boolean is a display hint, not authorization.
 The compact Clone dialog appears for a secondary only when that hint is true and
-states that push is disabled. An explicit false also disables the primary
-control. Older servers without the hint retain the existing primary-only
-fallback. Session and repository selection changes invalidate the open dialog
+describes clone/fetch with the caller's current access. A false or missing `can_push`
+hint does not imply that every other account is also unable to push. An explicit `can_clone: false` also hides the primary Clone control. Older servers
+without `can_clone` retain the existing primary-only fallback. Session and repository selection changes invalidate the open dialog
 and late clipboard results.
 
 Run against a freshly built binary with a new report path:

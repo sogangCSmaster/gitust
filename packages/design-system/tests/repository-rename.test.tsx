@@ -59,6 +59,7 @@ const setup = async (
   let serverName = primary.name;
   let serverHead = initialHead;
   let cloneHints: { primary?: boolean; secondary?: boolean } = {};
+  let pushHints: { primary?: boolean; secondary?: boolean } = {};
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "PATCH") return patch(url, init);
     return new Response(
@@ -70,8 +71,13 @@ const setup = async (
             head_commit: serverHead,
             can_rename: canRename,
             can_clone: cloneHints.primary,
+            can_push: pushHints.primary,
           },
-          { ...secondary, can_clone: cloneHints.secondary },
+          {
+            ...secondary,
+            can_clone: cloneHints.secondary,
+            can_push: pushHints.secondary,
+          },
         ],
       }),
     );
@@ -127,6 +133,9 @@ const setup = async (
     },
     setServerName: (value: string) => {
       serverName = value;
+    },
+    setPushHints: (primary?: boolean, secondary?: boolean) => {
+      pushHints = { primary, secondary };
     },
     setCloneHints: (primary?: boolean, secondary?: boolean) => {
       cloneHints = { primary, secondary };
@@ -397,7 +406,7 @@ it("expires Clone intents across selection ABA, eventless token replacement and 
   expect(fetcher.mock.calls.length).toBe(requests);
 });
 
-it("uses explicit secondary clone access, explains disabled push and expires pending copies when that access changes", async () => {
+it("uses explicit secondary clone access, describes current access and expires pending copies when that access changes", async () => {
   const pending = deferred<void>();
   const withdrawn = deferred<void>();
   const writeText = vi
@@ -427,9 +436,7 @@ it("uses explicit secondary clone access, explains disabled push and expires pen
   })) as HTMLInputElement;
   expect(input.value).toBe(`${window.location.origin}/git/${secondary.id}.git`);
   expect(
-    screen.getByText(
-      "Clone and fetch only. Push is disabled for this repository.",
-    ),
+    screen.getByText("Clone and fetch with your current access."),
   ).toBeTruthy();
   const requests = fetcher.mock.calls.length;
   await fireEvent.click(screen.getByRole("button", { name: "Copy clone URL" }));
@@ -456,4 +463,45 @@ it("uses explicit secondary clone access, explains disabled push and expires pen
   withdrawn.resolve();
   await Promise.resolve();
   expect(screen.queryByText("Copied clone URL.")).toBeNull();
+});
+
+it("shows ordinary Git hosting without granting secondary workbench actions and updates current-access copy", async () => {
+  const { workspace, setCloneHints, setPushHints } = await setup(vi.fn());
+  setCloneHints(true, true);
+  setPushHints(false, true);
+  await workspace.refresh();
+  expect(workspace.canWorkbench()).toBe(true);
+  workspace.navigate("repositories");
+  const row = screen.getByRole("button", { name: "Open repository secondary" });
+  expect(within(row).getByText("Git hosting", { exact: true })).toBeTruthy();
+  await fireEvent.click(row);
+  expect(screen.getByText("Git hosting", { exact: true })).toBeTruthy();
+  expect(workspace.canWorkbench()).toBe(false);
+  expect(
+    screen.queryByRole("button", { name: "Worktrees", exact: true }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Actions", exact: true }),
+  ).toBeNull();
+  const trigger = screen.getByRole("button", { name: "Clone repository" });
+  trigger.focus();
+  await fireEvent.click(trigger);
+  const input = await screen.findByRole("textbox", { name: "Clone URL" });
+  await waitFor(() => expect(document.activeElement).toBe(input));
+  expect(
+    screen.getByText(
+      "Clone, fetch, and push ordinary branches and tags. Agent worktrees and execution are unavailable here.",
+    ),
+  ).toBeTruthy();
+  setPushHints(false, false);
+  await workspace.refresh();
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(
+    screen.getByText("Clone and fetch with your current access."),
+  ).toBeTruthy();
+  expect(screen.queryByText(/Push is disabled/)).toBeNull();
+  expect(screen.getByText("Read only", { exact: true })).toBeTruthy();
+  await fireEvent.keyDown(input, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
 });

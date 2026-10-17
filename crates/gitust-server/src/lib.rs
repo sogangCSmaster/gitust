@@ -21,6 +21,7 @@ pub mod git_http;
 mod git_http_auth;
 mod git_http_automatic;
 mod git_http_read;
+mod git_http_write;
 pub mod listener;
 pub mod mcp;
 pub mod oauth;
@@ -316,6 +317,37 @@ pub async fn serve_with_read_only_repositories(
     sync_timeout_secs: Option<u64>,
     read_only_repos: Vec<PathBuf>,
 ) -> Result<(), std::io::Error> {
+    serve_with_repository_modes(
+        addr,
+        repo_path,
+        github_mirror_url,
+        auth_store,
+        trusted_sandbox_exec,
+        sync_timeout_secs,
+        RepositoryPaths {
+            read_only: read_only_repos,
+            git_write: Vec::new(),
+        },
+    )
+    .await
+}
+
+/// Explicit stopped configuration; a Git-only secondary never gains a workbench runtime.
+#[derive(Default)]
+pub struct RepositoryPaths {
+    pub read_only: Vec<PathBuf>,
+    pub git_write: Vec<PathBuf>,
+}
+
+pub async fn serve_with_repository_modes(
+    addr: SocketAddr,
+    repo_path: PathBuf,
+    github_mirror_url: String,
+    auth_store: AuthStore,
+    trusted_sandbox_exec: bool,
+    sync_timeout_secs: Option<u64>,
+    repositories: RepositoryPaths,
+) -> Result<(), std::io::Error> {
     let (state, _service_lock) = tokio::task::spawn_blocking(
         move || -> Result<(AppState, gitust_git::WorktreeServiceLock), std::io::Error> {
             let mut engine = gitust_git::GitEngine::new(&repo_path);
@@ -329,10 +361,17 @@ pub async fn serve_with_read_only_repositories(
                 AppState::with_engine_and_auth_store(engine, github_mirror_url, auth_store)
                     .map_err(std::io::Error::other)?
                     .with_trusted_sandbox_exec(trusted_sandbox_exec);
-            state.repository_registry = Some(
-                repository_registry::RepositoryRegistry::load(&state, read_only_repos)
-                    .map_err(std::io::Error::other)?,
-            );
+            let registry = if repositories.git_write.is_empty() {
+                repository_registry::RepositoryRegistry::load(&state, repositories.read_only)
+            } else {
+                repository_registry::RepositoryRegistry::load_with_git_write(
+                    &state,
+                    repositories.read_only,
+                    repositories.git_write,
+                )
+            }
+            .map_err(std::io::Error::other)?;
+            state.repository_registry = Some(registry);
             Ok((state, lock))
         },
     )

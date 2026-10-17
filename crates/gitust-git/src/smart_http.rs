@@ -239,6 +239,15 @@ impl GitEngine {
     /// Executes `POST /git-receive-pack` (`--stateless-rpc`) for `git push` after caller has
     /// verified `inspect_receive_pack_updates(request_body)` against role and branch rules.
     pub fn smart_http_receive_pack(&self, request_body: &[u8]) -> Result<Vec<u8>, GitEngineError> {
+        self.smart_http_receive_pack_with_gate(request_body, || Ok(()))
+    }
+
+    /// The gate runs after local ref/config validation, immediately before the native receiver.
+    pub fn smart_http_receive_pack_with_gate(
+        &self,
+        request_body: &[u8],
+        gate: impl FnOnce() -> Result<(), GitEngineError>,
+    ) -> Result<Vec<u8>, GitEngineError> {
         if request_body.is_empty() || request_body.len() > MAX_SMART_HTTP_BODY_BYTES {
             return Err(GitEngineError::InvalidRevision(
                 "invalid receive-pack request body length".to_owned(),
@@ -248,6 +257,11 @@ impl GitEngine {
         self.ensure_config_has_no_credentials()?;
         let repo = self.acquire_repo()?;
         let common_git_dir = Self::common_git_dir(&repo);
+        crate::git_hosting::validate_receive_targets(
+            &common_git_dir,
+            &inspect_receive_pack_updates(request_body)?,
+        )?;
+        gate()?;
         run_git_stateless_rpc(
             &common_git_dir,
             SmartHttpService::ReceivePack,

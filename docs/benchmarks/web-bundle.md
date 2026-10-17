@@ -87,3 +87,11 @@ rendering and response parsing remain lazy; the existing workspace controller
 retains only the non-secret retry draft across same-repository navigation.
 The initial 50,000-byte target remains unmet. These emitted-byte measurements do
 not establish startup or interaction latency.
+
+## Additional Git hosting candidate, 2026-10-18
+
+Based on `9844321842eb28ee38b3c724f64eb9ed79245af7`, the same maintained measurement
+command and environment give 70,482 initial gzip9 bytes (+47) and 75,262 cumulative
+bytes for the first Overview (+114). At gzip6 the totals are 70,528 and 75,317 bytes.
+The optional push hint and scope copy add no new chunk. The initial 50,000-byte target
+remains unmet; these emitted-byte measurements do not establish interaction latency.

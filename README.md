@@ -29,7 +29,7 @@ The current milestone is a trusted single-user self-hosted alpha: operate concur
 | Execution | Local commands using macOS Seatbelt or Linux Bubblewrap |
 | Verification | Clean SHA checks, required commands from the merge target's committed `.gitust-checks.json`, per-command results, and opt-in automatic Checks after managed-worktree MCP commits or Git HTTP pushes |
 | Approval and publication | Human-approved fast-forward merge, exact-SHA push, persisted records, and explicit retry |
-| Git hosting | Smart HTTP clone/fetch and restricted pushes to managed agent branches |
+| Git hosting | Authenticated Smart HTTP clone/fetch and permission-checked ordinary or managed-agent pushes |
 | Mirroring | Explicit inbound synchronization that preserves local work and private agent refs |
 | Agent integration | MCP over stdio or HTTP; explicit host-side worktree commits; OAuth with PKCE for HTTP MCP |
 | Accounts | CLI bootstrap, administrator-issued invitations, roles, PATs, SSH key management, and revocation |
@@ -83,13 +83,13 @@ Open [localhost:3000](http://127.0.0.1:3000) and sign in. There is no public sig
 
 To enable server-side command execution, add `--trusted-single-user-sandbox` on a **trusted single-user installation**. Execution also requires a SiteAdmin. The current OS sandbox is not a multi-tenant security boundary. Network access is disabled inside runs; prepare tools and dependencies before executing builds.
 
-Add repeated `--read-only-repo /absolute/path/to/another/repository` arguments for other existing repositories registered against the same auth database. The server supports up to 32 configured repositories in total; secondary repositories expose Files, Changes and authenticated Smart HTTP clone/fetch through their UUID. Push, worktrees, execution, MCP and synchronization remain on the primary `--repo`. See [registration and read-only repositories](docs/operations/repository-registration.md) and the [secondary Git contract](docs/operations/read-only-git.md).
+Add repeated `--read-only-repo /absolute/path/to/another/repository` arguments for other existing repositories registered against the same auth database. The server supports up to 32 configured repositories in total; secondary repositories expose Files, Changes and authenticated Smart HTTP clone/fetch through their UUID. To permit ordinary Git pushes on a registered bare secondary, explicitly use [`--git-write-repo`](docs/operations/secondary-git-hosting.md) instead. Worktrees, execution, MCP and synchronization remain on the primary `--repo`. See [registration and read-only repositories](docs/operations/repository-registration.md) and the [secondary Git contract](docs/operations/read-only-git.md).
 
 To prepare a new registered bare repository from an existing Git source, use the offline [`repository import`](docs/operations/repository-import.md) command. It preserves a fixed import identity through retries and never overwrites an existing destination; serving it still requires explicit configuration.
 
 For a fresh repository without source commits, use offline [`repository create`](docs/operations/repository-create.md). It registers a new bare repository with an explicit default branch; serving it and making the first authorized push remain separate steps.
 
-SiteAdmins can rename the display name of a configured registered repository from its overview. Its UUID, team/privacy settings, host path and Git URLs stay unchanged; secondary repositories remain read-only.
+SiteAdmins can rename the display name of a configured registered repository from its overview. Its UUID, team/privacy settings, host path, Git URLs and configured Git mode stay unchanged.
 
 Use **Invite to owning group** in a registered repository's access settings to issue a 72-hour single-use account link with its server-selected group membership. This can also grant access to other private repositories owned by that group; roles retain their site-wide meaning. See the [scope, retries and recovery contract](docs/operations/repository-group-invites.md).
 

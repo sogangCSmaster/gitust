@@ -328,6 +328,41 @@ jobs:
               output.write("### Read-only secondary Git\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY
 
+      - name: Verify opted-in secondary ordinary Git pushes and authority boundaries
+        run: |
+          python3 scripts/secondary-git-write-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-secondary-git-write.json"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-secondary-git-write.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          binary_sha = hashlib.sha256(Path("target/debug/gitust").read_bytes()).hexdigest()
+          platform = {"Linux": "Linux", "macOS": "Darwin"}[os.environ["RUNNER_OS"]]
+          if (report["source_commit"] != expected or report["runtime_worktree_dirty"] is not False
+              or report["binary_sha256"] != binary_sha or report["actual_repositories"] != 3
+              or report["platform"] != platform or report["external_github_publication"] is not False
+              or report["version"] != 1):
+              raise SystemExit("The secondary Git-write rehearsal has invalid source or scope evidence")
+          checks = ["passed", "admin_and_maintainer_session_basic_pat_round_trips",
+                    "independent_clone_fetch_commit_tag_oracles", "read_only_secondary_push_denied",
+                    "developer_and_wrong_team_denied", "anonymous_mcp_revoked_inactive_denied",
+                    "agent_and_mixed_pushes_preserve_refs", "secondary_workbench_denied",
+                    "current_catalog_push_hints", "configured_restart_write_and_uuid_preserved",
+                    "old_read_only_flag_push_denied", "primary_refs_worktrees_jobs_preserved",
+                    "registered_identity_and_preexisting_tags_preserved", "git_fsck",
+                    "owned_services_reaped", "private_fixture_removed"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("The secondary Git-write rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "actual_repositories", "external_github_publication", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### Opted-in secondary ordinary Git\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
       - name: Verify owning-group invitations, membership and real repository access
         run: |
           python3 scripts/repository-group-invite-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-group-invite.json"

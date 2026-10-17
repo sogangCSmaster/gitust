@@ -567,3 +567,8 @@ mod tests_repository_group_members;
 
 #[path = "tests_repository_group_members_auth.rs"]
 mod tests_repository_group_members_auth;
+
+#[path = "tests_git_http_write.rs"]
+mod tests_git_http_write;
+#[path = "tests_git_http_write_auth.rs"]
+mod tests_git_http_write_auth;

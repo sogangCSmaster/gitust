@@ -15,6 +15,8 @@ pub(crate) struct ReadRepository {
     pub(crate) engine: GitEngine,
     pub(crate) access: RepoAccess,
     pub(crate) is_default: bool,
+    pub(crate) git_write: bool,
+    pub(crate) mutation: Arc<tokio::sync::Mutex<()>>,
 }
 
 pub(crate) struct RepositoryRegistry {
@@ -31,7 +33,15 @@ fn invalid() -> GitEngineError {
 
 impl RepositoryRegistry {
     pub(crate) fn load(state: &AppState, paths: Vec<PathBuf>) -> Result<Arc<Self>, GitEngineError> {
-        if paths.len() >= MAX_REPOSITORIES {
+        Self::load_with_git_write(state, paths, Vec::new())
+    }
+
+    pub(crate) fn load_with_git_write(
+        state: &AppState,
+        read_only: Vec<PathBuf>,
+        git_write: Vec<PathBuf>,
+    ) -> Result<Arc<Self>, GitEngineError> {
+        if read_only.len().saturating_add(git_write.len()) >= MAX_REPOSITORIES {
             return Err(invalid());
         }
         let mut entries = HashMap::new();
@@ -41,6 +51,8 @@ impl RepositoryRegistry {
                 engine: state.git_engine.clone(),
                 access: state.repo_access,
                 is_default: true,
+                git_write: true,
+                mutation: state.repo_mutation_lock.clone(),
             },
         );
         let mut ownership = vec![state.git_engine.lock_worktree_service()?];
@@ -49,7 +61,11 @@ impl RepositoryRegistry {
                 std::fs::canonicalize(state.git_engine.repository_common_directory()?)
                     .map_err(|_| invalid())?,
             ]);
-        for path in paths {
+        let paths = read_only
+            .into_iter()
+            .map(|p| (p, false))
+            .chain(git_write.into_iter().map(|p| (p, true)));
+        for (path, git_write) in paths {
             let engine = GitEngine::new(path);
             let common = std::fs::canonicalize(engine.repository_common_directory()?)
                 .map_err(|_| invalid())?;
@@ -57,6 +73,9 @@ impl RepositoryRegistry {
                 return Err(invalid());
             }
             let guard = engine.lock_worktree_service()?;
+            if git_write {
+                engine.validate_ordinary_git_service()?;
+            }
             let id = engine.load_existing_repository_id()?;
             if entries.contains_key(&id) {
                 return Err(invalid());
@@ -78,6 +97,8 @@ impl RepositoryRegistry {
                     engine,
                     access,
                     is_default: false,
+                    git_write,
+                    mutation: Arc::new(tokio::sync::Mutex::new(())),
                 },
             );
             ownership.push(guard);
@@ -109,6 +130,8 @@ impl AppState {
                 engine: self.git_engine.clone(),
                 access: self.repo_access,
                 is_default: true,
+                git_write: true,
+                mutation: self.repo_mutation_lock.clone(),
             }],
         }
     }
@@ -120,6 +143,8 @@ impl AppState {
                 engine: self.git_engine.clone(),
                 access: self.repo_access,
                 is_default: true,
+                git_write: true,
+                mutation: self.repo_mutation_lock.clone(),
             }),
             None => None,
         }

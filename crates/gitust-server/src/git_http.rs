@@ -7,7 +7,9 @@ use axum::extract::{Path, Query, Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use gitust_core::{AuthError, AuthenticatedPrincipal, EnterpriseRole, RepoId, WorktreeStatus};
-use gitust_git::{inspect_receive_pack_updates, SmartHttpService, MAX_SMART_HTTP_BODY_BYTES};
+use gitust_git::{
+    inspect_receive_pack_updates, GitEngineError, SmartHttpService, MAX_SMART_HTTP_BODY_BYTES,
+};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -85,6 +87,23 @@ pub(crate) async fn git_info_refs_handler(
     {
         return crate::git_http_read::advertise(state, repo, headers).await;
     }
+    if crate::git_http_write::secondary_id(&state, &repo).is_some()
+        && query.service.as_deref().and_then(SmartHttpService::parse)
+            == Some(SmartHttpService::ReceivePack)
+    {
+        return crate::git_http_write::advertise(state, repo, headers).await;
+    }
+    if query.service.as_deref().and_then(SmartHttpService::parse)
+        == Some(SmartHttpService::ReceivePack)
+    {
+        return crate::git_http_read::advertise_service(
+            state,
+            repo,
+            headers,
+            SmartHttpService::ReceivePack,
+        )
+        .await;
+    }
     let caller = match extract_git_http_principal_async(&headers, &state.auth_store).await {
         Ok(c) => c,
         Err(resp) => return resp,
@@ -100,35 +119,9 @@ pub(crate) async fn git_info_refs_handler(
         )
             .into_response();
     };
-    let Some(service) = SmartHttpService::parse(raw_service) else {
-        return (
-            StatusCode::FORBIDDEN,
-            format!("unsupported git service '{raw_service}'"),
-        )
-            .into_response();
-    };
-
-    let engine = state.git_engine.clone();
-    let payload = match tokio::task::spawn_blocking(move || {
-        engine.smart_http_advertise_refs(service)
-    })
-    .await
-    {
-        Ok(Ok(bytes)) => bytes,
-        Ok(Err(e)) => return map_git_err(e).into_response(),
-        Err(e) => return internal_err(e).into_response(),
-    };
-
     (
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, service.advertisement_content_type()),
-            (
-                header::CACHE_CONTROL,
-                "no-cache, max-age=0, must-revalidate",
-            ),
-        ],
-        payload,
+        StatusCode::FORBIDDEN,
+        format!("unsupported git service '{raw_service}'"),
     )
         .into_response()
 }
@@ -148,6 +141,9 @@ pub(crate) async fn git_receive_pack_handler(
     Path(repo): Path<String>,
     req: Request,
 ) -> Response {
+    if crate::git_http_write::secondary_id(&state, &repo).is_some() {
+        return crate::git_http_write::receive(state, repo, req).await;
+    }
     let (parts, request_body) = req.into_parts();
     let pre_caller = match extract_git_http_principal_async(&parts.headers, &state.auth_store).await
     {
@@ -266,24 +262,32 @@ pub(crate) async fn git_receive_pack_handler(
     let rpc_res = tokio::task::spawn_blocking(move || {
         let _held_repo = repo_guard;
         let _held_exec = held_exec_locks;
-        let intents = crate::git_http_automatic::prepare(&automatic_state, &caller, &matched_worktrees, &updates)?;
-        #[cfg(test)]
-        if let Some((entered, release)) = automatic_state.automatic_checks.pre_receive_hook.lock().take() {
-            entered.send(()).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "push observer closed".into()))?;
-            release.recv().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "push observer closed".into()))?;
-        }
-        let authorized = (|| {
-            let fresh = extract_git_http_principal(&original_headers, &automatic_state.auth_store)?;
-            if fresh.user_id != caller.user_id || fresh.role != caller.role {
-                return Err((StatusCode::FORBIDDEN, "Git push authority changed".into()));
-            }
-            check_repo_bola(&automatic_state.auth_store, automatic_state.repo_id, automatic_state.repo_access, &fresh, automatic_state.repo_id)
-        })();
-        if let Err(original) = authorized {
+        let mut intents = Vec::new();
+        let mut preparation_error = None;
+        let result = engine.smart_http_receive_pack_with_gate(&body, || {
+            let authorized = (|| {
+                // Raw refs are validated before preparation can resolve them or persist intents.
+                intents = crate::git_http_automatic::prepare(&automatic_state, &caller, &matched_worktrees, &updates)?;
+                #[cfg(test)]
+                if let Some((entered, release)) = automatic_state.automatic_checks.pre_receive_hook.lock().take() {
+                    entered.send(()).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "push observer closed".into()))?;
+                    release.recv().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "push observer closed".into()))?;
+                }
+                let fresh = extract_git_http_principal(&original_headers, &automatic_state.auth_store)?;
+                if fresh.user_id != caller.user_id || fresh.role != caller.role {
+                    return Err((StatusCode::FORBIDDEN, "Git push authority changed".into()));
+                }
+                check_repo_bola(&automatic_state.auth_store, automatic_state.repo_id, automatic_state.repo_access, &fresh, automatic_state.repo_id)
+            })();
+            authorized.map_err(|error| {
+                preparation_error = Some(error);
+                GitEngineError::InvalidRevision("Git push preparation or authority changed".into())
+            })
+        }).map_err(map_git_err);
+        if let Some(original) = preparation_error {
             crate::git_http_automatic::reject_all(&automatic_state, intents);
             return Err(original);
         }
-        let result = engine.smart_http_receive_pack(&body).map_err(map_git_err);
         // A rejected ref may accompany HTTP 200, and an RPC error may follow an accepted ref.
         // Keep the Git response authoritative; durable Prepared intents survive inspection failure.
         if let Err((status, _)) = crate::git_http_automatic::reconcile(&automatic_state, intents) {

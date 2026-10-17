@@ -39,8 +39,10 @@ restored service. The manual procedure below explains the same storage and recov
 
 ### Include configured read-only repositories
 
-For a service started with additional `--read-only-repo` paths, explicitly include every
-path in the same stopped snapshot. An auth database's repository rows are not a complete
+For a service started with additional `--read-only-repo` or `--git-write-repo` paths,
+explicitly include every path in the same stopped snapshot using the backup tool's
+`--read-only-repo` option. This option includes data; it does not preserve or grant a
+service write mode. Record each mode with the private service settings. An auth database's repository rows are not a complete
 inventory of Git data, and the tool does not infer service paths from them.
 
 ```sh
@@ -90,6 +92,9 @@ Validate catalog identities, current team access and data from each restored pat
 registration does not grant new access. A restored read-only repository retains authenticated
 clone/fetch without gaining push or worktree execution. The manual examples below describe
 one repository; use the scripted multi-repository procedure for a shared checkpoint.
+To restore an explicitly writable secondary, select its restored bare path with
+[`--git-write-repo`](secondary-git-hosting.md) when starting the service. The restore
+utility does not enable that mode automatically.
 
 The repeatable local check is
 `python3 scripts/multi-repository-backup-rehearsal.py --binary target/debug/gitust --report /private/tmp/gitust-multi-backup.json`.

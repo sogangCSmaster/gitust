@@ -1,0 +1,231 @@
+{
+  "version": 1,
+  "date": "2026-10-18",
+  "scope": "Local candidate evidence for explicitly enabled ordinary Git hosting on additional repositories.",
+  "base_commit": "9844321842eb28ee38b3c724f64eb9ed79245af7",
+  "working_tree_changes": true,
+  "binary_sha256": "7e2460ad7edb484cd369ba16d06ec1dc5c0199fa16621524344fa4d24103dc34",
+  "source_sha256": {
+    "crates/gitust-cli/src/main.rs": "9503945c7784ec08a2126db67d729fbb0d0dfdc6c21325d02d710376753555ef",
+    "crates/gitust-cli/src/tests_secondary_write_args.rs": "e8f2f276045904ea1c664e7245876b65bee6ce8c9a663976e3e6f0150eef98ef",
+    "crates/gitust-db/src/repository_registration.rs": "5547bb530760bb8583a93ade95acd761e59d16cc0c201599dc69b60f7f89f258",
+    "crates/gitust-git/src/git_hosting.rs": "ec18ebf086b841bc56fd7ed07f580ee903c3287fe2769e90062e3a1d14931fdc",
+    "crates/gitust-git/src/lib.rs": "62af083cd8843fa042ceb376ddd786dd58a2d979132e528e3a989473dccc5e34",
+    "crates/gitust-git/src/smart_http.rs": "ccbb27123ac2cbf4c65d7997a67fa70851b36dcc94387abb6118714b804c4969",
+    "crates/gitust-server/src/git_http.rs": "35590b142c0f033ca723323b96c1c0a61e8221b01c9a0e34adccb09c268a4d04",
+    "crates/gitust-server/src/git_http_read.rs": "8aab5529e19f5d14628095a76ab71bf63fa6c790e735814154ea548a0c22e3c0",
+    "crates/gitust-server/src/git_http_write.rs": "48fd3211063fe10a622e66cf6c1b3bd3f49231b76cd1b76c415a4a2283cd81bb",
+    "crates/gitust-server/src/lib.rs": "9feaa80a2aa6d236e392280147fc5afaecaa18dc7d17abb9567b6d79628c022c",
+    "crates/gitust-server/src/repository_reads.rs": "eb2c547b487d7bf4571097a377a523e22d02b0e5191e6a7d58fd671520cd3e12",
+    "crates/gitust-server/src/repository_registry.rs": "e31809229f59366c36f432721dfcec5b178eb0e74fe8bbcc4171511674493fcc",
+    "crates/gitust-server/src/state.rs": "ffe93e23d162d0ca6994f265b653c1824758c73685aaecf4e504c2ca278f0de0",
+    "crates/gitust-server/src/tests.rs": "0eb02d8301a40b8685381a84a40799de4562f0ba9e5d8d4d62dbc8f2e2303342",
+    "crates/gitust-server/src/tests_git_http_write.rs": "f969d30d86be2340d8bfa3dabf235484fe8f715e42134b2385d18e5c8971d817",
+    "crates/gitust-server/src/tests_git_http_write_auth.rs": "4a1bb2f2b824985af6dfc8b84d869158fe5d62763d3f8716636b9ea22935418e",
+    "packages/design-system/src/showcase/RepositoryClone.tsx": "56ee8aa31b2ba31be204af5046f02ff436e474e9c49222049e62ed34b469d813",
+    "packages/design-system/src/showcase/RepositoryOverview.tsx": "d90a8c1b84f1e0bb317622d6de7e81b3e19391bf892bd53548256ca0d1f041da",
+    "packages/design-system/src/showcase/RepositoryViews.tsx": "163ba87583c3c85d9fc467c6d7262cfa02f49a7ec324a3a39291ab1e040b0ea1",
+    "packages/design-system/src/showcase/connected-repository-client.ts": "50f4db70b12e8f0146626dcea491408f4e478483acb7c15976c88ce8bcb12d6e",
+    "packages/design-system/tests/connected-repository-client.test.ts": "5de9d144115c437f36392abb8a5687a44a5cf3b5cdb5cb069243da0cb63f7395",
+    "packages/design-system/tests/repository-rename.test.tsx": "85615b3334425628bb310daa5c9ddd450255a7d650dd476d18405c1e4769c33f",
+    "scripts/secondary-git-write-rehearsal.py": "bb2e524f3d5183cdc1146e2035d138514ce1821c4597da4478e906fb08c0c3bf",
+    ".github/workflows/ci.yml": "d2ab01f33d19ee69d4ba99a00c1a07d0d4615d7c1651be8164ff7a3f9c3de543"
+  },
+  "validation": {
+    "command": "scripts/verify.sh",
+    "exit_code": 0,
+    "log_sha256": "d908c13210ed0a74692c538bd5a0cd993ccaaa24b48cf4a4b11ce7d0ced47b5d",
+    "rust_passed": 429,
+    "existing_ignored_git_tests": 2,
+    "rust_by_crate": {
+      "cli": 34,
+      "core": 2,
+      "db": 49,
+      "git": 133,
+      "sandbox": 30,
+      "server": 180,
+      "sync": 1
+    },
+    "frontend_passed": 297,
+    "frontend_files": 39,
+    "python_passed": 20,
+    "format_clippy_typecheck_bundle_freshness_line_and_fail_open_gates": true
+  },
+  "operating": {
+    "report_sha256": "269287ae37292d4700e50cd961a17168705aa5650d48485c8017e71620ad16cf",
+    "binary_matches_integrated_candidate": true,
+    "platform": "Darwin",
+    "actual_repositories": 3,
+    "checks": {
+      "passed": true,
+      "admin_and_maintainer_session_basic_pat_round_trips": true,
+      "independent_clone_fetch_commit_tag_oracles": true,
+      "read_only_secondary_push_denied": true,
+      "developer_and_wrong_team_denied": true,
+      "anonymous_mcp_revoked_inactive_denied": true,
+      "agent_and_mixed_pushes_preserve_refs": true,
+      "secondary_workbench_denied": true,
+      "current_catalog_push_hints": true,
+      "configured_restart_write_and_uuid_preserved": true,
+      "old_read_only_flag_push_denied": true,
+      "primary_refs_worktrees_jobs_preserved": true,
+      "registered_identity_and_preexisting_tags_preserved": true,
+      "git_fsck": true,
+      "owned_services_reaped": true,
+      "private_fixture_removed": true
+    },
+    "restart_display_fields": [
+      "created_at",
+      "materialize_micros"
+    ],
+    "scope_note": "The operator ran from its separately reviewed private source tree against the root-built integrated binary. Runtime helpers match the reviewed sources; its dirty metadata is preserved."
+  },
+  "native_browser": {
+    "binary_sha256": "7e2460ad7edb484cd369ba16d06ec1dc5c0199fa16621524344fa4d24103dc34",
+    "viewports": [
+      {
+        "actions": [
+          {
+            "height": 32,
+            "label": "Close",
+            "width": 60.859375
+          },
+          {
+            "height": 32,
+            "label": "Copy clone URL",
+            "width": 107.1484375
+          },
+          {
+            "height": 32,
+            "label": "Dismiss",
+            "width": 32
+          }
+        ],
+        "dialogScrollWidth": 446,
+        "dialogWidth": 446,
+        "documentWidth": 1440,
+        "titleHeight": 18,
+        "titleLineHeight": "18px",
+        "width": 1440,
+        "clone_url_matches_selected_repository": true
+      },
+      {
+        "actions": [
+          {
+            "height": 32,
+            "label": "Close",
+            "width": 60.859375
+          },
+          {
+            "height": 32,
+            "label": "Copy clone URL",
+            "width": 107.1484375
+          },
+          {
+            "height": 32,
+            "label": "Dismiss",
+            "width": 32
+          }
+        ],
+        "dialogScrollWidth": 446,
+        "dialogWidth": 446,
+        "documentWidth": 768,
+        "titleHeight": 18,
+        "titleLineHeight": "18px",
+        "width": 768,
+        "clone_url_matches_selected_repository": true
+      },
+      {
+        "actions": [
+          {
+            "height": 44,
+            "label": "Close",
+            "width": 60.859375
+          },
+          {
+            "height": 44,
+            "label": "Copy clone URL",
+            "width": 107.1484375
+          },
+          {
+            "height": 44,
+            "label": "Dismiss",
+            "width": 44
+          }
+        ],
+        "dialogScrollWidth": 286,
+        "dialogWidth": 286,
+        "documentWidth": 320,
+        "titleHeight": 18,
+        "titleLineHeight": "18px",
+        "width": 320,
+        "clone_url_matches_selected_repository": true
+      }
+    ],
+    "catalog_mobile": {
+      "scrollWidth": 320,
+      "width": 320
+    },
+    "escape_focus": "Clone repository",
+    "keyboard_reopen": true,
+    "readonly_copy": true,
+    "readonly_url_matches_selected_repository": true,
+    "secondary_workbench_controls_absent": true,
+    "physical_devices": false,
+    "clipboard_mutated": false,
+    "readonly_url_observation": "Visible accessibility field value; the DOM value attribute is absent on the controlled input.",
+    "private_proof_sha256": "9c10d74e34ff6d2e7b7f615fe7eb7d888f6d9422e0a141ab43db3e543edebfab",
+    "owned_service_and_fixture_removed": true,
+    "owned_tab_closed_and_viewport_reset": true,
+    "screenshots_sha256": {
+      "catalog-1440.jpg": "65fe2482395211903fd186c5c9856ecf13a32727e3b095a490da28180ee90b95",
+      "catalog-320.jpg": "2e678831ccc4af20bb08fb3f65e46c604a3dee6aff8f83ba2dfbcd83b1bc3e27",
+      "clone-1440.jpg": "c65ca0f972faee45fc35ef631b3f9e6a91f9b6298d34a7ad7f308d20b2c1007a",
+      "clone-320.jpg": "762d1930666b5e4f4e6ade83f66f741677477d88141ff196826a813938669d80",
+      "clone-768.jpg": "7b5d87f09e46c7e8024ff128b9e96387a82de872c71e51be399cb9cff3b7f07b"
+    }
+  },
+  "bundle": {
+    "command": "pnpm --filter @gitust/design-system exec node scripts/measure-bundle.mjs",
+    "environment": {
+      "node": "v24.18.1",
+      "vite": "6.4.4",
+      "zlib": "1.3.1-e00f703",
+      "platform": "darwin",
+      "os_release": "25.5.0",
+      "arch": "arm64",
+      "cpu": "Apple M4 Pro"
+    },
+    "initial_gzip9_bytes": 70482,
+    "initial_change_from_base_bytes": 47,
+    "overview_cumulative_gzip9_bytes": 75262,
+    "overview_change_from_base_bytes": 114,
+    "initial_target_bytes": 50000,
+    "target_met": false
+  },
+  "independent_source_reviews": {
+    "backend_and_root_docs_sha256": "75ce512254e443aadab949e8334de2fa837dbf88f0d491c1dbf9fb5ec74ecdc8",
+    "ui_sha256": "75ead4285ea3541b416180de1174463af94b13475befc33c5db44956c4c08b94",
+    "operator_sha256": "b72ba921e646ff63a39a02a8a05ad51148b936672d02a198247f87d128450561",
+    "unresolved_source_p0_p1_p2": 0
+  },
+  "review_fixes": [
+    "Reject symbolic and filesystem-alias receive targets before native Git, including bounded nonblocking raw-ref inspection.",
+    "Recheck the original primary receive-advertisement credential after Git returns.",
+    "Validate raw refs before primary automatic-Check preparation; preserve original errors and cleanup."
+  ],
+  "verification_limits": [
+    "The new primary preparation-order regression failed before the source fix. Its agent turn was then interrupted by tool security policy; that procedure was not retried, delegated or integrated. No dedicated after-green claim is made.",
+    "The defensive production ordering fix passed independent source review and the unchanged existing full verification suite. This is distinct from running the interrupted regression.",
+    "Native checks used browser viewports rather than physical devices. Clipboard contents were not changed.",
+    "Exact-source hosted CI for this candidate has not run before this commit; previous commit 9844321 passed Linux and macOS CI.",
+    "Additional repositories do not gain managed worktrees, execution, automatic Checks, synchronization or approval/publication routing.",
+    "Arbitrary concurrent host Git writers must be stopped or coordinated. Partial native receive results are not an all-ref rollback transaction.",
+    "Automatic Gate B remains stopped. Actual GitHub product publication remains deferred by the user; alpha and full-roadmap acceptance remain open."
+  ],
+  "external_github_publication": false,
+  "embedded_assets_sha256": {
+    "index.js": "f91b2ce4aa4114d4deede60a8078e73793b8d3963f884d378c05bc2a94ea8fa0",
+    "RepositoryOverview-BJob8ass.js": "95e5a18544d4fddb83526fd29a5a14fa9f5156901c5471b3ed17c7add64ea21a"
+  }
+}

@@ -24,6 +24,7 @@ mod default_branch;
 pub use default_branch::RepositoryDefaultBranch;
 mod diff;
 mod execution_fence;
+mod git_hosting;
 mod mirror;
 mod mirror_init;
 mod outbound;

@@ -68,7 +68,8 @@ does not replace the separate member-versus-outsider tests or prove an actual ID
 ## Browsing additional registered repositories
 
 Keep the existing primary `--repo` and add an explicit `--read-only-repo PATH` for each
-secondary repository. Register every secondary against the same auth database first. Up to
+clone/fetch-only secondary repository. To explicitly permit ordinary pushes on a bare
+secondary, use [`--git-write-repo`](secondary-git-hosting.md) instead. Register every secondary against the same auth database first. Up to
 32 actual repositories, including the primary, may be configured. Only the primary retains
 the existing legacy sharing option; every secondary must have a complete matching registration.
 
@@ -85,7 +86,7 @@ or starts its worktrees, automatic jobs or synchronization. Change this inventor
 
 `GET /api/v1/repos` lists only configured repositories the current account can access, using
 one auth snapshot for current memberships and pinned bindings. Metadata-only auth rows are
-excluded. Each item contains `id`, `name`, `branch`, `head_commit`, `capability`, `is_default` and `can_rename`, plus the current `can_clone` hint.
+excluded. Each item contains `id`, `name`, `branch`, `head_commit`, `capability`, `is_default` and `can_rename`, plus the current `can_clone` and `can_push` hints.
 The primary advertises `workbench`; secondary items advertise `browse`. An account may have
 no visible default repository or an empty catalog. Reads use `/api/v1/repos/UUID/commits`,
 `tree`, `blob` and `diff`, retaining the existing object-read response formats and limits.
@@ -112,13 +113,14 @@ its first ordinary push through the existing Smart HTTP transport. A push to ano
 branch does not retarget HEAD. Object reads of the missing HEAD still return 404;
 explicit reads of another existing branch work normally. Configured secondary
 repositories also support authenticated clone/fetch, including an unborn default,
-while receive-pack and push remain disabled. Import still requires an existing commit on its explicit
+while receive-pack and push remain disabled for `--read-only-repo` entries. Import still requires an existing commit on its explicit
 default branch. Use the separate offline [repository create](repository-create.md)
 command to prepare and register a fresh bare repository without source commits.
 
-Secondary reads do not enable writes, managed worktrees, Actions or MCP/OAuth for
-those UUIDs. Existing `/api/v1/repo/*`, worktree and Git receive-pack endpoints continue to
-use the primary; UUID upload-pack routes select the actual configured repository.
+Secondary reads do not enable managed worktrees, Actions or MCP/OAuth for those UUIDs.
+Existing `/api/v1/repo/*`, worktree endpoints and the `default`/`gitust` Git aliases continue to
+use the primary. UUID Git routes select the configured repository; ordinary receive-pack
+requires the separate explicit Git-write mode and current push authority.
 See the [read-only Git contract](read-only-git.md). Capability labels describe supported operations; authorization always
 comes from current server-side account, registration and team checks.
 
@@ -155,9 +157,9 @@ changes are not reversed; synchronization is not an all-ref rollback transaction
 ## Renaming a registered repository
 
 An active SiteAdmin may change a configured registered repository's display name while
-it is served. This works for the primary and read-only secondary entries; it does not
+it is served. This works for the primary and configured secondary entries; it does not
 change the UUID, registration nonce, owner team, privacy, creation time, host path, Git
-refs or clone URLs. A secondary retains its read-only browse and clone/fetch capabilities.
+refs or clone URLs. A secondary retains its configured Git mode and browse capability.
 
 `PATCH /api/v1/repos/UUID` accepts only `{"name":"project-name"}` (at most 4 KiB of
 JSON) and returns `200 {"id":"UUID","name":"project-name"}` with `no-store`.

@@ -842,3 +842,32 @@ both completed successfully, including the combined invitation/membership rehear
 and crash recovery. Required steps 1–20 succeeded except the intentional macOS
 Linux-prerequisite skip at step 6. The earlier failed run remains recorded above;
 subsequent changes are outside this tested revision.
+
+## Additional ordinary Git hosting candidate, 2026-10-18
+
+Based on `9844321842eb28ee38b3c724f64eb9ed79245af7`, explicit `--git-write-repo`
+entries accept ordinary branch/tag pushes from current authorized Maintainers and
+SiteAdmins. Existing read-only entries keep receive-pack disabled. Selected engines,
+registration bindings, mutation locks and service ownership remain independent;
+managed worktrees, Checks, MCP, synchronization and approvals still use the primary.
+The catalog and compact Clone dialog distinguish current Git-hosting access from a
+full workbench. See the [contract](secondary-git-hosting.md) and [candidate evidence](evidence/secondary-git-hosting-local-2026-10-18.json).
+
+The final integrated binary passed the existing full suite: Rust 429, frontend
+297 across 39 files and Python 20, plus formatting, Clippy, typechecks, freshness,
+line limits and fail-open gates. Its three-repository operating scenario passed
+real session/PAT clone/commit/push/fetch, raw annotated-tag checks, denials, restart,
+primary worktree/job preservation and strict fsck. Native 320/768/1440px browser
+checks found no overflow, one-line Clone titles and matching 44/32/32px action
+heights, with keyboard close/reopen and restored focus. Owned fixtures were removed.
+The initial bundle is 70,482 gzip9 bytes; the 50,000-byte target remains unmet.
+
+Independent reviews found and addressed receive-target aliases, primary advertisement
+credential lifetime and primary preparation ordering. The new preparation-order
+regression failed before the fix, after which its agent turn was interrupted by tool
+security policy. That procedure was not retried or integrated; its dedicated after-green
+remains unavailable. The defensive ordering fix passed independent source review and
+the existing full suite. These are distinct evidence scopes, not a completed new
+regression or Gate B. Exact-candidate hosted CI, physical devices, intended IDE sessions,
+separate installation and full acceptance remain open. Actual GitHub product publication
+stays deferred; the prior `9844321` checkpoint passed both hosted platform jobs.

@@ -147,7 +147,9 @@ export const RepositoryLanding: Component<{
                     <span class="shrink-0">
                       {props.liveMode
                         ? repo.capability === "browse"
-                          ? "Read only"
+                          ? repo.canPush
+                            ? "Git hosting"
+                            : "Read only"
                           : "Workbench"
                         : "Demo"}
                     </span>

@@ -168,6 +168,35 @@ jobs:
               output.write("### Two real repositories\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY
 
+      - name: Verify empty repository creation and first push
+        run: |
+          python3 scripts/empty-repository-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-empty-repository.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-empty-repository.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          platform = {"Linux": "Linux", "macOS": "Darwin"}[os.environ["RUNNER_OS"]]
+          if (report["source_commit"] != expected or report["runtime_worktree_dirty"] is not False
+              or report["platform"] != platform or report["actual_repositories"] != 2
+              or report["external_github_publication"] is not False):
+              raise SystemExit("The empty-repository rehearsal has invalid source or scope evidence")
+          checks = ["passed", "cli_created_registered_bare_repositories", "empty_retry_preserved_pair",
+                    "unborn_registration_restored_without_original",
+                    "unborn_default_did_not_hide_other_branches", "first_ordinary_push_and_fetch",
+                    "independent_git_read_oracles", "secondary_transport_denied",
+                    "populated_retry_rejected_unchanged", "restart_identity_preserved", "git_fsck"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("The empty-repository rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "actual_repositories", "external_github_publication", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### Empty creation and first push\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
       - name: Reject unsafe service restart after an interrupted command
         run: |
           python3 scripts/execution-crash-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-execution-crash.json"

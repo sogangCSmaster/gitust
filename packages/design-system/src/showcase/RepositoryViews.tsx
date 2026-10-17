@@ -9,6 +9,7 @@ import type {
 } from "./connected-repository-client";
 import type { RepositoryRenameActions } from "./repository-rename-types";
 import { RepositoryInitialCommit } from "./RepositoryInitialCommit";
+import { RepositoryClone, type RepositoryCloneTarget } from "./RepositoryClone";
 import { RepositoryRename } from "./RepositoryRename";
 
 export const DEMO_REPOSITORY: ConnectedRepository = {
@@ -181,7 +182,11 @@ export const RepositoryOverview: Component<{
   liveMode: boolean;
   worktrees: number;
   onNavigate: (tab: "swarm" | "tree" | "diff" | "actions") => void;
-  actions?: { rename: RepositoryRenameActions; refreshViews: () => unknown };
+  actions?: {
+    rename: RepositoryRenameActions;
+    refreshViews: () => unknown;
+    clone: () => RepositoryCloneTarget | null;
+  };
 }> = (props) => {
   const destinations: Array<{
     id: "swarm" | "tree" | "diff" | "actions";
@@ -237,6 +242,11 @@ export const RepositoryOverview: Component<{
             repository={props.repository}
             liveMode={props.liveMode}
             actions={props.actions?.rename}
+          />
+          <RepositoryClone
+            repository={props.repository}
+            liveMode={props.liveMode}
+            begin={props.actions?.clone}
           />
           <Show when={!props.liveMode}>
             <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">

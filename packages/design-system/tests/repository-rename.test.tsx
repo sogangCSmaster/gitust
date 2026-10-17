@@ -51,16 +51,28 @@ afterEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  Reflect.deleteProperty(navigator, "clipboard");
 });
 const setup = async (
   patch: (url: string, init: RequestInit) => Promise<Response>,
+  initialHead: string | null = primary.head_commit,
+  canRename = true,
 ) => {
   let serverName = primary.name;
+  let serverHead = initialHead;
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "PATCH") return patch(url, init);
     return new Response(
       JSON.stringify({
-        repositories: [{ ...primary, name: serverName }, secondary],
+        repositories: [
+          {
+            ...primary,
+            name: serverName,
+            head_commit: serverHead,
+            can_rename: canRename,
+          },
+          secondary,
+        ],
       }),
     );
   });
@@ -110,6 +122,9 @@ const setup = async (
     fetcher,
     hydrate,
     clearView,
+    setServerHead: (value: string | null) => {
+      serverHead = value;
+    },
     setServerName: (value: string) => {
       serverName = value;
     },
@@ -276,3 +291,105 @@ it.each(["logout", "replacement"])(
     ).toBeNull();
   },
 );
+
+it("shows a credential-free primary Clone dialog with honest copy feedback and keyboard focus, including an unborn default", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+  const { workspace, fetcher, setServerHead } = await setup(
+    vi.fn(),
+    primary.head_commit,
+    false,
+  );
+  const trigger = screen.getByRole("button", { name: "Clone repository" });
+  trigger.focus();
+  const count = fetcher.mock.calls.length;
+  await fireEvent.click(trigger);
+  const input = (await screen.findByRole("textbox", {
+    name: "Clone URL",
+  })) as HTMLInputElement;
+  await waitFor(() => expect(document.activeElement).toBe(input));
+  expect(input.readOnly).toBe(true);
+  expect(input.value).toBe(`${window.location.origin}/git/${primary.id}.git`);
+  const url = new URL(input.value);
+  expect([url.username, url.password, url.search, url.hash]).toEqual([
+    "",
+    "",
+    "",
+    "",
+  ]);
+  expect(input.value).not.toContain("remembered-session");
+  expect(screen.getByText(/personal access token.*Git password/i)).toBeTruthy();
+  await fireEvent.click(screen.getByRole("button", { name: "Copy clone URL" }));
+  await screen.findByRole("status");
+  expect(screen.getByRole("status").textContent).toBe("Copied clone URL.");
+  expect(writeText).toHaveBeenCalledExactlyOnceWith(input.value);
+  writeText.mockRejectedValueOnce(new Error("private clipboard diagnostic"));
+  await fireEvent.click(screen.getByRole("button", { name: "Copy clone URL" }));
+  await screen.findByRole("alert");
+  expect(screen.getByRole("alert").textContent).toContain("Select the URL");
+  expect(screen.queryByText("private clipboard diagnostic")).toBeNull();
+  expect(input.selectionStart).toBe(0);
+  expect(input.selectionEnd).toBe(input.value.length);
+  Reflect.deleteProperty(navigator, "clipboard");
+  await fireEvent.click(screen.getByRole("button", { name: "Copy clone URL" }));
+  expect(writeText).toHaveBeenCalledTimes(2);
+  expect(fetcher.mock.calls.length).toBe(count);
+  await fireEvent.keyDown(input, { key: "Escape", code: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  setServerHead(null);
+  await workspace.refresh();
+  expect(screen.getByRole("button", { name: "Clone repository" })).toBeTruthy();
+  workspace.open(workspace.state().repositories[1]!);
+  expect(screen.queryByRole("button", { name: "Clone repository" })).toBeNull();
+});
+
+it("expires Clone intents across selection ABA, eventless token replacement and logout without stale clipboard feedback", async () => {
+  const first = deferred<void>(),
+    second = deferred<void>();
+  const writeText = vi
+    .fn()
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+  const { workspace, fetcher } = await setup(vi.fn());
+  const openClone = async () => {
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Clone repository" }),
+    );
+    return await screen.findByRole("button", { name: "Copy clone URL" });
+  };
+  await fireEvent.click(await openClone());
+  expect(writeText).toHaveBeenCalledTimes(1);
+  const rows = workspace.state().repositories;
+  workspace.open(rows[1]!);
+  workspace.open(rows[0]!);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  first.resolve();
+  await Promise.resolve();
+  expect(screen.queryByText("Copied clone URL.")).toBeNull();
+  const oldCopy = await openClone();
+  localStorage.setItem("gitust_token", "replacement-session");
+  await fireEvent.click(oldCopy);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(writeText).toHaveBeenCalledTimes(1);
+  localStorage.setItem("gitust_token", "remembered-session");
+  await workspace.refresh();
+  workspace.open(workspace.state().repositories[0]!);
+  await fireEvent.click(await openClone());
+  expect(writeText).toHaveBeenCalledTimes(2);
+  const requests = fetcher.mock.calls.length;
+  localStorage.removeItem("gitust_token");
+  window.dispatchEvent(new StorageEvent("storage", { key: "gitust_token" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  second.resolve();
+  await Promise.resolve();
+  expect(screen.queryByText("Copied clone URL.")).toBeNull();
+  expect(fetcher.mock.calls.length).toBe(requests);
+});

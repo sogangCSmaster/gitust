@@ -49,10 +49,10 @@ use gitust_core::{
 use parking_lot::{Mutex, RwLock};
 use subtle::ConstantTimeEq;
 
-pub use crypto::hash_token_sha256;
+pub use crypto::{hash_token_sha256, validate_repository_name};
 pub use models::{IssuedInviteLink, IssuedPersonalAccessToken, LoginSessionResponse};
 
-use crypto::{hash_password_argon2, validate_repository_name, validate_username};
+use crypto::{hash_password_argon2, validate_username};
 use models::{AuthState, StoredUser};
 use persistence::DiskStamp;
 

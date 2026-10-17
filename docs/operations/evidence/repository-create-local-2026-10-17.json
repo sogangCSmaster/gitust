@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "scope": "Local Darwin candidate: final backend11 and Clone6, based on 181f67e; worktree dirty during execution. Hosted CI and a clean-source platform validation remain separate.",
+  "backend_source_manifest_sha256": "a6a7bea852fb13504ed1806c34f0a2768897776fb4591501f5e73f17a346088e",
+  "clone_ui_manifest_sha256": "1d45830e563441f3ae0c5f0909115a36b482e805b921738d45755583a1d2d1ff",
+  "operating_rehearsal": {
+    "version": 1,
+    "passed": true,
+    "source_commit": "181f67e67427a7b7d326947297ad629cf1bbb2cb",
+    "runtime_worktree_dirty": true,
+    "binary_sha256": "24ccd6177fc468d93718705480ff675eeb63873cd38ac3fcded7dfc459943aa2",
+    "platform": "Darwin",
+    "operator_script_sha256": "38d38558a2f9427a8e6cccd706d73de7303fd6ef18f986c3463df41c1670e871",
+    "actual_repositories": 2,
+    "cli_created_registered_bare_repositories": true,
+    "empty_retry_preserved_pair": true,
+    "unborn_registration_restored_without_original": true,
+    "unborn_default_did_not_hide_other_branches": true,
+    "first_ordinary_push_and_fetch": true,
+    "independent_git_read_oracles": true,
+    "secondary_transport_denied": true,
+    "populated_retry_rejected_unchanged": true,
+    "restart_identity_preserved": true,
+    "git_fsck": true,
+    "external_github_publication": false
+  },
+  "before_feature": {
+    "binary_sha256": "c13729e507952430aba36ed5b26a8ec7a16b39d2ccc27f22fc28ca8e32d59de1",
+    "same_operator_script_sha256": "38d38558a2f9427a8e6cccd706d73de7303fd6ef18f986c3463df41c1670e871",
+    "exit_code": 1,
+    "final_report_created": false,
+    "reason": "The old CLI has no repository create command."
+  },
+  "review_fixes": {
+    "invalid_name_before": {
+      "exit_code": 1,
+      "prepared_journal_created": true,
+      "corrected_retry_rejected": true
+    },
+    "invalid_name_after": {
+      "exit_code": 1,
+      "claim_or_journal_created": false,
+      "auth_bytes_unchanged": true,
+      "corrected_same_destination_succeeded": true
+    },
+    "common_import_create_regression": "12 create tests passed; invalid-name regression covers both operations.",
+    "legacy_v1": "Old-writer final/prepared/interrupted journals, including padded raw names, resumed with the original identity, registration, refs and inode.",
+    "operator_env_regression": "Restored wrapper calls fail with TypeError and no report; current real HTTP rehearsal passes."
+  },
+  "ui_browser": {
+    "binary_sha256": "f63a6ec71729b83b45ccfa1fbb2f3aae42029671d635e640c24e5caf0b2e890e",
+    "scope": "Identical frozen Clone UI and embedded dist, before the backend-only name preflight correction.",
+    "actual_cli_created_repositories": 2,
+    "actual_ui_login": true,
+    "widths": [
+      320,
+      768,
+      1440
+    ],
+    "horizontal_page_overflow": false,
+    "readonly_uuid_url": true,
+    "equal_dialog_button_heights": true,
+    "mobile_button_height_pixels": 44,
+    "escape_restored_focus": true,
+    "secondary_clone_absent": true,
+    "clipboard_clicked": false,
+    "fixture_removed": true
+  },
+  "limitations": [
+    "No GitHub product publication; deferred by user.",
+    "No HTTP create, hot inventory update or secondary write/transport routing.",
+    "No new standalone install or native IDE proof.",
+    "No arbitrary power-loss durability claim."
+  ]
+}

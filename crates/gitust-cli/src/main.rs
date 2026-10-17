@@ -20,9 +20,15 @@ use gitust_sync::BiDirectionalSyncConfig;
 use crate::admin_cmd::{handle_admin_command, AdminCommands};
 mod repository_cmd;
 #[cfg(unix)]
+mod repository_create_cmd;
+#[cfg(unix)]
 mod repository_import_cmd;
 #[cfg(unix)]
 mod repository_import_storage;
+#[cfg(unix)]
+mod repository_provision;
+#[cfg(all(test, unix))]
+mod tests_repository_create;
 #[cfg(all(test, unix))]
 mod tests_repository_import;
 use crate::sandbox_cmd::{recover_cli_sandbox, run_cli_sandbox};

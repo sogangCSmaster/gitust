@@ -1,4 +1,4 @@
-//! Descriptor-relative, private import metadata and atomic no-overwrite directory publication.
+//! Descriptor-relative, private provisioning metadata and atomic no-overwrite directory publication.
 use anyhow::{bail, Result};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
@@ -15,7 +15,9 @@ use std::{
 // A 32KiB UTF-8 branch can double when JSON quotes are escaped, plus fixed record fields.
 pub(crate) const LIMIT: u64 = 128 * 1024;
 pub(crate) fn error() -> anyhow::Error {
-    anyhow::anyhow!("import metadata is unavailable or unsafe; preserve it for operator recovery")
+    anyhow::anyhow!(
+        "provisioning metadata is unavailable or unsafe; preserve it for operator recovery"
+    )
 }
 fn name(leaf: &str) -> Result<CString> {
     if leaf.is_empty() || leaf == "." || leaf == ".." || leaf.contains('/') {
@@ -115,7 +117,7 @@ impl Directory {
         match file.try_lock() {
             Ok(()) => {}
             Err(fs::TryLockError::WouldBlock) => {
-                bail!("another import owns this destination");
+                bail!("another provisioning operation owns this destination");
             }
             Err(fs::TryLockError::Error(_)) => return Err(error()),
         }
@@ -193,10 +195,10 @@ impl Directory {
             )
         };
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        bail!("atomic directory import publication is unsupported on this OS");
+        bail!("atomic directory provisioning publication is unsupported on this OS");
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         if rc != 0 {
-            bail!("import destination already exists or publication failed; preserve the import intent");
+            bail!("destination already exists or publication failed; preserve the provisioning intent");
         }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         Ok(())

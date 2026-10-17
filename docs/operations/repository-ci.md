@@ -36,7 +36,16 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
    tested source SHA, and the expected `linux_bubblewrap` or `macos_seatbelt`
    backend in the report. The job summary
    contains only an allowlist of public revision/hash/platform/result fields.
-6. Kill a disposable fixture service during an actual automatic Check and require
+6. Create two fresh registered bare repositories through the actual CLI, retry an
+   identical empty creation without changing UUID/binding/inode, and serve both.
+   Exercise empty clone, an alternate-branch push that leaves the default unborn,
+   the first default-branch push/fetch and browser object reads. A stopped retry
+   after the repository gains commits must fail without changing refs or anchors.
+   Restore the empty primary and its auth checkpoint while the original repository
+   and auth file are unavailable, then authenticate and serve its preserved identity.
+   Restart, verify the same identities and run strict Git `fsck` on server/client
+   fixtures. This uses local HTTP only and does not enable secondary transport.
+7. Kill a disposable fixture service during an actual automatic Check and require
    a fresh service to refuse the unresolved execution fence. Stop only the
    fixture's authenticated process groups, require explicit operator recovery,
    and prove ordinary execution resumes without restoring verification authority.

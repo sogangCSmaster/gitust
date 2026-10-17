@@ -86,7 +86,7 @@ pub(crate) fn validate_username(username: &str) -> Result<String, AuthError> {
     Ok(trimmed.to_owned())
 }
 
-pub(crate) fn validate_repository_name(name: &str) -> Result<String, AuthError> {
+pub fn validate_repository_name(name: &str) -> Result<String, AuthError> {
     let trimmed = name.trim();
     if trimmed.is_empty()
         || trimmed.len() > 100

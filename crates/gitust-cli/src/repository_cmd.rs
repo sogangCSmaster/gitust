@@ -8,6 +8,9 @@ use std::path::PathBuf;
 
 #[derive(Debug, Subcommand)]
 pub enum RepositoryCommands {
+    /// Create a registered empty bare repository offline; configure serving separately.
+    #[cfg(unix)]
+    Create(crate::repository_create_cmd::CreateArgs),
     /// Import into a new registered bare repository; never overwrites an existing destination.
     #[cfg(unix)]
     Import(crate::repository_import_cmd::ImportArgs),
@@ -34,6 +37,12 @@ pub enum RepositoryCommands {
 
 pub fn handle(action: RepositoryCommands) -> Result<()> {
     match action {
+        #[cfg(unix)]
+        RepositoryCommands::Create(args) => {
+            let id = crate::repository_create_cmd::run(&args)?;
+            println!("Created empty registered repository [{}]; configure --repo or --read-only-repo explicitly and restart to serve it.", id.0);
+            Ok(())
+        }
         #[cfg(unix)]
         RepositoryCommands::Import(args) => {
             let id = crate::repository_import_cmd::run(&args)?;

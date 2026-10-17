@@ -106,7 +106,8 @@ its first ordinary push through the existing Smart HTTP transport. A push to ano
 branch does not retarget HEAD. Object reads of the missing HEAD still return 404;
 explicit reads of another existing branch work normally. Secondary Git transport
 remains unavailable. Import still requires an existing commit on its explicit
-default branch; this support does not add an empty-repository creation command.
+default branch. Use the separate offline [repository create](repository-create.md)
+command to prepare and register a fresh bare repository without source commits.
 
 Secondary browsing does not enable writes, managed worktrees, Actions, MCP/OAuth or Git
 transport for those UUIDs. Existing `/api/v1/repo/*`, worktree and Git endpoints continue to

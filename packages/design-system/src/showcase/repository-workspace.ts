@@ -121,6 +121,37 @@ export const createRepositoryWorkspace = (options: {
     if (current() && repository && repository.headCommit === origin.headCommit)
       options.hydrate(repository);
   };
+  const clone = () => {
+    const repository = selected();
+    const epoch = selectionEpoch();
+    const token = getLiveToken();
+    if (
+      !options.liveMode() ||
+      !repository ||
+      repository.capability !== "workbench" ||
+      !repository.isDefault ||
+      !token ||
+      !client.isCurrentSession()
+    )
+      return null;
+    const repoId = repository.id;
+    return {
+      repoId,
+      isCurrent: () => {
+        const current = selected();
+        const currentEpoch = selectionEpoch();
+        return (
+          options.liveMode() &&
+          current?.id === repoId &&
+          current.capability === "workbench" &&
+          current.isDefault &&
+          epoch === currentEpoch &&
+          token === getLiveToken() &&
+          client.isCurrentSession()
+        );
+      },
+    };
+  };
   const rename: RepositoryRenameActions = {
     begin: () => {
       const repository = selected();
@@ -172,6 +203,7 @@ export const createRepositoryWorkspace = (options: {
     browseOnly,
     unavailable,
     rename,
+    clone,
     refresh: client.refresh,
     refreshViews,
   };

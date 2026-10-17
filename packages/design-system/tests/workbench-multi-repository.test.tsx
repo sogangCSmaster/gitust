@@ -111,6 +111,7 @@ it("opens a real browse-only repository without exposing primary worktree action
   expect(
     screen.queryByRole("button", { name: "Rename repository" }),
   ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Clone repository" })).toBeNull();
   const before = fetcher.mock.calls.length;
   expect(shortcutManager.executeById("nav.swarm")).toBe(false);
   expect(shortcutManager.executeById("nav.actions")).toBe(false);
@@ -150,6 +151,7 @@ it("preserves sample worktrees while opening an explicitly labelled demo reposit
   );
   const nav = screen.getByRole("navigation", { name: "Repository views" });
   expect(within(nav).getByText("6")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Clone repository" })).toBeNull();
 });
 
 it("opens unborn repositories with rename and HEAD guidance while preserving primary worktree commands", async () => {
@@ -188,6 +190,7 @@ it("opens unborn repositories with rename and HEAD guidance while preserving pri
       name: "Open repository agent-project",
     }),
   );
+  expect(screen.getByRole("button", { name: "Clone repository" })).toBeTruthy();
   const primaryNav = screen.getByRole("navigation", {
     name: "Repository views",
   });

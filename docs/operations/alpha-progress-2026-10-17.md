@@ -324,3 +324,51 @@ and macOS 15 passed all mechanical gates, ten operating tasks, the two-repositor
 and startup-rollback rehearsal, and execution-crash recovery. These results cover
 the lock-release fix at that exact source revision; later unborn-HEAD changes
 require their own validation. Product GitHub publication remains deferred.
+
+The [unborn-HEAD checkpoint record](evidence/alpha-ci-181f67e-2026-10-17.json)
+records [run 39039984783](https://github.com/sogangCSmaster/gitust/actions/runs/39039984783),
+attempt 1, for `181f67e67427a7b7d326947297ad629cf1bbb2cb`. Both hosts passed
+mechanical gates, the ten-task operating rehearsal, the two-repository/startup
+rollback rehearsal and execution-crash recovery. This covers nullable default HEAD,
+the existing first ordinary push path and its committed regressions. It excludes
+the subsequent repository-create CLI, Clone dialog and new empty-creation rehearsal.
+
+## Offline creation and Clone candidate
+
+The [local candidate record](evidence/repository-create-local-2026-10-17.json)
+covers the subsequent offline `repository create` implementation and compact Clone
+dialog. Its final backend/Clone source manifests are recorded separately; the
+Darwin operating run used a dirty candidate based on `181f67e`, not a clean hosted
+revision. Two real CLI-created repositories retained their UUID/registration/inode
+on empty retry. An actual relocated empty backup served its identity and accepted
+login while both original Git and auth paths were unavailable. Real HTTP clone,
+alternate/default push and fetch, explicit alternate-commit reads before default
+HEAD existed, restart and strict server/client Git `fsck` passed. An obsolete create
+retry after the first commit was refused without changing refs or anchors.
+
+Independent review found that an invalid display name could seal a journal before
+DB registration rejected it, preventing a corrected request at the same destination.
+The shared import/create path now applies the existing DB name validator before
+login or a destination claim. A before/after regression checks unchanged auth and
+no journal on rejection, followed by successful corrected creation. Existing raw
+request bytes remain in the import-v1 digest; journals written by the previous CLI,
+including padded names and interrupted stages, resumed with the same identity.
+Existing malformed journals are preserved for operator inspection.
+
+The operator rehearsal itself also caught an unsupported `env` argument on a Git
+wrapper and an unproven alternate-branch result. The corrected calls use the
+existing environment-cleaning helper, and the result now requires an actual HTTP
+blob read against an independent Git oracle while the default HEAD is still absent.
+Restoring the old calls reproduces the TypeError and produces no success report.
+The new required CI step exercises this operating path on both platforms.
+
+Browser checks used the same frozen UI/dist before the backend-only name correction:
+actual login, primary Clone URL, secondary absence, Escape/focus and widths of
+320/768/1440 pixels. Dialog buttons match in height, including 44px mobile targets,
+and no page overflow was observed. The real host clipboard was not exercised;
+clipboard success/failure and stale-response behavior use mocked unit tests.
+The [measured initial JavaScript closure](evidence/repository-create-clone-ui-size-2026-10-17.json)
+is 71,359 bytes at gzip level 9, still above the 50,000-byte target. This candidate
+does not add HTTP creation, live inventory changes, secondary writes, standalone
+installation or native IDE evidence. Hosted verification must be recorded at its
+own source revision. Product GitHub publication remains deferred.

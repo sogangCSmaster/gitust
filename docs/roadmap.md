@@ -44,18 +44,19 @@ In progress. Implemented portions:
 - Stable configured repository IDs across restart and complete offline relocation, with bounded private metadata and collision rejection. Identity alone does not bind access permissions or implement repository routing.
 - Explicit offline ACL registration, with matching private Git/auth-store anchors, current team access checks and conservative partial-registration recovery. Registered repositories currently use authenticated HTTP MCP rather than local stdio.
 - A bounded operator-configured repository catalog with UUID-routed commit/tree/blob/diff reads and team filtering. Additional repositories are read-only and retain independent Git service ownership; worktrees, Checks, MCP, Git HTTP and synchronization still target the primary repository. Metadata-only records do not create a Git service.
-- Offline import of an existing Git source into a fresh registered bare repository, with an explicit default branch, private fixed-identity journal, original administrator-session rechecks and no-overwrite publication. Sealed retries preserve the same snapshot and registration pair. Serving the result still requires explicit configuration; empty creation and inventory changes on a running server are not implemented. See the [import contract](operations/repository-import.md).
+- Offline import of an existing Git source into a fresh registered bare repository, with an explicit default branch, private fixed-identity journal, original administrator-session rechecks and no-overwrite publication. Sealed retries preserve the same snapshot and registration pair. Serving the result still requires explicit configuration; inventory changes on a running server are not implemented. See the [import contract](operations/repository-import.md).
 - SiteAdmin display-name editing for configured registered repositories, with a compact Overview dialog and durable metadata-only changes. UUID, registration binding, team, privacy and Git paths remain unchanged. Metadata-only records and legacy unregistered services cannot be renamed through this API.
-- Catalog and web support for a valid default branch without a commit, using an explicit nullable HEAD. Primary Smart HTTP accepts an authorized first ordinary push; other branches and existing tasks remain distinct from the missing default commit. This is the foundation for empty creation, not a creation command or secondary write routing.
+- Catalog and web support for a valid default branch without a commit, using an explicit nullable HEAD. Primary Smart HTTP accepts an authorized first ordinary push; other branches and existing tasks remain distinct from the missing default commit. The compact primary Clone dialog provides its credential-free UUID URL; secondary repositories remain browse-only.
+- Offline creation of a fresh registered bare repository with an explicit unborn default branch, fixed identity, shared create/import destination admission, sealed-empty retries and no-overwrite publication. Serving it still requires explicit configuration. See the [creation and recovery contract](operations/repository-create.md).
 - A stopped-installation backup/relocated-restore utility, regression tests and recorded Linux/macOS rehearsals at `42bae69`, including MCP commits after relocation. Final-candidate acceptance remains open.
 
 Remaining work:
 
 - Non-managed branch triggers and workflow execution beyond managed-worktree automatic Checks. GitHub Actions-compatible workflows remain Phase 4 work.
-- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current initial static-import closure is approximately 70 kB gzip. Measure the complete initial static-import closure, not just an arbitrarily split entry file.
+- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current initial static-import closure is approximately 71 kB gzip. Measure the complete initial static-import closure, not just an arbitrarily split entry file.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
-- Empty repository creation, broader administration UI and lifecycle management; additional repositories also need isolated worktree and write routing before gaining full workbench capabilities.
+- Repository administration UI, lifecycle management and online inventory changes; additional repositories also need isolated worktree and write routing before gaining full workbench capabilities.
 - Final-candidate restoration evidence for auth state, Git data, worktrees and approval records on the intended platforms.
 - Deployment validation, platform coverage, and final-candidate checks and Gate A review.
 

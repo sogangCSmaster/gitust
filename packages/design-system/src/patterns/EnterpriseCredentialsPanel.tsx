@@ -23,12 +23,14 @@ import {
 
 export interface LiveInviteItem {
   id: string;
-  purpose: "AccountInvite" | "PasswordReset";
+  purpose: "account_invite" | "password_reset";
   target_email: string;
   assigned_role: "SiteAdmin" | "Maintainer" | "Developer";
   expires_at: string;
   used_at: string | null;
   revoked_at: string | null;
+  team_ids?: string[];
+  repository_id?: string;
 }
 
 export interface LivePatItem {
@@ -231,6 +233,39 @@ export const EnterpriseCredentialsPanel: Component<
                       {invite.assigned_role} · expires{" "}
                       {new Date(invite.expires_at).toLocaleString()}
                     </p>
+                    <details class="mt-1 text-xs text-muted-foreground">
+                      <summary class="cursor-pointer">
+                        {invite.purpose === "password_reset"
+                          ? "Password reset"
+                          : invite.repository_id
+                            ? "Owning group"
+                            : Array.isArray(invite.team_ids)
+                              ? invite.team_ids.length
+                                ? "Group membership"
+                                : "Account only"
+                              : "Scope unavailable"}
+                      </summary>
+                      <p class="break-all">Invitation ID: {invite.id}</p>
+                      <Show when={invite.purpose === "password_reset"}>
+                        <p>Existing account</p>
+                      </Show>
+                      <Show when={invite.purpose !== "password_reset"}>
+                        <Show when={invite.repository_id}>
+                          <p class="break-all">
+                            Repository: {invite.repository_id}
+                          </p>
+                        </Show>
+                        <For
+                          each={
+                            Array.isArray(invite.team_ids)
+                              ? invite.team_ids
+                              : []
+                          }
+                        >
+                          {(id) => <p class="break-all">Group: {id}</p>}
+                        </For>
+                      </Show>
+                    </details>
                   </div>
                   <Show
                     when={

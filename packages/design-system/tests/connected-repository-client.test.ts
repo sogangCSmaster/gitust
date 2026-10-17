@@ -360,3 +360,27 @@ it("drops out-of-order fetches and bodies after reset or session replacement", a
     error: null,
   });
 });
+
+it("requires a typed owning-group invitation hint and defaults older catalogs to hidden", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(response([{ ...repo, can_invite_to_group: true }]))
+      .mockResolvedValueOnce(response([repo]))
+      .mockResolvedValueOnce(
+        response([{ ...repo, can_invite_to_group: "true" }]),
+      ),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]).toMatchObject({
+    canInviteToGroup: true,
+  });
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]).toMatchObject({
+    canInviteToGroup: false,
+  });
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+});

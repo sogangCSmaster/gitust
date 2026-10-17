@@ -223,14 +223,19 @@ pub(crate) async fn create_invite_handler(
 ) -> Result<(StatusCode, Json<IssuedInviteLink>), (StatusCode, String)> {
     let store = state.auth_store.clone();
     let issued = tokio::task::spawn_blocking(move || {
-        let caller = extract_principal(&headers, &store)?;
+        extract_principal(&headers, &store)?;
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
         store
-            .create_invite_link(
-                &caller,
-                &req.target_email,
-                req.assigned_role,
-                req.team_ids,
-                req.ttl_hours,
+            .create_invite_link_with_credential(
+                bearer_token(&headers)?,
+                _caller.user_id,
+                gitust_db::AccountInviteRequest {
+                    target_email: &req.target_email,
+                    assigned_role: req.assigned_role,
+                    team_ids: req.team_ids,
+                    ttl_hours: req.ttl_hours,
+                },
             )
             .map_err(map_auth_err)
     })
@@ -255,12 +260,22 @@ pub(crate) async fn revoke_invite_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> Result<Json<InvitePublicView>, (StatusCode, String)> {
     let store = state.auth_store.clone();
-    let view = tokio::task::spawn_blocking(move || store.revoke_invite_link(&caller, InviteId(id)))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map_err(map_auth_err)?;
+    let view = tokio::task::spawn_blocking(move || {
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
+        store
+            .revoke_invite_link_with_credential(
+                bearer_token(&headers)?,
+                caller.user_id,
+                InviteId(id),
+            )
+            .map_err(map_auth_err)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok(Json(view))
 }
 
@@ -282,14 +297,23 @@ pub(crate) async fn create_password_reset_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
     Path(target_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> Result<(StatusCode, Json<IssuedInviteLink>), (StatusCode, String)> {
     let store = state.auth_store.clone();
     let issued = tokio::task::spawn_blocking(move || {
-        store.create_password_reset_link(&caller, UserId(target_id), None)
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
+        store
+            .create_password_reset_link_with_credential(
+                bearer_token(&headers)?,
+                caller.user_id,
+                UserId(target_id),
+                None,
+            )
+            .map_err(map_auth_err)
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(map_auth_err)?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok((StatusCode::CREATED, Json(issued)))
 }
 
@@ -323,13 +347,21 @@ pub(crate) async fn deactivate_user_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
     Path(target_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> Result<Json<UserPublicProfile>, (StatusCode, String)> {
     let store = state.auth_store.clone();
-    let profile =
-        tokio::task::spawn_blocking(move || store.deactivate_user(&caller, UserId(target_id)))
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-            .map_err(map_auth_err)?;
+    let profile = tokio::task::spawn_blocking(move || {
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
+        store.deactivate_user_with_credential(
+            bearer_token(&headers).map_err(|_| gitust_core::AuthError::Unauthenticated)?,
+            caller.user_id,
+            UserId(target_id),
+        )
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(map_auth_err)?;
     Ok(Json(profile))
 }
 
@@ -353,9 +385,16 @@ pub(crate) async fn create_pat_handler(
 ) -> Result<(StatusCode, Json<IssuedPersonalAccessToken>), (StatusCode, String)> {
     let store = state.auth_store.clone();
     let issued = tokio::task::spawn_blocking(move || {
-        let caller = extract_principal(&headers, &store)?;
+        extract_principal(&headers, &store)?;
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
         store
-            .create_personal_access_token(&caller, &req.name, req.ttl_days)
+            .create_personal_access_token_with_credential(
+                bearer_token(&headers)?,
+                _caller.user_id,
+                &req.name,
+                req.ttl_days,
+            )
             .map_err(map_auth_err)
     })
     .await
@@ -367,10 +406,17 @@ pub(crate) async fn revoke_pat_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
     Path(pat_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> Result<Json<PersonalAccessTokenView>, (StatusCode, String)> {
     let store = state.auth_store.clone();
     let view = tokio::task::spawn_blocking(move || {
-        store.revoke_personal_access_token(&caller, PatId(pat_id))
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
+        store.revoke_personal_access_token_with_credential(
+            bearer_token(&headers).map_err(|_| gitust_core::AuthError::Unauthenticated)?,
+            caller.user_id,
+            PatId(pat_id),
+        )
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -398,9 +444,16 @@ pub(crate) async fn register_ssh_key_handler(
 ) -> Result<(StatusCode, Json<SshPublicKeyView>), (StatusCode, String)> {
     let store = state.auth_store.clone();
     let view = tokio::task::spawn_blocking(move || {
-        let caller = extract_principal(&headers, &store)?;
+        extract_principal(&headers, &store)?;
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
         store
-            .register_ssh_public_key(&caller, &req.title, &req.public_key_openssh)
+            .register_ssh_public_key_with_credential(
+                bearer_token(&headers)?,
+                _caller.user_id,
+                &req.title,
+                &req.public_key_openssh,
+            )
             .map_err(map_auth_err)
     })
     .await
@@ -412,10 +465,17 @@ pub(crate) async fn revoke_ssh_key_handler(
     State(state): State<AppState>,
     caller: AuthenticatedPrincipal,
     Path(ssh_key_id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> Result<Json<SshPublicKeyView>, (StatusCode, String)> {
     let store = state.auth_store.clone();
     let view = tokio::task::spawn_blocking(move || {
-        store.revoke_ssh_public_key(&caller, SshKeyId(ssh_key_id))
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
+        store.revoke_ssh_public_key_with_credential(
+            bearer_token(&headers).map_err(|_| gitust_core::AuthError::Unauthenticated)?,
+            caller.user_id,
+            SshKeyId(ssh_key_id),
+        )
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -431,9 +491,17 @@ pub(crate) async fn create_team_repo_handler(
 ) -> Result<(StatusCode, Json<RepositoryRecord>), (StatusCode, String)> {
     let store = state.auth_store.clone();
     let repo = tokio::task::spawn_blocking(move || {
-        let caller = extract_principal(&headers, &store)?;
+        extract_principal(&headers, &store)?;
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
         store
-            .create_team_repository(&caller, &req.name, req.owner_team_id, req.is_private)
+            .create_team_repository_with_credential(
+                bearer_token(&headers)?,
+                _caller.user_id,
+                &req.name,
+                req.owner_team_id,
+                req.is_private,
+            )
             .map_err(map_auth_err)
     })
     .await

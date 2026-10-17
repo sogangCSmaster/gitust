@@ -75,3 +75,15 @@ bytes for the first Overview, which already contains the compact Clone dialog.
 At gzip6 these totals are 70,395 and 74,579 bytes. No additional Clone chunk is
 required. The initial 50,000-byte target remains unmet; these measurements do not
 establish startup or interaction latency.
+
+
+## Owning-group invitation candidate, 2026-10-18
+
+The [owning-group invitation candidate](../operations/evidence/repository-group-invites-local-2026-10-18.json) is based on
+`ee313662d8e38a0a7c112a47e1df342b5ad50d3e`. The same maintained command measures
+70,547 initial gzip9 bytes (+197) and 75,053 cumulative bytes for the first
+Overview. At gzip6, those totals are 70,597 and 75,107 bytes. Invitation form
+rendering and response parsing remain lazy; the existing workspace controller
+retains only the non-secret retry draft across same-repository navigation.
+The initial 50,000-byte target remains unmet. These emitted-byte measurements do
+not establish startup or interaction latency.

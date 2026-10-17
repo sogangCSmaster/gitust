@@ -91,6 +91,8 @@ For a fresh repository without source commits, use offline [`repository create`]
 
 SiteAdmins can rename the display name of a configured registered repository from its overview. Its UUID, team/privacy settings, host path and Git URLs stay unchanged; secondary repositories remain read-only.
 
+Use **Invite to owning group** in a registered repository's access settings to issue a 72-hour single-use account link with its server-selected group membership. This can also grant access to other private repositories owned by that group; roles retain their site-wide meaning. See the [scope, retries and recovery contract](docs/operations/repository-group-invites.md).
+
 Use the compact [branch selector](docs/operations/branch-browsing.md) in Files or Changes to read a branch at its identified commit. Other branches remain browsable when the default branch has no commit; refreshing the list preserves the selected snapshot.
 
 SiteAdmins can change a registered bare primary's [default branch](docs/operations/default-branch.md) from Overview. New clones and omitted-base HTTP/MCP tasks use the selected branch; existing tasks keep their original approval target.

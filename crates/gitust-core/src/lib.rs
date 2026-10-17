@@ -383,6 +383,10 @@ pub struct UserPublicProfile {
 /// Safe public representation of an invite or password-reset link metadata (never contains raw token or hash).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvitePublicView {
+    #[serde(default)]
+    pub team_ids: Vec<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_id: Option<RepoId>,
     pub id: InviteId,
     pub purpose: InviteTokenPurpose,
     pub target_email: String,

@@ -124,6 +124,7 @@ pub struct AuthorizedRepository {
     pub metadata: Option<RepositoryRecord>,
     pub can_rename: bool,
     pub can_change_visibility: bool,
+    pub can_invite_to_group: bool,
 }
 
 pub struct RegisteredRepository {
@@ -201,6 +202,7 @@ impl AuthStore {
                     metadata: None,
                     can_rename: false,
                     can_change_visibility: false,
+                    can_invite_to_group: false,
                 }),
                 (Some(binding), Some(row))
                     if binding.valid_for(access.repo_id) && row.binding == Some(binding) =>
@@ -214,6 +216,7 @@ impl AuthStore {
                             metadata: Some(row.metadata.clone()),
                             can_rename: active.role == EnterpriseRole::SiteAdmin,
                             can_change_visibility: active.role == EnterpriseRole::SiteAdmin,
+                            can_invite_to_group: active.role == EnterpriseRole::SiteAdmin,
                         });
                     }
                 }
@@ -230,6 +233,31 @@ impl AuthStore {
         expected: RepoAccess,
         name: &str,
     ) -> Result<RepositoryRecord, AuthError> {
+        self.rename_registered_repository_with_authority(
+            crate::mutation_authority::MutationAuthority::Operator(caller),
+            expected,
+            name,
+        )
+    }
+    pub fn rename_registered_repository_with_credential(
+        &self,
+        token: &str,
+        user: gitust_core::UserId,
+        expected: RepoAccess,
+        name: &str,
+    ) -> Result<RepositoryRecord, AuthError> {
+        self.rename_registered_repository_with_authority(
+            crate::mutation_authority::MutationAuthority::Credential(token, user),
+            expected,
+            name,
+        )
+    }
+    fn rename_registered_repository_with_authority(
+        &self,
+        authority: crate::mutation_authority::MutationAuthority<'_>,
+        expected: RepoAccess,
+        name: &str,
+    ) -> Result<RepositoryRecord, AuthError> {
         let name = validate_repository_name(name)?;
         let binding = expected
             .registration
@@ -239,7 +267,7 @@ impl AuthStore {
         }
         let (record, snapshot) = {
             let mut guard = self.write_state()?;
-            let active = Self::verify_active_user_locked(&guard, caller)?;
+            let active = authority.active(&guard)?;
             if active.role != EnterpriseRole::SiteAdmin {
                 return Err(AuthError::AdminPrivilegeRequired);
             }

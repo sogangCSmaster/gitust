@@ -21,6 +21,12 @@ when inviting users with repeated `gitust admin invite --team-id GROUP_UUID` arg
 through the existing invitation API. New invitations accept up to 32 distinct nonnil UUIDs.
 Existing memberships are not rewritten.
 
+The web's **Invite to owning group** operation derives one group from a configured
+registration rather than asking the client to select it. This grants the same
+membership across that group's private repositories, not only the current one.
+The generic Access invite remains account-only. See [group invitations and retry
+limits](repository-group-invites.md).
+
 Restart the usual `gitust serve --repo ... --auth-db ...` command. No registration flag is
 required. Registered repositories use authenticated HTTP `/mcp`; local stdio operator access
 is deliberately unsupported for them. Existing unregistered stdio behavior remains available.

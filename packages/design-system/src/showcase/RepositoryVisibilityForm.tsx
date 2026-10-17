@@ -30,6 +30,7 @@ export const RepositoryVisibilityForm: Component<{
   submitting: boolean;
   onSubmitting: (value: boolean) => void;
   onClose: () => void;
+  onInvite?: () => void;
 }> = (props) => {
   const [selected, setSelected] = createSignal(
     choices.find((choice) => choice.value === props.intent.expected)!,
@@ -102,6 +103,17 @@ export const RepositoryVisibilityForm: Component<{
         <p role="alert" class="text-xs text-error-foreground">
           {error()}
         </p>
+      </Show>
+      <Show when={props.onInvite}>
+        <Button
+          type="button"
+          variant="outline"
+          class="w-full"
+          disabled={props.submitting}
+          onClick={props.onInvite}
+        >
+          Invite to owning group
+        </Button>
       </Show>
       <div class="flex items-center justify-between gap-2">
         <Button

@@ -1,3 +1,4 @@
+import type { GroupInviteDraft } from "./repository-group-invite";
 import { getLiveToken } from "./live-repo-context";
 
 export interface VisibilityIntent {
@@ -12,6 +13,9 @@ export type VisibilityResult =
   { kind: "saved" } | { kind: "stale" } | { kind: "error"; error: string };
 export interface VisibilityActions {
   begin: () => VisibilityIntent | null;
+  canInvite?: (intent: VisibilityIntent, original?: boolean) => boolean;
+  inviteDraft?: (intent: VisibilityIntent) => GroupInviteDraft | undefined;
+  setInviteDraft?: (intent: VisibilityIntent, draft: GroupInviteDraft) => void;
   isCurrent: (intent: VisibilityIntent) => boolean;
   invalidateReads: () => void;
   confirmed: (intent: VisibilityIntent, value: boolean) => void;

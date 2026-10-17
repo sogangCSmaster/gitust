@@ -328,6 +328,40 @@ jobs:
               output.write("### Read-only secondary Git\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY
 
+      - name: Verify owning-group invitations and real repository access
+        run: |
+          python3 scripts/repository-group-invite-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-group-invite.json"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-group-invite.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          binary_sha = hashlib.sha256(Path("target/debug/gitust").read_bytes()).hexdigest()
+          platform = {"Linux": "Linux", "macOS": "Darwin"}[os.environ["RUNNER_OS"]]
+          if (report["source_commit"] != expected or report["runtime_worktree_dirty"] is not False
+              or report["binary_sha256"] != binary_sha or report["actual_repositories"] != 3
+              or report["platform"] != platform or report["external_github_publication"] is not False):
+              raise SystemExit("The group invitation rehearsal has invalid source or scope evidence")
+          checks = ["passed", "role_anonymous_and_malformed_denials", "one_key_concurrent_issuance",
+                    "hash_only_token_and_72_hour_expiry", "exact_origin_and_semantic_conflicts",
+                    "restart_replay_preserves_identity", "consumed_and_revoked_keys_do_not_remint",
+                    "new_member_sees_exact_group_pair", "other_group_and_account_only_denied",
+                    "actual_secondary_clone_fetch_and_tags", "secondary_push_and_worktrees_denied",
+                    "revoked_admin_and_deactivated_member_denied",
+                    "git_refs_and_registration_unchanged", "git_fsck",
+                    "owned_services_reaped", "private_fixture_removed"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("The group invitation rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "actual_repositories", "external_github_publication", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### Owning-group invitations\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
       - name: Reject unsafe service restart after an interrupted command
         run: |
           python3 scripts/execution-crash-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-execution-crash.json"

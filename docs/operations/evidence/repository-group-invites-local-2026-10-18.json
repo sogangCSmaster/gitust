@@ -1,0 +1,500 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "ee313662d8e38a0a7c112a47e1df342b5ad50d3e",
+  "scope": "Owning-group invitations, compact live UI, and original-credential checks for the invitation family and seven adjacent HTTP mutations. Full roadmap and alpha remain incomplete.",
+  "combined_binary_sha256": "66269528fd0a65e1c31ff8aa15cdd434abcffb944f1934f3954ab9e6934a2d40",
+  "source_paths": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "base_sha256": "3077e5b58dcc3700d282f52ed5946776307960e9892de1ecda906e1b110a0a7e",
+      "sha256": "a3883cb64ee91c666ab937c1f4e1f0300758ed059995f87695317a22482a70c6",
+      "lines": 393
+    },
+    {
+      "path": "crates/gitust-core/src/lib.rs",
+      "base_sha256": "9cdf13ea1ea29b2c0ac3808c6822691650c267e59feec70abb5fa867938d3470",
+      "sha256": "19eb54efe91890d7d904317c2c9e43f33d98e085b2523e8de9dacddcac1084eb",
+      "lines": 558
+    },
+    {
+      "path": "crates/gitust-db/src/credential_mutations.rs",
+      "base_sha256": null,
+      "sha256": "7f649876e59d08de926ddb5a34306d692e24f3623ef1e21b82b4c6a63740092e",
+      "lines": 273
+    },
+    {
+      "path": "crates/gitust-db/src/credentials.rs",
+      "base_sha256": "6b5692ee9f47eea0fe830a9c935c7646f57f99b981d4f60c7a7da6881bf4b753",
+      "sha256": "e01041a0370b746f3c9aebfa4185977c8e9da0262d625d0e3efea753fa85ca60",
+      "lines": 352
+    },
+    {
+      "path": "crates/gitust-db/src/invite_authority.rs",
+      "base_sha256": null,
+      "sha256": "fe5aedd31de6ad7655de0f70b132af773c4f1dd2042d6aa8bec838b1298b8452",
+      "lines": 1
+    },
+    {
+      "path": "crates/gitust-db/src/invites.rs",
+      "base_sha256": "da2093ce7c6866e051cf575eff26e1282879eeb158339d69fdbc02b671ac3ad6",
+      "sha256": "cfaeb957c9c0001beb69e3fe4cf1661487ef3a2f4f22528321a3884b19630508",
+      "lines": 551
+    },
+    {
+      "path": "crates/gitust-db/src/lib.rs",
+      "base_sha256": "047b312d2d23baac68592514631e7ac68e20a2b734bb5e909791e341ac2a1542",
+      "sha256": "8c35ac4702bebc927a75c1c5c187467d62a3dc5f7483e0c08cb6a990b42249e2",
+      "lines": 501
+    },
+    {
+      "path": "crates/gitust-db/src/models.rs",
+      "base_sha256": "602caa0c94f595e105324dfdefd45b8ffa7495ff4bf59d8f6997d064b8a61bf8",
+      "sha256": "31e98d26c2d2afba06554747808b18d5834144051fafe4b0d5dd53fe72444553",
+      "lines": 284
+    },
+    {
+      "path": "crates/gitust-db/src/mutation_authority.rs",
+      "base_sha256": null,
+      "sha256": "b8d6ec6acd8c2e63c21c1d295a670749658cd5a0446bc71aca83ffea64f459a8",
+      "lines": 43
+    },
+    {
+      "path": "crates/gitust-db/src/repository_group_invites.rs",
+      "base_sha256": null,
+      "sha256": "837b8f4fccb7a9c69d9233174d431ee272e9111db5e8fe72010bd599ad280518",
+      "lines": 122
+    },
+    {
+      "path": "crates/gitust-db/src/repository_registration.rs",
+      "base_sha256": "865e59948ad6275d8565bfd436a32ff902dab046afce77e23c350ff9e707646e",
+      "sha256": "74fd64b29c0c5994dfa93de661f9af5569a27e80ff759bb27480f2b9bfc53885",
+      "lines": 389
+    },
+    {
+      "path": "crates/gitust-db/src/tests_credential_mutations.rs",
+      "base_sha256": null,
+      "sha256": "f77154aaa1cc9bec9c702710b4ff233005eac1a1eee61bcd22f40f5d6f5651c1",
+      "lines": 134
+    },
+    {
+      "path": "crates/gitust-db/src/tests_repository_group_invites.rs",
+      "base_sha256": null,
+      "sha256": "4966a9c2db0110cd2bee0a4120582da865284b3eb02d8a733f2253fbf984fd0c",
+      "lines": 363
+    },
+    {
+      "path": "crates/gitust-server/src/auth.rs",
+      "base_sha256": "f6ca46196119ecf4dd65355cd38a3335044d9d909a3b71423b37745eee4b1b7b",
+      "sha256": "526502f9cb685e6b7128eb2ccf74301588cc02bea9e6799dd16fc1503b7156a9",
+      "lines": 540
+    },
+    {
+      "path": "crates/gitust-server/src/lib.rs",
+      "base_sha256": "b07cbc1a95ff8f5e1a598190aeb2fb7d7e66e78722ed9b72651886bd1457c64c",
+      "sha256": "a8c3fef6731c4e62e43f0a1b7d89373d4009c0611611cf5c475d04c455f26fb2",
+      "lines": 350
+    },
+    {
+      "path": "crates/gitust-server/src/repository_group_invites.rs",
+      "base_sha256": null,
+      "sha256": "bf337f430dfbbb1b1da89e70ac927ab9b82d993293bd8c4644b406805219792a",
+      "lines": 151
+    },
+    {
+      "path": "crates/gitust-server/src/repository_reads.rs",
+      "base_sha256": "6da350ed44ed37eeb63bd45e58bd521fa4ed87f6ffa25481da8dcbebaa1113d3",
+      "sha256": "1256146d01e0e0d5aef4e423db4e8ed2881c8ff38fc4c970f5df7b2743893b7e",
+      "lines": 355
+    },
+    {
+      "path": "crates/gitust-server/src/repository_rename.rs",
+      "base_sha256": "5f0ba195824593397f83bf74f862c321266ef533370545caa883cc4fb5584fa4",
+      "sha256": "5bfe08d04236f7fceea662dd8a4f6581339c38c8e7192789dac4ef15a7d45a00",
+      "lines": 96
+    },
+    {
+      "path": "crates/gitust-server/src/tests.rs",
+      "base_sha256": "0ee76c4467cd7d553bbde859e513c4fb99db4822dbe605f1e94aca89a5c08864",
+      "sha256": "7e716ba8a735f8c7370a4cd3d038bb2729331c705fcd347c13e5f80338c15c5c",
+      "lines": 563
+    },
+    {
+      "path": "crates/gitust-server/src/tests_credential_mutations.rs",
+      "base_sha256": null,
+      "sha256": "85271295c431f92745ce562e57ede4ac3212e72a71b0a847ea25031eacdf0eba",
+      "lines": 181
+    },
+    {
+      "path": "crates/gitust-server/src/tests_invite_credentials.rs",
+      "base_sha256": null,
+      "sha256": "cefd06e48a1bd2e4a55987c2d61ae079b7cb3a31e44c429066de1b978b8674f0",
+      "lines": 133
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_group_invite_auth.rs",
+      "base_sha256": null,
+      "sha256": "2fadb1fc57b2c25ea33e9d422e157b4c7307c971f0beadc8c2e7fb9d18bd77af",
+      "lines": 247
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_group_invites.rs",
+      "base_sha256": null,
+      "sha256": "6af56d144223b1bba0c90d981b0e8301f4856dd36c6d29e3ecdbb552f4995d50",
+      "lines": 75
+    },
+    {
+      "path": "packages/design-system/src/patterns/EnterpriseCredentialsPanel.tsx",
+      "base_sha256": "fd4cfc3f7eaff83637706f61c06a3cdf32088ff158f0ca09c70bb505c8c8238c",
+      "sha256": "b0433baaa8121dd24d8c9306075adcf390dbb032f71947753c8ed182d5ba37b3",
+      "lines": 432
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryGroupInviteForm.tsx",
+      "base_sha256": null,
+      "sha256": "d013f2806448d562b0a4340c1e55d3d40b1610be2f5d158b14a522d9a982b4d1",
+      "lines": 260
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryVisibility.tsx",
+      "base_sha256": "5905d0ab8c5058ea82c6fc7b843220d5eae234edc50331d60e82364703a3870c",
+      "sha256": "318cfd9c65f907178d4b70949287a1abdb1825d5d17ca338a0e60ef09b1804b6",
+      "lines": 193
+    },
+    {
+      "path": "packages/design-system/src/showcase/RepositoryVisibilityForm.tsx",
+      "base_sha256": "27b7cc215f9d12892f008284c3c8f79ab21172f2be5f6d3a5662345f0b7a63ec",
+      "sha256": "9369edefdbc979c71c7066ac573695aef161f87ba620996738c2f7cfb3ab1680",
+      "lines": 152
+    },
+    {
+      "path": "packages/design-system/src/showcase/connected-repository-client.ts",
+      "base_sha256": "f6bd9ff909c9c08d07ecb62e624352d9d4130220e4029b4f6e700768aa3a2e48",
+      "sha256": "07ffa52473a018ed2f615f4d19efdf1eb4fddec91e64b1a6ef712f8d950092c2",
+      "lines": 357
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-group-invite.ts",
+      "base_sha256": null,
+      "sha256": "2e3d57c7983fd2d57dfcf1c8e5df475e928dfca075f152bb0a741cbb04efb328",
+      "lines": 229
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-visibility.ts",
+      "base_sha256": "fa027d4b3753f02616c1159c30024fa77f6c969b6dcee53903def35928d72825",
+      "sha256": "d8d4c79fb1330a5639dd9b2003bdd433dfc534d816cad083b28981e4d611647c",
+      "lines": 109
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-workspace.ts",
+      "base_sha256": "09163c5d1ec0c6c1b5c845715473d2117ff9a3e7a3286289e1282483a7d3196a",
+      "sha256": "79b064ff5ec7dcf4f9e22ed1487ad0fe9170ed2a58fddc75ce5c4bf0a25cbf6c",
+      "lines": 369
+    },
+    {
+      "path": "packages/design-system/tests/connected-repository-client.test.ts",
+      "base_sha256": "2ca21e352b5d91f7b3bd8aaaed2586edb37fcc52776a0fd56feeff9203d434b5",
+      "sha256": "81e51400b4eae3a9c4763a536de3f143a92dc9e32abdc67b982527014c462607",
+      "lines": 386
+    },
+    {
+      "path": "packages/design-system/tests/repository-group-invite.test.tsx",
+      "base_sha256": null,
+      "sha256": "233cc7d9dc396b5f878770255b64f47aec1631145cde159d1a4ff4bbee8fe3dd",
+      "lines": 438
+    },
+    {
+      "path": "scripts/repository-group-invite-rehearsal.py",
+      "base_sha256": null,
+      "sha256": "4b5cbc19bb10d67f59d051f4f7a359ddc481813411340823f4a9fcca8c421170",
+      "lines": 288
+    }
+  ],
+  "artifact_sha256": {
+    "initial_backend_manifest": "302c4a5d684b29cc58331a911486feba329f48c74bc21ed814d2d5ab441d1049",
+    "initial_backend_evidence": "87b6be1bfcdcc4151ae82bea4dc357138c20286dea7849bc70249a9e38c66563",
+    "auth_sweep_manifest": "9c6f6ecc8323f8290936376ee20b50e69159cd4ff63faa7efc62b5d9d30f051c",
+    "auth_sweep_evidence": "e7909bf995de99cc2d3da9d98f49fbd32f9a97337e971eaef095908e6e2b39b0",
+    "frontend_v3_manifest": "df9385008005ee0157765d14ffe4ba3de6e2ab0a7008a547e2b4362bc74fc480",
+    "frontend_v3_evidence": "b3e63fcd47b63b7d835bcba725283e967d89f7b6b3b0490cec8511091e56c0de",
+    "frontend_v3_dist_manifest": "9d370090bc62f0562f7100a42c83f2f183cec8baac97c82bd1c222155229bb66",
+    "initial_backend_independent_review": "694767a040e65a31d796489e07b393527947093b3acd29ce90808301601a2e89",
+    "auth_sweep_independent_review": "90411d234a6e36006a4135e3308d64f58078c192d7ff1374b5f249697ba50694",
+    "frontend_v3_independent_review": "5161d22beb2a9df6d5a2732d3691f07ee03feab8da7f58ba38a97cd13e22038e",
+    "operator_independent_review": "4f947358b7db1ad3b5c4fd94e7f1ffd394ff79ff2e3d58ba5eaa4893cc81c973",
+    "operator_validator_before_after": "cd3764a44a30bffe56dbb6a022a812cc135304589eb87f96bf5fcaa1d0c58c82",
+    "operator_feature_absence_before": "8bd4691f80b7eaace29e095a1356747414d7287717685b270f74e946fcaaa5ea",
+    "final_verify": "c80ea4c8cb15c8e96c6dd8a5543531d89a7aed51a38dc1c1c73eb40ed8382a96",
+    "final_operating": "5eda8d8cb0f9d3acfb02d70a5a2bb8cbb7094a458a9e5177ed92a482bed34ead",
+    "final_operating_attestation": "d96bb744705b5450dd3fef28348568625882ee1ff3ab5e35f0fe11a4325e4224",
+    "final_native_browser": "b21eab02d878a3c51c93a2ce5f5a78d40abe0ce648dbb2eeaa81fb5616866b03",
+    "final_native_onboarding": "20bd4d6b36354af6ad5e0ddfc84bb2720d67d30dcfa0cb4e75a109654f563920",
+    "final_measurement": "13e6f74994cab506f43f6c53ba3ca1bf6efd66da75023c14b4b32fb39de93eb2"
+  },
+  "mechanical_verification": {
+    "exit_code": 0,
+    "frontend_tests": 282,
+    "frontend_files": 38,
+    "python_tests": 19,
+    "rust_passed": {
+      "cli": 33,
+      "core": 2,
+      "db": 45,
+      "git": 133,
+      "sandbox": 30,
+      "server": 166,
+      "sync": 1
+    },
+    "existing_ignored_git_benchmarks": 2,
+    "fmt_clippy_typecheck_bundle_fail_open_and_line_gates": true
+  },
+  "fixed_findings": [
+    {
+      "severity": "P1",
+      "scope": "HTTP account invite, password-reset issuance and invite revocation",
+      "evidence": "Same permanent test: revoked session/PAT across actual auth write-lock wait previously returned201/201/200; all six now401 with invitation records unchanged."
+    },
+    {
+      "severity": "P1",
+      "scope": "HTTP PAT create/revoke, SSH key register/revoke, account deactivation, metadata-only repository creation and registered rename",
+      "evidence": "Same permanent test: session/PAT across seven locked mutations previously returned201/200; all fourteen now401 with target state unchanged. Existing TTL, role, ownership and last-administrator protections retained."
+    },
+    {
+      "severity": "P2",
+      "scope": "New Access invitation scope display",
+      "evidence": "Actual password_reset records no longer imply a new group grant; Existing account is shown."
+    },
+    {
+      "severity": "P2",
+      "scope": "New invitation email field",
+      "evidence": "Supported dotless domains and UTF8 local parts accepted subject to254-byte cap and server policy; exact final test fails before and passes after."
+    },
+    {
+      "severity": "P2",
+      "scope": "New modal keyboard focus",
+      "evidence": "Native issued-draft reopen left focus on BODY and Tab reached background Toggle Sidebar. Final mounted/issued/New states focus an enabled in-dialog control; native Tab cycle stays inside."
+    },
+    {
+      "severity": "P2",
+      "scope": "Operating verifier coverage",
+      "evidence": "Concurrent replay and same-group cross-origin conflicts now enforce exact envelopes; independent normal/malformed response checks verify leak/scope rejection. This was a verifier gap, not a new backend vulnerability."
+    }
+  ],
+  "operating_rehearsal": {
+    "exit_code": 0,
+    "report": {
+      "version": 1,
+      "passed": true,
+      "actual_repositories": 3,
+      "role_anonymous_and_malformed_denials": true,
+      "one_key_concurrent_issuance": true,
+      "hash_only_token_and_72_hour_expiry": true,
+      "exact_origin_and_semantic_conflicts": true,
+      "restart_replay_preserves_identity": true,
+      "consumed_and_revoked_keys_do_not_remint": true,
+      "new_member_sees_exact_group_pair": true,
+      "other_group_and_account_only_denied": true,
+      "actual_secondary_clone_fetch_and_tags": true,
+      "secondary_push_and_worktrees_denied": true,
+      "revoked_admin_and_deactivated_member_denied": true,
+      "git_refs_and_registration_unchanged": true,
+      "git_fsck": true,
+      "external_github_publication": false,
+      "platform": "Darwin",
+      "source_commit": "ee313662d8e38a0a7c112a47e1df342b5ad50d3e",
+      "runtime_worktree_dirty": true,
+      "binary_sha256": "66269528fd0a65e1c31ff8aa15cdd434abcffb944f1934f3954ab9e6934a2d40",
+      "owned_services_reaped": true,
+      "private_fixture_removed": true
+    },
+    "runtime_source_sha256": {
+      "scripts/repository-group-invite-rehearsal.py": "4b5cbc19bb10d67f59d051f4f7a359ddc481813411340823f4a9fcca8c421170",
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+      "scripts/multi-repository-rehearsal.py": "f2d35dfa03cdf03500580587711bb020473463fb04d5782b430267bc9c7fdc36",
+      "scripts/read-only-git-rehearsal.py": "54db1f32d1fad450a6d282b20ebd61eae0cd451edc1d57371fe776a4fef7cca2"
+    }
+  },
+  "native_browser": {
+    "binarySha256": "66269528fd0a65e1c31ff8aa15cdd434abcffb944f1934f3954ab9e6934a2d40",
+    "layouts": [
+      {
+        "buttons": [
+          {
+            "height": 44,
+            "label": "Developer",
+            "width": 246
+          },
+          {
+            "height": 44,
+            "label": "Close",
+            "width": 60.859375
+          },
+          {
+            "height": 44,
+            "label": "Create invitation",
+            "width": 125.703125
+          },
+          {
+            "height": 44,
+            "label": "Close",
+            "width": 44
+          }
+        ],
+        "dialogHeight": 431,
+        "dialogOverflow": false,
+        "dialogWidth": 288,
+        "documentOverflow": false,
+        "focusWithinDialog": true,
+        "height": 760,
+        "titleHeight": 18,
+        "titleLineHeight": "18px",
+        "width": 320
+      },
+      {
+        "buttons": [
+          {
+            "height": 36,
+            "label": "Developer",
+            "width": 342
+          },
+          {
+            "height": 32,
+            "label": "Close",
+            "width": 60.859375
+          },
+          {
+            "height": 32,
+            "label": "Create invitation",
+            "width": 125.703125
+          },
+          {
+            "height": 32,
+            "label": "Close",
+            "width": 32
+          }
+        ],
+        "dialogHeight": 387,
+        "dialogOverflow": false,
+        "dialogWidth": 384,
+        "documentOverflow": false,
+        "focusWithinDialog": true,
+        "height": 900,
+        "titleHeight": 18,
+        "titleLineHeight": "18px",
+        "width": 768
+      },
+      {
+        "buttons": [
+          {
+            "height": 36,
+            "label": "Developer",
+            "width": 342
+          },
+          {
+            "height": 32,
+            "label": "Close",
+            "width": 60.859375
+          },
+          {
+            "height": 32,
+            "label": "Create invitation",
+            "width": 125.703125
+          },
+          {
+            "height": 32,
+            "label": "Close",
+            "width": 32
+          }
+        ],
+        "dialogHeight": 387,
+        "dialogOverflow": false,
+        "dialogWidth": 384,
+        "documentOverflow": false,
+        "focusWithinDialog": true,
+        "height": 900,
+        "titleHeight": 18,
+        "titleLineHeight": "18px",
+        "width": 1440
+      }
+    ],
+    "issued": {
+      "focusWithinDialog": true,
+      "focusedReadonlyLink": true,
+      "issued": true,
+      "readonlyLinks": 1
+    },
+    "reopenedAfterFiles": {
+      "dialogOverflow": false,
+      "focusLabel": "Close",
+      "focusWithinDialog": true,
+      "issued": true,
+      "linkFields": 0
+    },
+    "tabCycle": [
+      {
+        "inside": true,
+        "label": "Close"
+      },
+      {
+        "inside": true,
+        "label": "New invitation"
+      },
+      {
+        "inside": true,
+        "label": "Close"
+      }
+    ],
+    "explicitNewFocus": {
+      "emailEnabled": true,
+      "emailFocused": true,
+      "linkAbsent": true
+    },
+    "escapeRestoresAccess": true,
+    "ownedTabClosedAndViewportReset": true
+  },
+  "native_onboarding": {
+    "binary_sha256": "66269528fd0a65e1c31ff8aa15cdd434abcffb944f1934f3954ab9e6934a2d40",
+    "actual_ui_link_redeemed": true,
+    "exact_group_and_role": true,
+    "catalog_exact_group_pair": true,
+    "group_b_denied": true,
+    "credential_values_omitted": true,
+    "owned_fixture_and_control_removed": true,
+    "owned_tab_closed_and_viewport_reset": true
+  },
+  "native_boundaries": "Final browser verified320/768/1440 layouts, one-line titles,44/32/32 action heights, issuance/link focus, Files roundtrip/reopen without link, Tab containment, explicit New focus and Escape restoration. Actual final UI link was redeemed through the local API; final native member-login/DOM-URL clone was not repeated. That extra end-to-end browser/Git link proof is recorded against intermediate3e768a47; final operating rehearsal independently covers real clone/fetch.",
+  "intermediate_native_onboarding_sha256": "d6fcad4501e3911cfb93518feb0874c6707dbdee63f17faf0129f33ebdd32c8d",
+  "initial_js": {
+    "method": "Sum each physical emitted JS file compressed separately; follow all HTML module/modulepreload roots and transitive static imports. Bytes; kB=1000 bytes.",
+    "environment": {
+      "node": "v24.18.1",
+      "vite": "6.4.4",
+      "zlib": "1.3.1-e00f703",
+      "platform": "darwin",
+      "os_release": "25.5.0",
+      "arch": "arm64",
+      "cpu": "Apple M4 Pro"
+    },
+    "initial_gzip_bytes": {
+      "1": 78972,
+      "6": 70597,
+      "9": 70547
+    },
+    "overview_cumulative_gzip_bytes": {
+      "1": 83873,
+      "6": 75107,
+      "9": 75053
+    },
+    "target_bytes": 50000,
+    "target_met": false,
+    "temporary_build_removed": true
+  },
+  "review_boundary": "Independent source and runtime reviews are scoped above. Exact final union Gate A and normal pre-push verification are required separately before checkpoint publication.",
+  "limits": [
+    "Gate B remains stopped.",
+    "Actual GitHub product publication remains deferred by the user; source push and hosted CI are separate.",
+    "Physical devices, intended IDE-client sessions, separately provisioned installation and full final-alpha acceptance remain open.",
+    "No initial-JS budget or latency target is claimed.",
+    "Existing user preview servers were not restarted.",
+    "Earlier unrelated policy-interrupted external ref-CAS harness was not rerun or substituted."
+  ]
+}

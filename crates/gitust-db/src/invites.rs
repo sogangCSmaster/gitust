@@ -8,8 +8,16 @@ use subtle::ConstantTimeEq;
 use crate::crypto::{
     generate_csprng_token, hash_password_argon2, hash_token_sha256, validate_username,
 };
+use crate::invite_authority::InviteAuthority;
 use crate::models::{IssuedInviteLink, StoredInviteToken, StoredUser};
 use crate::AuthStore;
+
+pub struct AccountInviteRequest<'a> {
+    pub target_email: &'a str,
+    pub assigned_role: EnterpriseRole,
+    pub team_ids: Vec<TeamId>,
+    pub ttl_hours: Option<i64>,
+}
 
 impl AuthStore {
     /// Issues a single-use cryptographic invite link (default 72h expiration).
@@ -22,61 +30,63 @@ impl AuthStore {
         team_ids: Vec<TeamId>,
         ttl_hours: Option<i64>,
     ) -> Result<IssuedInviteLink, AuthError> {
-        let mut unique_teams = std::collections::HashSet::new();
-        if team_ids.len() > 32
-            || team_ids
-                .iter()
-                .any(|id| id.0.is_nil() || !unique_teams.insert(*id))
-        {
-            return Err(AuthError::InvalidInput(
-                "invite teams must contain at most 32 distinct nonnil group UUIDs".into(),
-            ));
-        }
-        // fail-open-ok: omitted TTL uses the documented bounded default; supplied values are validated below.
-        let hours = ttl_hours.unwrap_or(DEFAULT_INVITE_EXPIRY_HOURS);
-        if !(1..=720).contains(&hours) {
-            return Err(AuthError::InvalidInput(
-                "invite TTL must be between 1 and 720 hours".to_owned(),
-            ));
-        }
-
-        let raw_token = generate_csprng_token("gitust_inv");
-        let token_sha256 = hash_token_sha256(&raw_token);
-        let now = Utc::now();
-
-        let (public_view, snapshot) = {
-            let mut guard = self.write_state()?;
-            let admin_id = Self::verify_active_admin_locked(&guard, caller)?;
-
-            let clean_email = target_email.trim().to_ascii_lowercase();
-            guard
-                .policy
-                .validate_registration(&clean_email, true)
-                .map_err(|e| AuthError::InvalidInput(e.to_string()))?;
-
-            if guard.email_index.contains_key(&clean_email) {
-                return Err(AuthError::DuplicateUser);
-            }
-
-            let record = StoredInviteToken {
-                id: InviteId::new(),
-                token_sha256,
-                purpose: InviteTokenPurpose::AccountInvite,
-                target_email: clean_email,
+        self.create_invite_authorized(
+            InviteAuthority::Operator(caller),
+            AccountInviteRequest {
+                target_email,
                 assigned_role,
                 team_ids,
-                created_by: admin_id,
-                created_at: now,
-                expires_at: now + Duration::hours(hours),
-                used_at: None,
-                revoked_at: None,
-            };
+                ttl_hours,
+            },
+        )
+    }
 
+    pub fn create_invite_link_with_credential(
+        &self,
+        credential: &str,
+        original_user: UserId,
+        request: AccountInviteRequest<'_>,
+    ) -> Result<IssuedInviteLink, AuthError> {
+        self.create_invite_authorized(
+            InviteAuthority::Credential(credential, original_user),
+            request,
+        )
+    }
+
+    fn create_invite_authorized(
+        &self,
+        authority: InviteAuthority<'_>,
+        request: AccountInviteRequest<'_>,
+    ) -> Result<IssuedInviteLink, AuthError> {
+        let AccountInviteRequest {
+            target_email,
+            assigned_role,
+            team_ids,
+            ttl_hours,
+        } = request;
+        let (public_view, raw_token, snapshot) = {
+            let mut guard = self.write_state()?;
+            let admin_id = authority.verify(&guard)?;
+            // fail-open-ok: omitted TTL retains the existing bounded 72-hour policy.
+            let hours = ttl_hours.unwrap_or(DEFAULT_INVITE_EXPIRY_HOURS);
+            let (record, raw_token) = prepare_account_invite(
+                &guard,
+                AccountInviteInput {
+                    id: InviteId::new(),
+                    creator: admin_id,
+                    email: target_email,
+                    assigned_role,
+                    team_ids,
+                    hours,
+                    repository_origin: None,
+                },
+            )?;
             let public_view = record.to_public_view();
-            guard.invite_hash_index.insert(token_sha256, record.id);
+            guard
+                .invite_hash_index
+                .insert(record.token_sha256, record.id);
             guard.invites_by_id.insert(record.id, record);
-            let snap = self.maybe_snapshot(guard);
-            (public_view, snap)
+            (public_view, raw_token, self.maybe_snapshot(guard))
         };
 
         self.persist_snapshot(snapshot)?;
@@ -94,6 +104,29 @@ impl AuthStore {
         target_user_id: UserId,
         ttl_hours: Option<i64>,
     ) -> Result<IssuedInviteLink, AuthError> {
+        self.create_reset_authorized(InviteAuthority::Operator(caller), target_user_id, ttl_hours)
+    }
+
+    pub fn create_password_reset_link_with_credential(
+        &self,
+        credential: &str,
+        original_user: UserId,
+        target_user_id: UserId,
+        ttl_hours: Option<i64>,
+    ) -> Result<IssuedInviteLink, AuthError> {
+        self.create_reset_authorized(
+            InviteAuthority::Credential(credential, original_user),
+            target_user_id,
+            ttl_hours,
+        )
+    }
+
+    fn create_reset_authorized(
+        &self,
+        authority: InviteAuthority<'_>,
+        target_user_id: UserId,
+        ttl_hours: Option<i64>,
+    ) -> Result<IssuedInviteLink, AuthError> {
         // fail-open-ok: omitted TTL uses the documented bounded default; supplied values are validated below.
         let hours = ttl_hours.unwrap_or(DEFAULT_INVITE_EXPIRY_HOURS);
         if !(1..=72).contains(&hours) {
@@ -108,7 +141,7 @@ impl AuthStore {
 
         let (public_view, snapshot) = {
             let mut guard = self.write_state()?;
-            let admin_id = Self::verify_active_admin_locked(&guard, caller)?;
+            let admin_id = authority.verify(&guard)?;
 
             let Some(target_user) = guard.users.get(&target_user_id) else {
                 return Err(AuthError::InvalidInput("target user not found".to_owned()));
@@ -118,6 +151,7 @@ impl AuthStore {
             }
 
             let record = StoredInviteToken {
+                repository_origin: None,
                 id: InviteId::new(),
                 token_sha256,
                 purpose: InviteTokenPurpose::PasswordReset,
@@ -152,9 +186,29 @@ impl AuthStore {
         caller: &AuthenticatedPrincipal,
         invite_id: InviteId,
     ) -> Result<InvitePublicView, AuthError> {
+        self.revoke_invite_authorized(InviteAuthority::Operator(caller), invite_id)
+    }
+
+    pub fn revoke_invite_link_with_credential(
+        &self,
+        credential: &str,
+        original_user: UserId,
+        invite_id: InviteId,
+    ) -> Result<InvitePublicView, AuthError> {
+        self.revoke_invite_authorized(
+            InviteAuthority::Credential(credential, original_user),
+            invite_id,
+        )
+    }
+
+    fn revoke_invite_authorized(
+        &self,
+        authority: InviteAuthority<'_>,
+        invite_id: InviteId,
+    ) -> Result<InvitePublicView, AuthError> {
         let (view, snapshot) = {
             let mut guard = self.write_state()?;
-            Self::verify_active_admin_locked(&guard, caller)?;
+            authority.verify(&guard)?;
 
             let Some(inv) = guard.invites_by_id.get_mut(&invite_id) else {
                 return Err(AuthError::InvalidToken);
@@ -435,4 +489,63 @@ impl AuthStore {
         invites.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(invites)
     }
+}
+
+pub(crate) struct AccountInviteInput<'a> {
+    pub id: InviteId,
+    pub creator: UserId,
+    pub email: &'a str,
+    pub assigned_role: EnterpriseRole,
+    pub team_ids: Vec<TeamId>,
+    pub hours: i64,
+    pub repository_origin: Option<gitust_core::RepositoryRegistration>,
+}
+
+pub(crate) fn prepare_account_invite(
+    state: &crate::models::AuthState,
+    input: AccountInviteInput<'_>,
+) -> Result<(StoredInviteToken, String), AuthError> {
+    let mut unique = std::collections::HashSet::new();
+    if input.team_ids.len() > 32
+        || input
+            .team_ids
+            .iter()
+            .any(|id| id.0.is_nil() || !unique.insert(*id))
+    {
+        return Err(AuthError::InvalidInput(
+            "invite teams must contain at most 32 distinct nonnil group UUIDs".into(),
+        ));
+    }
+    if !(1..=720).contains(&input.hours) {
+        return Err(AuthError::InvalidInput(
+            "invite TTL must be between 1 and 720 hours".into(),
+        ));
+    }
+    let email = input.email.trim().to_ascii_lowercase();
+    state
+        .policy
+        .validate_registration(&email, true)
+        .map_err(|e| AuthError::InvalidInput(e.to_string()))?;
+    if state.email_index.contains_key(&email) {
+        return Err(AuthError::DuplicateUser);
+    }
+    let raw = generate_csprng_token("gitust_inv");
+    let now = Utc::now();
+    Ok((
+        StoredInviteToken {
+            id: input.id,
+            token_sha256: hash_token_sha256(&raw),
+            purpose: InviteTokenPurpose::AccountInvite,
+            target_email: email,
+            assigned_role: input.assigned_role,
+            team_ids: input.team_ids,
+            created_by: input.creator,
+            created_at: now,
+            expires_at: now + Duration::hours(input.hours),
+            used_at: None,
+            revoked_at: None,
+            repository_origin: input.repository_origin,
+        },
+        raw,
+    ))
 }

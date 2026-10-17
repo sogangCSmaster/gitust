@@ -5,6 +5,13 @@ use axum::http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
+#[path = "tests_invite_credentials.rs"]
+mod tests_invite_credentials;
+#[path = "tests_repository_group_invite_auth.rs"]
+mod tests_repository_group_invite_auth;
+#[path = "tests_repository_group_invites.rs"]
+mod tests_repository_group_invites;
+
 #[path = "tests_approval_target.rs"]
 mod tests_approval_target;
 #[path = "tests_auth.rs"]
@@ -551,3 +558,6 @@ mod tests_repository_visibility_auth;
 mod tests_git_http_secondary;
 #[path = "tests_git_http_secondary_auth.rs"]
 mod tests_git_http_secondary_auth;
+
+#[path = "tests_credential_mutations.rs"]
+mod tests_credential_mutations;

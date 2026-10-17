@@ -11,10 +11,21 @@
 //! - Strict BOLA/IDOR ownership checks on all user resources and team repositories.
 
 mod automatic_checks;
+mod credential_mutations;
 mod credentials;
 mod crypto;
 mod disk_lock;
 mod invites;
+mod mutation_authority;
+pub use invites::AccountInviteRequest;
+mod invite_authority;
+mod repository_group_invites;
+#[cfg(test)]
+mod tests_repository_group_invites;
+pub use repository_group_invites::{
+    RepositoryGroupInvite, RepositoryGroupInviteError, RepositoryGroupInviteOutcome,
+    RepositoryGroupInviteRequest,
+};
 mod models;
 mod oauth_session;
 mod persistence;
@@ -26,6 +37,8 @@ pub use repository_visibility::RepositoryVisibilityError;
 mod tests;
 #[cfg(test)]
 mod tests_automatic_actor;
+#[cfg(test)]
+mod tests_credential_mutations;
 #[cfg(test)]
 mod tests_persistence;
 #[cfg(test)]
@@ -213,9 +226,30 @@ impl AuthStore {
         caller: &AuthenticatedPrincipal,
         target_user_id: UserId,
     ) -> Result<UserPublicProfile, AuthError> {
+        self.deactivate_user_with_authority(
+            crate::mutation_authority::MutationAuthority::Operator(caller),
+            target_user_id,
+        )
+    }
+    pub fn deactivate_user_with_credential(
+        &self,
+        token: &str,
+        user: gitust_core::UserId,
+        target_user_id: UserId,
+    ) -> Result<UserPublicProfile, AuthError> {
+        self.deactivate_user_with_authority(
+            crate::mutation_authority::MutationAuthority::Credential(token, user),
+            target_user_id,
+        )
+    }
+    fn deactivate_user_with_authority(
+        &self,
+        authority: crate::mutation_authority::MutationAuthority<'_>,
+        target_user_id: UserId,
+    ) -> Result<UserPublicProfile, AuthError> {
         let (profile, snapshot) = {
             let mut guard = self.write_state()?;
-            Self::verify_active_admin_locked(&guard, caller)?;
+            authority.verify(&guard)?;
 
             let active_admin_count = guard
                 .users
@@ -285,11 +319,40 @@ impl AuthStore {
         owner_team_id: TeamId,
         is_private: bool,
     ) -> Result<RepositoryRecord, AuthError> {
+        self.create_team_repository_with_authority(
+            crate::mutation_authority::MutationAuthority::Operator(caller),
+            name,
+            owner_team_id,
+            is_private,
+        )
+    }
+    pub fn create_team_repository_with_credential(
+        &self,
+        token: &str,
+        user: gitust_core::UserId,
+        name: &str,
+        owner_team_id: TeamId,
+        is_private: bool,
+    ) -> Result<RepositoryRecord, AuthError> {
+        self.create_team_repository_with_authority(
+            crate::mutation_authority::MutationAuthority::Credential(token, user),
+            name,
+            owner_team_id,
+            is_private,
+        )
+    }
+    fn create_team_repository_with_authority(
+        &self,
+        authority: crate::mutation_authority::MutationAuthority<'_>,
+        name: &str,
+        owner_team_id: TeamId,
+        is_private: bool,
+    ) -> Result<RepositoryRecord, AuthError> {
         let clean_name = validate_repository_name(name)?;
 
         let (repo, snapshot) = {
             let mut guard = self.write_state()?;
-            let active_caller = Self::verify_active_user_locked(&guard, caller)?;
+            let active_caller = authority.active(&guard)?;
 
             if active_caller.role != EnterpriseRole::SiteAdmin
                 && !active_caller.team_ids.contains(&owner_team_id)

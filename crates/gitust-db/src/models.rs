@@ -47,6 +47,8 @@ impl StoredUser {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StoredInviteToken {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) repository_origin: Option<gitust_core::RepositoryRegistration>,
     pub(crate) id: InviteId,
     pub(crate) token_sha256: [u8; 32],
     pub(crate) purpose: InviteTokenPurpose,
@@ -63,6 +65,8 @@ pub(crate) struct StoredInviteToken {
 impl StoredInviteToken {
     pub(crate) fn to_public_view(&self) -> InvitePublicView {
         InvitePublicView {
+            team_ids: self.team_ids.clone(),
+            repository_id: self.repository_origin.map(|origin| origin.repo_id),
             id: self.id,
             purpose: self.purpose,
             target_email: self.target_email.clone(),

@@ -29,6 +29,12 @@ const Form = lazy(() =>
   })),
 );
 
+const InviteForm = lazy(() =>
+  import("./RepositoryGroupInviteForm").then((module) => ({
+    default: module.RepositoryGroupInviteForm,
+  })),
+);
+
 export const RepositoryVisibility: Component<{
   repository: ConnectedRepository;
   liveMode: boolean;
@@ -36,14 +42,29 @@ export const RepositoryVisibility: Component<{
 }> = (props) => {
   const [intent, setIntent] = createSignal<VisibilityIntent | null>(null);
   const [submitting, setSubmitting] = createSignal(false);
+  const [inviting, setInviting] = createSignal(false);
+  const draft = () => {
+    const own = intent();
+    return (
+      (own && props.actions?.inviteDraft?.(own)) || {
+        email: "",
+        role: "Developer" as const,
+      }
+    );
+  };
+  const canInvite = () => {
+    const own = intent();
+    return !!own && props.actions?.canInvite?.(own) === true;
+  };
   const clear = () => {
     const own = intent();
     if (own) props.actions?.cancel(own);
+    setInviting(false);
     setIntent(null);
     setSubmitting(false);
   };
   const close = () => {
-    if (!submitting()) clear();
+    if (!submitting() || inviting()) clear();
   };
   const current = () => {
     const repository = props.repository;
@@ -57,6 +78,10 @@ export const RepositoryVisibility: Component<{
   };
   createEffect(() => {
     if (intent() && !current()) clear();
+    if (inviting() && !canInvite()) {
+      setInviting(false);
+      setSubmitting(false);
+    }
   });
   onMount(() => {
     const changed = (event: StorageEvent) => {
@@ -114,10 +139,13 @@ export const RepositoryVisibility: Component<{
           >
             <DialogContent class="max-h-[90svh] w-[calc(100%-2rem)] max-w-sm overflow-y-auto rounded-lg">
               <DialogHeader class="pr-8 text-left">
-                <DialogTitle>Repository access</DialogTitle>
+                <DialogTitle>
+                  {inviting() ? "Invite to owning group" : "Repository access"}
+                </DialogTitle>
                 <DialogDescription>
-                  Choose who can access this repository. Anonymous access stays
-                  disabled.
+                  {inviting()
+                    ? "Create a 72-hour, one-use account invitation for the owning group."
+                    : "Choose who can access this repository. Anonymous access stays disabled."}
                 </DialogDescription>
               </DialogHeader>
               <p
@@ -127,13 +155,34 @@ export const RepositoryVisibility: Component<{
                 {own().name}
               </p>
               <DeferredView label="Repository access" onCancel={close}>
-                <Form
-                  intent={own()}
-                  actions={props.actions!}
-                  submitting={submitting()}
-                  onSubmitting={setSubmitting}
-                  onClose={close}
-                />
+                <Show
+                  when={inviting()}
+                  fallback={
+                    <Form
+                      intent={own()}
+                      actions={props.actions!}
+                      submitting={submitting()}
+                      onSubmitting={setSubmitting}
+                      onClose={close}
+                      onInvite={
+                        canInvite() ? () => setInviting(true) : undefined
+                      }
+                    />
+                  }
+                >
+                  <InviteForm
+                    draft={draft()}
+                    onDraft={(value) => {
+                      if (current() && canInvite())
+                        props.actions?.setInviteDraft?.(own(), value);
+                    }}
+                    intent={own()}
+                    actions={props.actions!}
+                    submitting={submitting()}
+                    onSubmitting={setSubmitting}
+                    onClose={close}
+                  />
+                </Show>
               </DeferredView>
             </DialogContent>
           </Dialog>

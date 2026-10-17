@@ -1,6 +1,6 @@
 //! Display-name mutations target only configured, explicitly registered repository contexts.
 use crate::{
-    auth::{extract_principal, extract_principal_async},
+    auth::{bearer_token, extract_principal, extract_principal_async},
     repository_reads::{id, response},
     state::{internal_err, map_auth_err, AppState},
 };
@@ -75,9 +75,16 @@ async fn rename_value(
                 "repository data is unavailable".into(),
             )
         })?;
+        #[cfg(test)]
+        crate::repository_reads::after_read(&state);
         let record = state
             .auth_store
-            .rename_registered_repository(&current, repository.access, &request.name)
+            .rename_registered_repository_with_credential(
+                bearer_token(&parts.headers)?,
+                origin.user_id,
+                repository.access,
+                &request.name,
+            )
             .map_err(map_auth_err)?;
         Ok(RenamedRepository {
             id: record.id,

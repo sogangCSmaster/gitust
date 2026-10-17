@@ -20,6 +20,11 @@ There is no team transfer, anonymous publication, account activation or running
 inventory update in this operation. Metadata-only ACL rows, unknown or unconfigured
 repositories and legacy services without a registration binding cannot be changed.
 
+The access settings also offer [Invite to owning group](repository-group-invites.md)
+for eligible SiteAdmins. This is a separate invitation operation: it grants a new
+account the existing owning-group membership, possibly across several private
+repositories. It does not change the access-scope value or edit an existing member.
+
 ## HTTP contract
 
 ```text

@@ -1,3 +1,4 @@
+import type { GroupInviteDraft } from "./repository-group-invite";
 import { createEffect, createMemo, createSignal, untrack } from "solid-js";
 import type { WorkbenchTab } from "./WorkbenchApp";
 import {
@@ -39,6 +40,10 @@ export const createRepositoryWorkspace = (options: {
   let renameKey = 0;
   let defaultKey = 0;
   let activeDefaultKey: number | undefined;
+  const [inviteDraft, setInviteDraft] = createSignal<{
+    origin: VisibilityIntent;
+    value: GroupInviteDraft;
+  } | null>(null);
   let visibilityKey = 0;
   let activeVisibilityKey: number | undefined;
   const invalidateRename = () => {
@@ -46,6 +51,7 @@ export const createRepositoryWorkspace = (options: {
     client.cancelRename();
     activeDefaultKey = undefined;
     activeVisibilityKey = undefined;
+    setInviteDraft(null);
   };
   const repositories = createMemo(() =>
     options.liveMode() ? state().repositories : [DEMO_REPOSITORY],
@@ -276,7 +282,37 @@ export const createRepositoryWorkspace = (options: {
       client.isCurrentSession()
     );
   };
+  createEffect(() => {
+    const saved = inviteDraft();
+    const repository = selected();
+    if (
+      saved &&
+      (!visibilityCurrent(saved.origin, false) || !repository?.canInviteToGroup)
+    )
+      setInviteDraft(null);
+  });
   const visibility: VisibilityActions = {
+    inviteDraft: (intent) => {
+      const saved = inviteDraft();
+      return saved &&
+        saved.origin.repoId === intent.repoId &&
+        saved.origin.token === intent.token &&
+        saved.origin.epoch === intent.epoch &&
+        visibilityCurrent(intent, false)
+        ? saved.value
+        : undefined;
+    },
+    setInviteDraft: (intent, value) => {
+      if (visibilityCurrent(intent) && selected()?.canInviteToGroup)
+        setInviteDraft({ origin: intent, value });
+    },
+    canInvite: (intent, original = true) => {
+      const repository = selected();
+      return (
+        visibilityCurrent(intent, original) &&
+        repository?.canInviteToGroup === true
+      );
+    },
     begin: () => {
       const repository = selected();
       const token = getLiveToken();

@@ -728,3 +728,67 @@ recovery moves to 19. This candidate's hosted Linux/macOS result must be observe
 after its exact source push. Physical devices, intended IDE-client sessions,
 separate installation and final alpha/deployment acceptance remain open. Actual
 GitHub product publication remains deferred, and Gate B remains stopped.
+
+
+The [fixed-source read-only Git CI record](evidence/alpha-ci-ee31366-2026-10-18.json)
+observes [run 39057851816](https://github.com/sogangCSmaster/gitust/actions/runs/39057851816),
+attempt 1, for `ee313662d8e38a0a7c112a47e1df342b5ad50d3e`. Ubuntu 22.04 and macOS 15
+both completed successfully. Required steps 1–19 succeeded except the intentional
+macOS Linux-prerequisite skip at step 6. Later group-invitation development is not
+covered by that source revision.
+
+
+## Owning-group invitations and credential lifetime, 2026-10-18
+
+The [local checkpoint](evidence/repository-group-invites-local-2026-10-18.json)
+binds the candidate based on `ee313662` to a final combined API/UI binary.
+SiteAdmins can create a 72-hour, one-use account invitation from repository
+access settings. The server derives the owning group from the configured
+registration; group membership can expose other private repositories in that
+group, and roles remain site-wide. One request UUID is retained for explicit
+retries. Durable same-key replay returns metadata only, including after restart,
+consumption or revocation; it cannot recover or remint the original link.
+
+A credential-lifetime defect was reproduced while the real auth write lock was
+held: an active account's revoked session or PAT could still authorize an already
+waiting mutation. Permanent before/after tests cover the three existing HTTP
+invitation mutations and seven adjacent credential/account/repository mutations.
+All twenty previously successful cases now reject with 401 and retain target
+state. Current role, ownership, expiry, token-purpose and last-administrator
+checks remain in force. The shared transaction-bound authority is used without
+changing trusted CLI principal APIs. No global clearance of every auth read or
+unrelated mutation is implied.
+
+Final mechanical gates passed frontend 282/38 files, Python 19, CLI 33, core 2, DB 45,
+Git 133 with two existing ignored benchmarks, sandbox 30, server 166 and sync 1,
+plus fmt, Clippy, typecheck, fresh embedded bundle, fail-closed and line checks.
+Complementary independent source reviews cover the initial backend, frontend v3,
+credential Fix-Sweep and operating verifier. Exact final union review and normal
+pre-push verification remain separate checkpoint requirements.
+
+The final operating rehearsal configured three repositories across two groups,
+checked concurrent one-key issuance, hash-only storage, exact replay/conflicts,
+ordinary restart and consumed/revoked records. A redeemed Developer saw exactly
+the two group-A repositories; the group-B and account-only paths stayed denied.
+Actual clone/fetch preserved HEAD and annotated tags, secondary writes stayed
+disabled, and refs/registration anchors and strict server/client fsck passed.
+Owned services and private fixtures were removed before success was recorded.
+
+Native final-binary checks at 320/768/1440px showed one-line dialog titles, no
+horizontal overflow and matching 44/32/32px action heights. The initial mobile
+form was reduced from 575px to 431px by moving retry guidance to the issued state.
+A native-discovered focus bug is fixed: after Files navigation and reopening an
+issued draft, focus stays on Close and Tab cycles within the dialog. Issuance
+focuses the displayed link, explicit New focuses Email, and Escape restores the
+access trigger. Closing removes the link. An actual final UI-generated link was
+redeemed through the local API and gave exactly the intended group/Developer
+scope. The additional native member-login and displayed-URL Git clone proof uses
+the intermediate binary explicitly recorded in the evidence; final native clone
+was not repeated. Final operating Git proof is independently recorded.
+
+The initial JavaScript closure is 70,547 gzip9 bytes and Overview is 75,053
+cumulative bytes. The 50,000-byte target remains unmet. CI now runs this onboarding
+scenario at step 19 and crash recovery at 20; hosted results must be observed for
+the actual pushed revision. Gate B remains stopped and actual GitHub product
+publication remains deferred. Physical devices, intended IDE sessions, separate
+installation and the full alpha/roadmap acceptance conditions remain open.

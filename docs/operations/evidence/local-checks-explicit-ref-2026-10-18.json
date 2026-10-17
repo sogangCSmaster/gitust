@@ -1,0 +1,202 @@
+{
+  "version": 1,
+  "base_commit": "a1ab508f6afc64402754deb6fbf133c55239fbfd",
+  "scope": "Explicit ordinary branch selection for local CLI Checks, preserving HEAD and diagnostic-only authority",
+  "source_manifest_sha256": "a5c6d260b24f9a090e22338a2945af2c9c6ddc50f1cd20d02c4fd2a6398ad8e2",
+  "source_sha256": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "1fb0b31402a1a9b2ff775712602a7b095a63c37b0069b88c3cc773994cb77f6b"
+    },
+    {
+      "path": "README.md",
+      "sha256": "9e475ec07dcc221f72d23576eff7af5e8155314c3ce79abfa9d6db255c578b88"
+    },
+    {
+      "path": "crates/gitust-cli/src/checks_cmd.rs",
+      "sha256": "029b07fce855d7f66c71ea4d02fb32c8689c4326377a0430cb83e56513e696d1"
+    },
+    {
+      "path": "crates/gitust-cli/src/main.rs",
+      "sha256": "21391a5601edbe093981ccc144510a627868bd4b2f6674cbae7c773790b4c3cf"
+    },
+    {
+      "path": "crates/gitust-cli/tests/cli_checks.rs",
+      "sha256": "92111fc543023ca0537792ea6cc82b6cfb7e34e7c6e44a327640e1f4a860ecc0"
+    },
+    {
+      "path": "crates/gitust-git/src/checks.rs",
+      "sha256": "1c7d2634407d7471ce3daa83d72462399bf14ba9832a4f758d16e0f967c59e91"
+    },
+    {
+      "path": "docs/operations/local-checks.md",
+      "sha256": "fc03bfe02e262d2cb1ab289019b54a5d0a0c34132c0d512d4a0c55b93772c5ef"
+    },
+    {
+      "path": "docs/operations/repository-ci.md",
+      "sha256": "d435e715a9f34c5c53c96504c517d5fe58427db40cc7695ceb7ac7ee2f2b0eac"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "sha256": "d804cb999826c2a927c1e06c7bc07d9c46014cb019a8e8fb1a2454926f3eebbb"
+    },
+    {
+      "path": "scripts/cli-checks-history-rehearsal.py",
+      "sha256": "fed5cca13430a0cdcd120ca7353d553a2e82e3696d38792a0cad1edb246c81e4"
+    },
+    {
+      "path": "scripts/cli-checks-rehearsal.py",
+      "sha256": "63c7fb195224f509b8a0fb269c972e0093837f5cc398b89af01577ecbf963fcb"
+    }
+  ],
+  "author_baseline_commit": "cf747917e76f9a7887eab0e9dd04792bd9a871a9",
+  "author_manifest_sha256": "1a2cc70118437dd58f14b84e7a354285ff59ee97c592851021c6b93211136ebf",
+  "author_evidence_sha256": "6df4971cc806442b90b10abf7a2f60dbf6d8bf4b3e24b5c0142cc535addfee20",
+  "test_first": {
+    "baseline_failed": 2,
+    "baseline_failure": "Existing CLI does not accept --ref; normal missing-feature tests",
+    "baseline_log_sha256": "bf9d221823a0546793a05d1be00186c65fd2517bf1b02b23164d9a68169edfb3",
+    "same_final_test_bytes": true,
+    "test_file_sha256": "92111fc543023ca0537792ea6cc82b6cfb7e34e7c6e44a327640e1f4a860ecc0",
+    "after_cli_tests_passed": 6,
+    "after_log_sha256": "51b553ae50faaa9b8208d9d0551d86312126f73f6f2df918beea08ec25636e32",
+    "excluded_attempt": "An initial baseline attempt with a reused private Cargo target unexpectedly passed and is excluded. The separate fresh baseline target produced the two expected failures."
+  },
+  "verification": {
+    "command": "scripts/verify.sh",
+    "exit": 0,
+    "log_sha256": "4908923a7bd1b2213b1948d45f47b6fb12e6aa2977903507f52de678e606b1e6",
+    "rust_passed": 447,
+    "git_ignored": 2,
+    "frontend_passed": 303,
+    "frontend_files": 41,
+    "python_passed": 20,
+    "note": "Final verification followed the one-line rehearsal oracle repair; the earlier passing full run is not used as final evidence."
+  },
+  "source_reviews": [
+    {
+      "scope": "Independent source4 Gate A",
+      "verdict": "SOURCE SCOPE CLEAR",
+      "open_P0": 0,
+      "open_P1": 0,
+      "open_P2": 0,
+      "report_sha256": "3cdbc13be04975ab138135b92beb8afb7fd157e7e2d9de5107b456eb8627d97d"
+    },
+    {
+      "scope": "Independent root-owned7 review; reviewer authored source4 and excluded them",
+      "verdict": "SOURCE SCOPE CLEAR",
+      "open_P0": 0,
+      "open_P1": 0,
+      "open_P2": 0,
+      "report_sha256": "d6c725ad9467e47640c81adba7001d0d69d9dfba5059bdee0902a4986e08f07c"
+    }
+  ],
+  "resolved_review_findings": [
+    "Selected-content CLI test preserves comparison failure with && instead of masking it with printf.",
+    "Existing dirty-file absence rehearsal check now preserves failure with &&; successful printf cannot conceal a failed isolation-of-working-edits assertion."
+  ],
+  "operating": {
+    "binary_sha256": "fda5e9f04bf89278f9157e0892c0888d0bc79f884ec849ce5cfd3e8b3c84ea2f",
+    "binary_provenance": "Local build of base plus the listed candidate source; not a clean committed-candidate build",
+    "cli_required_checks": 15,
+    "history_required_checks": 16,
+    "cli_report_sha256": "6b49601c06a7481368f2bd0974ec23f694bacd6c9d1d0dbee78952cd7ad6d7f3",
+    "history_report_sha256": "ad3328ead3f16ca7c76fd6bef94129708a1c65227a3aecf3a9966c9ca71bb91d",
+    "cli": {
+      "version": 1,
+      "passed": true,
+      "actual_repositories": 2,
+      "committed_config_and_sha_match": true,
+      "dirty_working_copy_preserved": true,
+      "manual_checks_ignore_auto_run": true,
+      "failed_and_skipped_steps_match": true,
+      "invalid_missing_and_stale_requests_not_executed": true,
+      "original_refs_and_worktrees_preserved": true,
+      "approval_and_origins_preserved": true,
+      "temporary_worktrees_and_fences_removed": true,
+      "bare_repository_supported": true,
+      "explicit_ref_uses_selected_content_and_policy": true,
+      "explicit_ref_preserves_ordinary_and_bare_head": true,
+      "annotated_tags_preserved": true,
+      "git_fsck": true,
+      "platform": "Darwin",
+      "sandbox_backends": [
+        "macos_seatbelt"
+      ],
+      "external_github_publication": false,
+      "source_commit": "a1ab508f6afc64402754deb6fbf133c55239fbfd",
+      "runtime_worktree_dirty": true,
+      "binary_sha256": "fda5e9f04bf89278f9157e0892c0888d0bc79f884ec849ce5cfd3e8b3c84ea2f",
+      "runtime_source_sha256": {
+        "scripts/cli-checks-rehearsal.py": "63c7fb195224f509b8a0fb269c972e0093837f5cc398b89af01577ecbf963fcb",
+        "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c"
+      },
+      "private_fixture_removed": true
+    },
+    "history": {
+      "version": 1,
+      "passed": true,
+      "actual_repositories": 2,
+      "restored_repositories": 1,
+      "query_does_not_initialize_identity": true,
+      "recorded_success_and_failure_reopened": true,
+      "exact_ref_commit_blob_and_run_binding": true,
+      "actual_measurements_and_skipped_steps_preserved": true,
+      "bounded_utf8_output_preserves_live_result": true,
+      "newest_five_retained_and_evicted_ids_missing": true,
+      "plain_v1_execution_does_not_record": true,
+      "separate_bare_repository_identity": true,
+      "explicit_ref_record_preserves_selected_snapshot": true,
+      "history_storage_private_and_bounded": true,
+      "real_backup_and_relocated_history": true,
+      "original_approval_and_origins_preserved": true,
+      "temporary_checkouts_and_scratch_removed": true,
+      "git_fsck": true,
+      "platform": "Darwin",
+      "sandbox_backends": [
+        "macos_seatbelt"
+      ],
+      "external_github_publication": false,
+      "source_commit": "a1ab508f6afc64402754deb6fbf133c55239fbfd",
+      "runtime_worktree_dirty": true,
+      "binary_sha256": "fda5e9f04bf89278f9157e0892c0888d0bc79f884ec849ce5cfd3e8b3c84ea2f",
+      "runtime_source_sha256": {
+        "scripts/cli-checks-history-rehearsal.py": "fed5cca13430a0cdcd120ca7353d553a2e82e3696d38792a0cad1edb246c81e4",
+        "scripts/cli-checks-rehearsal.py": "63c7fb195224f509b8a0fb269c972e0093837f5cc398b89af01577ecbf963fcb",
+        "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+        "scripts/backup.py": "24b9e250e7c6b6097697ae3797aec4ebfca223e9ad4eb269b073815bea2275b6"
+      },
+      "private_fixture_removed": true
+    }
+  },
+  "preceding_hosted_ci": {
+    "head": "a1ab508f6afc64402754deb6fbf133c55239fbfd",
+    "run_id": 39080310536,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39080310536",
+    "status": "completed",
+    "candidate_hosted_ci": "pending after commit/push",
+    "conclusion": "success",
+    "status_sha256": "62f9101de49f99104365b65af15c367f32e5b824ad2fd9fb7d077636881db5ab",
+    "required_named_steps": 23,
+    "jobs": [
+      {
+        "name": "Verify and rehearse (ubuntu-22.04)",
+        "conclusion": "success",
+        "required_success": 23,
+        "required_skipped": 0
+      },
+      {
+        "name": "Verify and rehearse (macos-15)",
+        "conclusion": "success",
+        "required_success": 22,
+        "required_skipped": 1
+      }
+    ]
+  },
+  "limits": [
+    "The CLI still requires a stopped repository; HTTP execution, arbitrary workflow dispatch and ordinary-branch automatic triggers are not added.",
+    "History remains diagnostic and grants no verification, approval or publication authority. Default v1/v2 shapes and behavior are unchanged.",
+    "The generated UI bundle is unchanged; no new browser or performance claim is made.",
+    "Actual GitHub product publication remains user-deferred. Automatic Gate B and previously interrupted procedures were not resumed."
+  ]
+}

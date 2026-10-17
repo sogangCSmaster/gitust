@@ -302,3 +302,197 @@ fn history_query_never_initializes_a_repository_identity() {
     assert_eq!(empty["records"], json!([]));
     assert!(!repo.join(".git/gitust-local-check-runs").exists());
 }
+
+fn selected_fixture(failed: bool) -> (tempfile::TempDir, std::path::PathBuf, String, String) {
+    let (temp, repo, main) = fixture(Some(r#"{"version":1,"commands":["printf main-policy"]}"#));
+    git(&repo, &["checkout", "-qb", "feature/checks"]);
+    std::fs::write(repo.join("marker.txt"), "selected\n").unwrap();
+    let commands = if failed {
+        vec!["printf selected-failed; exit 7", "printf must-not-run"]
+    } else {
+        vec![
+            "test \"$(cat marker.txt)\" = selected && printf selected-policy",
+            "printf selected-second",
+        ]
+    };
+    std::fs::write(
+        repo.join(".gitust-checks.json"),
+        json!({"version":1,"commands":commands,"auto_run":false}).to_string(),
+    )
+    .unwrap();
+    git(&repo, &["add", "marker.txt", ".gitust-checks.json"]);
+    git(
+        &repo,
+        &[
+            "commit",
+            "-qm",
+            "different selected branch policy and content",
+        ],
+    );
+    let selected = git(&repo, &["rev-parse", "HEAD"]);
+    git(
+        &repo,
+        &["tag", "-a", "selected-tag", "-m", "preserved annotated tag"],
+    );
+    git(&repo, &["checkout", "-q", "main"]);
+    (temp, repo, main, selected)
+}
+fn selected_checks(repo: &Path, sha: &str, source: &str, save: bool) -> Output {
+    let mut cli = command(env!("CARGO_BIN_EXE_gitust"));
+    cli.args(["sandbox", "checks", "--repo"]).arg(repo).args([
+        "--expected-commit",
+        sha,
+        "--timeout",
+        "10",
+        "--ref",
+        source,
+    ]);
+    if save {
+        cli.arg("--record");
+    }
+    cli.output().unwrap()
+}
+
+#[test]
+fn explicit_ordinary_ref_uses_selected_commit_without_changing_head_or_existing_tasks() {
+    for bare in [false, true] {
+        let (temp, source, main, selected) = selected_fixture(false);
+        let repo = if bare {
+            let bare = temp.path().join("repository.git");
+            git(&source, &["clone", "--bare", ".", bare.to_str().unwrap()]);
+            bare
+        } else {
+            source
+        };
+        let blob = git(
+            &repo,
+            &["rev-parse", "refs/heads/feature/checks:.gitust-checks.json"],
+        );
+        let engine = GitEngine::new(&repo);
+        let task = engine
+            .materialize_agent_worktree(
+                WorktreeId::new(),
+                RepoId::new(),
+                AgentKind::InternalBot,
+                "agent/preserved-selection",
+                "main",
+                "Preserved selection task",
+            )
+            .unwrap();
+        let origin_path = task.worktree_admin_dir.join("gitust-origin.json");
+        let origin = std::fs::read(&origin_path).unwrap();
+        drop(engine);
+        if !bare {
+            std::fs::write(repo.join("marker.txt"), "uncommitted source\n").unwrap();
+            std::fs::write(repo.join(".gitust-checks.json"), "not committed policy").unwrap();
+        }
+        let head = git(&repo, &["symbolic-ref", "HEAD"]);
+        let refs = git(&repo, &["show-ref"]);
+        let worktrees = git(&repo, &["worktree", "list", "--porcelain"]);
+        let dirty = (!bare).then(|| git(&repo, &["status", "--porcelain"]));
+        for save in [false, true] {
+            let output = selected_checks(&repo, &selected, "refs/heads/feature/checks", save);
+            assert_eq!(output.status.code(), Some(0));
+            let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(report.as_object().unwrap().len(), if save { 9 } else { 8 });
+            assert_eq!(report["version"], if save { 2 } else { 1 });
+            assert_eq!(report["status"], "passed");
+            assert_eq!(report["source_ref"], "refs/heads/feature/checks");
+            assert_eq!(report["checked_commit"], selected);
+            assert_eq!(report["checks_blob_oid"], blob);
+            assert_eq!(report["cleanup"], "confirmed");
+            assert_eq!(report["result"]["stdout"], "selected-policyselected-second");
+            assert!(report["result"]["steps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|step| step["required"] == true));
+            if save {
+                assert_eq!(report["history"]["status"], "saved");
+                let found = history(&repo, report["result"]["run_id"].as_str());
+                assert_eq!(found.status.code(), Some(0));
+                let found: Value = serde_json::from_slice(&found.stdout).unwrap();
+                assert_eq!(found["records"][0]["source_ref"], report["source_ref"]);
+                assert_eq!(found["records"][0]["checked_commit"], selected);
+                assert_eq!(found["records"][0]["checks_blob_oid"], blob);
+                assert_eq!(found["records"][0]["result"], report["result"]);
+            }
+            assert_eq!(git(&repo, &["symbolic-ref", "HEAD"]), head);
+            assert_eq!(git(&repo, &["rev-parse", "HEAD"]), main);
+            assert_eq!(git(&repo, &["show-ref"]), refs);
+            assert_eq!(git(&repo, &["worktree", "list", "--porcelain"]), worktrees);
+            assert_eq!(std::fs::read(&origin_path).unwrap(), origin);
+            if !bare {
+                assert_eq!(
+                    git(&repo, &["status", "--porcelain"]),
+                    dirty.as_ref().unwrap().as_str()
+                );
+            }
+        }
+        git(&repo, &["fsck", "--full", "--strict"]);
+    }
+}
+
+#[test]
+fn explicit_ordinary_ref_reports_failed_steps_and_rejects_stale_missing_or_invalid_sources() {
+    let (_temp, repo, main, selected) = selected_fixture(true);
+    let refs = git(&repo, &["show-ref"]);
+    let output = selected_checks(&repo, &selected, "refs/heads/feature/checks", true);
+    assert_eq!(output.status.code(), Some(7));
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["source_ref"], "refs/heads/feature/checks");
+    assert_eq!(report["checked_commit"], selected);
+    assert_eq!(report["status"], "failed");
+    assert_eq!(report["history"]["status"], "saved");
+    assert_eq!(report["result"]["steps"][0]["exit_code"], 7);
+    assert_eq!(report["result"]["steps"][1]["exit_code"], Value::Null);
+    let common = repo.join(".git");
+    let saved = std::fs::read(common.join("gitust-local-check-runs/history.json")).unwrap();
+    for (source, expected, reason) in [
+        (
+            "refs/heads/feature/checks",
+            main.as_str(),
+            "revision_mismatch",
+        ),
+        (
+            "refs/heads/missing",
+            selected.as_str(),
+            "source_ref_unavailable",
+        ),
+        ("feature/checks", selected.as_str(), "invalid_source_ref"),
+        (
+            "refs/tags/selected-tag",
+            selected.as_str(),
+            "invalid_source_ref",
+        ),
+        (
+            "refs/heads/Agent/example",
+            selected.as_str(),
+            "invalid_source_ref",
+        ),
+    ] {
+        let output = selected_checks(&repo, expected, source, true);
+        assert_eq!(output.status.code(), Some(2));
+        let rejected: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(rejected["status"], "rejected");
+        assert_eq!(rejected["reason"], reason);
+        assert_eq!(rejected["result"], Value::Null);
+        assert_eq!(rejected["cleanup"], "not_created");
+        assert_eq!(rejected["history"]["status"], "not_attempted");
+        assert_eq!(
+            std::fs::read(common.join("gitust-local-check-runs/history.json")).unwrap(),
+            saved
+        );
+    }
+    let missing_value = command(env!("CARGO_BIN_EXE_gitust"))
+        .args(["sandbox", "checks", "--repo"])
+        .arg(&repo)
+        .args(["--expected-commit", selected.as_str(), "--ref"])
+        .output()
+        .unwrap();
+    assert_eq!(missing_value.status.code(), Some(2));
+    assert!(missing_value.stdout.is_empty());
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), main);
+    assert_eq!(git(&repo, &["show-ref"]), refs);
+    git(&repo, &["fsck", "--full", "--strict"]);
+}

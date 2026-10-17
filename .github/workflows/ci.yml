@@ -426,7 +426,9 @@ jobs:
                     "manual_checks_ignore_auto_run", "failed_and_skipped_steps_match",
                     "invalid_missing_and_stale_requests_not_executed", "original_refs_and_worktrees_preserved",
                     "approval_and_origins_preserved", "temporary_worktrees_and_fences_removed",
-                    "bare_repository_supported", "annotated_tags_preserved", "git_fsck", "private_fixture_removed"]
+                    "bare_repository_supported", "explicit_ref_uses_selected_content_and_policy",
+                    "explicit_ref_preserves_ordinary_and_bare_head", "annotated_tags_preserved",
+                    "git_fsck", "private_fixture_removed"]
           if not all(report[key] is True for key in checks):
               raise SystemExit("The CLI Checks rehearsal is incomplete")
           public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
@@ -460,6 +462,7 @@ jobs:
                     "exact_ref_commit_blob_and_run_binding", "actual_measurements_and_skipped_steps_preserved",
                     "bounded_utf8_output_preserves_live_result", "newest_five_retained_and_evicted_ids_missing",
                     "plain_v1_execution_does_not_record", "separate_bare_repository_identity",
+                    "explicit_ref_record_preserves_selected_snapshot",
                     "history_storage_private_and_bounded", "real_backup_and_relocated_history",
                     "original_approval_and_origins_preserved", "temporary_checkouts_and_scratch_removed",
                     "git_fsck", "private_fixture_removed"]

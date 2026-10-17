@@ -1,6 +1,6 @@
 # Explicit local Repository Checks
 
-`gitust sandbox checks` runs the current ordinary branch's committed
+`gitust sandbox checks` runs an ordinary branch's committed
 `.gitust-checks.json` in a temporary managed checkout. It is an explicit local
 operator command for a stopped repository, including bare repositories. An active
 Gitust service retains exclusive ownership; stop it before using this command.
@@ -9,6 +9,10 @@ Gitust service retains exclusive ownership; stop it before using this command.
 gitust sandbox checks --repo /absolute/path/to/repository \
   --expected-commit FULL_COMMIT_SHA --timeout 300
 
+# Select another ordinary branch without changing HEAD or the current checkout.
+gitust sandbox checks --repo /absolute/path/to/repository \
+  --ref refs/heads/topic --expected-commit TOPIC_FULL_COMMIT_SHA
+
 # Optionally retain the completed result for later inspection.
 gitust sandbox checks --repo /absolute/path/to/repository \
   --expected-commit FULL_COMMIT_SHA --record
@@ -16,9 +20,17 @@ gitust sandbox checks-history --repo /absolute/path/to/repository
 ```
 
 The repository path and full commit ID are required. The timeout defaults to 600
-seconds and accepts 1–600 seconds. HEAD must name an ordinary
+seconds and accepts 1–600 seconds. By default, HEAD must name an ordinary
 local branch and match that commit. Detached, unborn and managed-agent HEADs
-are unsupported. The configuration and checkout are pinned to the same commit;
+are unsupported in this default mode.
+
+With `--ref`, the exact full `refs/heads/...` name selects an existing ordinary
+branch independently of HEAD. Short names, tags, managed-agent refs and revision
+expressions are not accepted. The branch must directly identify the expected
+commit; the command does not peel a tag, follow a symbolic branch or change HEAD.
+The same selection works in a bare repository and with `--record`.
+
+The configuration and checkout are pinned to the selected commit;
 uncommitted files and local configuration edits stay in the original checkout.
 Missing or invalid configuration is rejected before running any command.
 
@@ -51,6 +63,11 @@ all commands passed and cleanup was confirmed. A completed failed run returns
 the command's exit status in the range 0–255 (otherwise 1). Admission rejection returns 2; interruption
 returns 130; an unconfirmed execution or cleanup returns 1. Inspect the JSON status
 as well as the exit code, since a check itself can return 1, 2 or 130.
+
+For an explicit selection, `invalid_source_ref` rejects an unsupported ref name,
+`source_ref_unavailable` means the selected direct commit cannot be read, and
+`revision_mismatch` means it differs from the expected commit. These failures
+reject before execution. Selecting a ref does not change the v1/v2 result shape.
 
 Normal completion removes the temporary checkout and branch. An uncertain
 execution retains its fence and requires the existing

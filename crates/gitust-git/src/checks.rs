@@ -1,8 +1,8 @@
-//! Required verification commands come from the committed merge target, never agent input.
+//! Committed Checks policy lookup and exact ordinary branch selection never grant approval.
 use gix::prelude::HeaderExt;
 use serde::Deserialize;
 
-use crate::{GitEngine, GitEngineError};
+use crate::{GitEngine, GitEngineError, MAX_BRANCH_NAME_BYTES};
 use gitust_core::CommitSha;
 
 const CHECKS_PATH: &str = ".gitust-checks.json";
@@ -36,6 +36,49 @@ impl GitEngine {
             .peel_to_commit()
             .map_err(|e| invalid(format!("cannot resolve checks base commit: {e}")))?;
         from_commit(&repo, commit)
+    }
+
+    /// Resolves one canonical ordinary branch directly, without tag peeling or HEAD substitution.
+    pub fn resolve_checks_ref(&self, full_ref: &str) -> Result<CommitSha, GitEngineError> {
+        let invalid_ref = || {
+            GitEngineError::InvalidRevision(
+                "Checks source must name a canonical ordinary refs/heads/... branch".into(),
+            )
+        };
+        let name = full_ref
+            .strip_prefix("refs/heads/")
+            .ok_or_else(invalid_ref)?;
+        if name.is_empty()
+            || name.len() > MAX_BRANCH_NAME_BYTES
+            || name.eq_ignore_ascii_case("agent")
+            || name
+                .get(..6)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("agent/"))
+            || <&gix::refs::FullNameRef>::try_from(full_ref).is_err()
+            || Self::validate_branch_name(name).map_err(|_| invalid_ref())? != name
+        {
+            return Err(invalid_ref());
+        }
+        let repo = self.acquire_repo()?;
+        crate::config_guard::reject_replacement_refs(&repo)?;
+        let reference = repo
+            .try_find_reference(full_ref)
+            .map_err(|e| invalid(e.to_string()))?
+            .ok_or_else(|| GitEngineError::RevisionNotFound(full_ref.into()))?;
+        let target = reference
+            .try_id()
+            .ok_or_else(|| invalid("Checks source must be a direct branch target"))?
+            .detach();
+        let header = repo
+            .objects
+            .header(target)
+            .map_err(|e| invalid(e.to_string()))?;
+        if header.kind() != gix::objs::Kind::Commit {
+            return Err(invalid(
+                "Checks source must target an ordinary commit object",
+            ));
+        }
+        Ok(CommitSha(target.to_string()))
     }
 
     /// Explicit local execution binds policy to one full commit, independent of later ref changes.

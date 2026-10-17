@@ -2,7 +2,7 @@
 use crate::history_cmd::{save_completed, HistoryWrite};
 use crate::sandbox_cmd::{run_prepared_sandbox, RunCommands};
 use gitust_core::CommitSha;
-use gitust_git::GitEngine;
+use gitust_git::{GitEngine, GitEngineError};
 use gitust_sandbox::SandboxExecutionResult;
 use serde::Serialize;
 use std::path::Path;
@@ -61,6 +61,7 @@ pub(crate) async fn run_cli_checks(
     expected: &str,
     timeout: u64,
     record: bool,
+    source_ref: Option<&str>,
 ) -> ChecksReport {
     if !matches!(expected.len(), 40 | 64)
         || !expected.bytes().all(|b| b.is_ascii_hexdigit())
@@ -73,6 +74,7 @@ pub(crate) async fn run_cli_checks(
     }
     let expected = CommitSha(expected.to_ascii_lowercase());
     let path = repo.to_owned();
+    let source_ref = source_ref.map(str::to_owned);
     let prepared = tokio::task::spawn_blocking(move || {
         let engine = GitEngine::new(path);
         let owner = engine
@@ -81,15 +83,36 @@ pub(crate) async fn run_cli_checks(
         engine
             .ensure_config_has_no_credentials()
             .map_err(|_| "repository_unavailable")?;
-        let base = engine
-            .committed_default_branch()
-            .map_err(|_| "unsupported_head")?;
-        let head = engine
-            .inspect_head_identity()
-            .map_err(|_| "repository_unavailable")?;
-        if head.head_sha != expected {
-            return Err("revision_mismatch");
-        }
+        let base = match source_ref {
+            Some(source_ref) => {
+                let selected =
+                    engine
+                        .resolve_checks_ref(&source_ref)
+                        .map_err(|error| match error {
+                            GitEngineError::InvalidRevision(_) => "invalid_source_ref",
+                            _ => "source_ref_unavailable",
+                        })?;
+                if selected != expected {
+                    return Err("revision_mismatch");
+                }
+                source_ref
+                    .strip_prefix("refs/heads/")
+                    .ok_or("invalid_source_ref")?
+                    .to_owned()
+            }
+            None => {
+                let base = engine
+                    .committed_default_branch()
+                    .map_err(|_| "unsupported_head")?;
+                let head = engine
+                    .inspect_head_identity()
+                    .map_err(|_| "repository_unavailable")?;
+                if head.head_sha != expected {
+                    return Err("revision_mismatch");
+                }
+                base
+            }
+        };
         let checks = engine
             .required_checks_at_commit(&expected)
             .map_err(|_| "checks_invalid")?

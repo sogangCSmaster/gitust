@@ -47,19 +47,21 @@ class Rehearsal:
                            and report["records"] == [], "history query hid a missing or unavailable result")
         return report
 
-    def record(self, repo, *, exit_code=0):
+    def record(self, repo, *, exit_code=0, source_ref=None):
         before = self.f.state(repo)
-        sha = self.f.git(repo, "rev-parse", "HEAD")
-        report = json.loads(self.f.cli("sandbox", "checks", "--repo", repo,
-                                      "--expected-commit", sha, "--timeout", "30", "--record",
-                                      expected=exit_code))
+        sha = self.f.git(repo, "rev-parse", source_ref if source_ref is not None else "HEAD")
+        args = ["sandbox", "checks", "--repo", repo, "--expected-commit", sha,
+                "--timeout", "30", "--record"]
+        if source_ref is not None:
+            args += ["--ref", source_ref]
+        report = json.loads(self.f.cli(*args, expected=exit_code))
         self.h.require(set(report) == {"version", "status", "reason", "source_ref", "checked_commit",
                                        "checks_blob_oid", "result", "cleanup", "history"}
                        and report["version"] == 2 and report["reason"] is None
                        and report["status"] == ("passed" if exit_code == 0 else "failed")
                        and report["cleanup"] == "confirmed" and report["checked_commit"] == sha
-                       and report["source_ref"] == before[0]
-                       and report["checks_blob_oid"] == self.f.git(repo, "rev-parse", "HEAD:.gitust-checks.json"),
+                       and report["source_ref"] == (source_ref if source_ref is not None else before[0])
+                       and report["checks_blob_oid"] == self.f.git(repo, "rev-parse", sha + ":.gitust-checks.json"),
                        "recorded Checks do not describe the executed committed snapshot")
         history, result = report["history"], report["result"]
         self.h.require(history["status"] == "saved" and history["reason"] is None
@@ -96,6 +98,7 @@ class Rehearsal:
 
     def execute(self):
         self.f.setup()
+        selected_ref, selected_commit, _selected_commands = self.f.prepare_selected_branch()
         identity_path = self.f.common(self.repo) / "gitust-repository"
         self.h.require(not identity_path.exists(), "plain CLI fixture unexpectedly initialized repository identity")
         self.query(self.repo, expected=2, status="rejected")
@@ -131,10 +134,15 @@ class Rehearsal:
         self.h.require(self.query(self.repo) == history, "plain v1 execution unexpectedly recorded or changed history")
         bare = self.root / "separate.git"
         self.f.git(self.root, "clone", "--bare", "--no-local", str(self.repo), str(bare))
-        actual, _stored = self.record(bare)
+        actual, selected_stored = self.record(bare, source_ref=selected_ref)
         self.h.require(actual["history"]["repo_id"] != history["repo_id"]
                        and len(self.query(bare)["records"]) == 1,
                        "independent bare repository inherited another repository's local history")
+        self.h.require(selected_stored["source_ref"] == selected_ref
+                       and selected_stored["checked_commit"] == selected_commit
+                       and selected_commit != self.f.git(bare, "rev-parse", "HEAD")
+                       and "only-selected-branch" in selected_stored["result"]["stdout"],
+                       "recorded explicit Checks did not retain the selected branch snapshot")
         self.f.git(bare, "fsck", "--full", "--strict")
         self.restore(history)
         return {"version": 1, "passed": True, "actual_repositories": 2, "restored_repositories": 1,
@@ -142,6 +150,7 @@ class Rehearsal:
                 "exact_ref_commit_blob_and_run_binding": True, "actual_measurements_and_skipped_steps_preserved": True,
                 "bounded_utf8_output_preserves_live_result": True, "newest_five_retained_and_evicted_ids_missing": True,
                 "plain_v1_execution_does_not_record": True, "separate_bare_repository_identity": True,
+                "explicit_ref_record_preserves_selected_snapshot": True,
                 "history_storage_private_and_bounded": True,
                 "real_backup_and_relocated_history": True, "original_approval_and_origins_preserved": True,
                 "temporary_checkouts_and_scratch_removed": True, "git_fsck": True,

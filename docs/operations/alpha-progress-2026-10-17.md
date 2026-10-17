@@ -1023,3 +1023,35 @@ removing its private fixtures. Independent source Gate A found no open P0/P1/P2.
 limits. Hosted validation of this change remains pending; the existing blocking
 process-observer cancellation limitation is not claimed fixed. External product
 publication remains deferred, and automatic Gate B remains stopped.
+
+### Explicit ordinary-branch Checks, 2026-10-18
+
+Based on `a1ab508f6afc64402754deb6fbf133c55239fbfd`, local operators can select
+`--ref refs/heads/topic` with an expected full commit ID. The exact ordinary branch
+must directly identify that commit. Its committed policy and checkout are pinned
+to the same snapshot; current HEAD, dirty working files and existing task/approval
+records remain unchanged. Omitting `--ref` preserves the previous behavior, and
+`--record` retains the selected ref, commit and policy identity. See the
+[contract](local-checks.md).
+
+Full verification passed: Rust 447, frontend 303 across 41 files and Python 20,
+with two existing ignored Git tests. Two new CLI tests failed on the baseline's
+missing option and passed after implementation; all six CLI Checks/history tests
+passed. A separate clean baseline target was used after excluding an unexpected
+pass from a reused private build cache. The actual CLI rehearsal passed 15 checks
+and history/relocation passed 16 on Seatbelt, covering ordinary and bare selections,
+exact content/policy/output, unchanged HEAD and authority, default behavior,
+retention, independent Git checks and removed private fixtures.
+
+Independent reviews found no remaining P0/P1/P2. Two test-oracle corrections ensure
+that a succeeding print cannot hide a failed content or dirty-file check. The
+final full verification and actual rehearsals include those corrections.
+[Candidate evidence](evidence/local-checks-explicit-ref-2026-10-18.json) separates
+the author baseline, integrated source, binary, tests and operating results.
+The preceding cleanup commit `a1ab508` [hosted run](https://github.com/sogangCSmaster/gitust/actions/runs/39080310536)
+passed Ubuntu and macOS: all 23 named required steps succeeded except the intended
+macOS Linux-prerequisite skip. This includes the previously failing mechanical
+gate and web-history rehearsal; it does not establish the original OS cause. This
+candidate still requires its own hosted validation. HTTP execution, ordinary-branch
+automatic triggers and new approval authority are not added. GitHub product
+publication remains deferred and automatic Gate B remains stopped.

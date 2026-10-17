@@ -69,10 +69,12 @@ class Rehearsal:
         self.git(self.repo, "commit", "-m", message)
         return self.git(self.repo, "rev-parse", "HEAD")
 
-    def run(self, repo, expected_commit, *, status, exit_code, commands=None, step_exits=None):
+    def run(self, repo, expected_commit, *, status, exit_code, commands=None, step_exits=None, source_ref=None):
         before = self.state(repo)
-        raw = self.cli("sandbox", "checks", "--repo", repo, "--expected-commit", expected_commit,
-                       "--timeout", "30", expected=exit_code)
+        args = ["sandbox", "checks", "--repo", repo, "--expected-commit", expected_commit, "--timeout", "30"]
+        if source_ref is not None:
+            args += ["--ref", source_ref]
+        raw = self.cli(*args, expected=exit_code)
         report = json.loads(raw)
         self.h.require(set(report) == {"version", "status", "reason", "source_ref", "checked_commit",
                                        "checks_blob_oid", "result", "cleanup"}, "unexpected Checks result schema")
@@ -84,7 +86,7 @@ class Rehearsal:
                            "rejected Checks request started execution or hid its reason")
         else:
             result = report["result"]
-            self.h.require(report["source_ref"] == before[0]
+            self.h.require(report["source_ref"] == (source_ref if source_ref is not None else before[0])
                            and report["checked_commit"] == expected_commit
                            and report["checks_blob_oid"] == self.git(repo, "rev-parse", expected_commit + ":.gitust-checks.json")
                            and report["reason"] is None and report["cleanup"] == "confirmed",
@@ -107,6 +109,21 @@ class Rehearsal:
                        "completed Checks left an execution fence")
         return report
 
+    def prepare_selected_branch(self):
+        current = self.git(self.repo, "symbolic-ref", "--short", "HEAD")
+        source_ref = "refs/heads/checks-selected"
+        self.git(self.repo, "switch", "-c", source_ref[11:])
+        (self.repo / "selected-only.txt").write_text("only-selected-branch\n")
+        self.git(self.repo, "add", "selected-only.txt")
+        commands = ["test -f selected-only.txt; cat selected-only.txt", "printf selected-policy"]
+        commit = self.commit_config(json.dumps({"version": 1, "commands": commands}),
+                                    "test: selected branch has its own content and Checks")
+        self.git(self.repo, "switch", current)
+        self.h.require(not (self.repo / "selected-only.txt").exists()
+                       and self.git(self.repo, "rev-parse", "HEAD") != commit,
+                       "selected branch fixture does not differ from the current checkout")
+        return source_ref, commit, commands
+
     def setup(self):
         self.repo.mkdir()
         self.git(self.repo, "init", "--initial-branch=main")
@@ -114,7 +131,7 @@ class Rehearsal:
         self.git(self.repo, "config", "user.email", "cli-checks@company.internal")
         (self.repo / "README.md").write_text("# Committed Checks fixture\n")
         self.good_commands = ["printf 'first-check\\n'; test -f README.md",
-                              "test ! -f dirty-only.txt; printf 'second-check\\n'"]
+                              "test ! -f dirty-only.txt && printf 'second-check\\n'"]
         self.good_config = json.dumps({"version": 1, "commands": self.good_commands, "auto_run": False})
         (self.repo / ".gitust-checks.json").write_text(self.good_config)
         self.git(self.repo, "add", "README.md", ".gitust-checks.json")
@@ -140,10 +157,19 @@ class Rehearsal:
 
     def execute(self):
         self.setup()
+        selected_ref, selected_commit, selected_commands = self.prepare_selected_branch()
         config = self.repo / ".gitust-checks.json"
         config.write_text("uncommitted invalid configuration")
         dirty = self.repo / "dirty-only.txt"
         dirty.write_text("Must stay in the original working copy\n")
+        selected = self.run(self.repo, selected_commit, status="passed", exit_code=0,
+                            commands=selected_commands, step_exits=[0, 0], source_ref=selected_ref)
+        self.h.require("only-selected-branch" in selected["result"]["stdout"]
+                       and "selected-policy" in selected["result"]["stdout"],
+                       "explicit ref did not execute the selected branch content and policy")
+        self.run(self.repo, self.good, status="rejected", exit_code=2, source_ref=selected_ref)
+        self.run(self.repo, self.good, status="rejected", exit_code=2,
+                 source_ref="refs/heads/absent-ordinary-branch")
         report = self.run(self.repo, self.good, status="passed", exit_code=0,
                           commands=self.good_commands, step_exits=[0, 0])
         self.h.require("first-check" in report["result"]["steps"][0]["output"]["stdout"]
@@ -169,6 +195,8 @@ class Rehearsal:
         self.git(bare, "symbolic-ref", "HEAD", "refs/heads/checks-good")
         self.run(bare, self.good, status="passed", exit_code=0,
                  commands=self.good_commands, step_exits=[0, 0])
+        self.run(bare, selected_commit, status="passed", exit_code=0,
+                 commands=selected_commands, step_exits=[0, 0], source_ref=selected_ref)
         self.h.require(self.authority(self.repo) == self.before_authority,
                        "Checks changed preexisting approval or worktree-origin records")
         for repo in [self.repo, bare]:
@@ -184,6 +212,8 @@ class Rehearsal:
                 "invalid_missing_and_stale_requests_not_executed": True,
                 "original_refs_and_worktrees_preserved": True, "approval_and_origins_preserved": True,
                 "temporary_worktrees_and_fences_removed": True, "bare_repository_supported": True,
+                "explicit_ref_uses_selected_content_and_policy": True,
+                "explicit_ref_preserves_ordinary_and_bare_head": True,
                 "annotated_tags_preserved": True, "git_fsck": True,
                 "platform": os.uname().sysname, "sandbox_backends": sorted(self.backends),
                 "external_github_publication": False}

@@ -51,12 +51,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum SandboxSubcommands {
-    /// Run the exact current ordinary commit's configured Checks without granting approval
+    /// Run an exact ordinary commit's configured Checks without granting approval
     Checks {
         #[arg(long)]
         repo: PathBuf,
         #[arg(long)]
         expected_commit: String,
+        /// Exact ordinary refs/heads/... source; omitted uses the current ordinary HEAD
+        #[arg(long = "ref")]
+        source_ref: Option<String>,
         #[arg(long, default_value_t = 600)]
         timeout: u64,
         /// Save a confirmed completed run to bounded repository-local diagnostic history
@@ -291,11 +294,18 @@ async fn main() -> Result<()> {
                 Some(SandboxSubcommands::Checks {
                     repo,
                     expected_commit,
+                    source_ref,
                     timeout,
                     record,
                 }) => {
-                    let report =
-                        checks_cmd::run_cli_checks(&repo, &expected_commit, timeout, record).await;
+                    let report = checks_cmd::run_cli_checks(
+                        &repo,
+                        &expected_commit,
+                        timeout,
+                        record,
+                        source_ref.as_deref(),
+                    )
+                    .await;
                     let exit_code = report.exit_code();
                     println!("{}", serde_json::to_string(&report)?);
                     if exit_code != 0 {

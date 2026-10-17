@@ -32,7 +32,7 @@ In progress. Implemented portions:
 - Clean-commit verification, fast-forward approval, and separate exact-SHA publication.
 - Durable approval/publication records and explicit remote-failure retry.
 - Required Checks from committed merge-target configuration during explicit verification.
-- Explicit local CLI Checks for the current ordinary branch at an expected full commit ID, with committed configuration, real per-step results and temporary-checkout cleanup. This does not grant approval or add ordinary-branch automatic triggers. See the [local execution contract](operations/local-checks.md).
+- Explicit local CLI Checks for the current or explicitly selected ordinary branch at an expected full commit ID, with committed configuration, real per-step results and temporary-checkout cleanup. Selecting a branch does not change HEAD, grant approval or add ordinary-branch automatic triggers. See the [local execution contract](operations/local-checks.md).
 - Opt-in local Checks history retains five completed results under the persisted repository identity, with bounded output and CLI list/run-ID queries. It survives offline relocation and remains separate from managed-worktree verification and server Activity.
 - SiteAdmin read-only inspection of primary local Checks history in Actions, using a bounded UUID-scoped API and a separate compact Local Checks view. Reading stored diagnostics does not enable HTTP execution or restore approval authority.
 - Opt-in automatic Checks after accepted managed-worktree MCP commits and Git HTTP pushes, with bounded latest-update coalescing and diagnostic history. Automatic success does not grant approval; explicit manual verification remains required.

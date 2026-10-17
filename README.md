@@ -127,6 +127,9 @@ gitust sandbox run "cargo test --offline" --repo /absolute/path/to/repository
 # Run the current branch's committed Checks against its exact full commit ID.
 gitust sandbox checks --repo /absolute/path/to/repository --expected-commit FULL_COMMIT_SHA
 
+# Run Checks for another ordinary branch without changing the current/default branch.
+gitust sandbox checks --repo /absolute/path/to/repository --ref refs/heads/topic --expected-commit TOPIC_FULL_COMMIT_SHA
+
 # Retain a completed local result, then inspect the newest five recorded runs.
 gitust sandbox checks --repo /absolute/path/to/repository --expected-commit FULL_COMMIT_SHA --record
 gitust sandbox checks-history --repo /absolute/path/to/repository

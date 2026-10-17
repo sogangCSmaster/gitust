@@ -960,3 +960,40 @@ CI; this candidate still needs its own hosted run. History remains diagnostic an
 does not grant verification, approval, replay or HTTP execution authority. GitHub
 product publication stays deferred, automatic Gate B stays stopped, and full alpha
 acceptance remains open.
+
+### Web inspection of local Checks, 2026-10-18
+
+Based on `0218f86aff20c37127ace173fd792550e55a14b6`, primary SiteAdmins can inspect
+retained CLI results in **Actions → Local Checks**. The bounded read-only API
+checks current credentials and repository access before returning stored data.
+Automatic remains the default view; local history has its own parser and request
+lifetime. It grants no execution, verification, approval or replay authority.
+
+Full verification passed: Rust 441, frontend 303 across 41 files and Python 20,
+with two existing ignored Git tests. The normal-use CLI-to-HTTP rehearsal passed
+14 required checks across two repositories on Seatbelt, including exact saved
+results, empty history, administrator session/PAT access, denied requests,
+primary-only routing, restart, unchanged Git/history bytes, strict fsck and cleanup.
+HTTP command execution was disabled throughout history inspection.
+
+Native browser inspection used the actual candidate binary and CLI-created
+success/failure records. At 320/768/1440px, there was no horizontal overflow;
+record rows were 44/36/36px high and the long branch stayed on one line. The UI
+showed actual run/commit/policy identities, failed and skipped commands, stored
+output shortening, keyboard selection, tab navigation and refresh. Secondary
+selection removed the local history view. Only owned disposable services, accounts
+and tabs were used and removed. Physical devices were not tested.
+
+Independent source Gate A found no outstanding P0/P1/P2. Same-value context updates
+no longer cause duplicate Automatic requests, and cleared idle Local Checks now
+show a refresh prompt instead of indefinite loading. The initial bundle remains
+above the 50 kB goal at 70,555 gzip9 bytes; first Overview is 75,322 cumulative bytes.
+[Candidate evidence](evidence/local-checks-web-2026-10-18.json) separates source,
+generated bundle, binary, operating and native-browser records.
+
+The preceding `0218f86` [CI run](https://github.com/sogangCSmaster/gitust/actions/runs/39077263040)
+passed Ubuntu and macOS, including the local-history relocation rehearsal and all
+22 named required steps except the intended macOS Linux-prerequisite skip. The new
+web-history rehearsal is required in CI; this candidate needs its own hosted run.
+GitHub product publication remains user-deferred, automatic Gate B stays stopped,
+and full alpha acceptance and deployment are not claimed.

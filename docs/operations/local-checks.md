@@ -95,3 +95,23 @@ identity must first complete a recorded run or be initialized by Gitust. Queries
 retain the same stopped-service and unresolved-execution restrictions as other
 local operators. Existing offline backup/restore includes the history and repository
 identity; relocated records retain their run IDs, commit/blob IDs and observations.
+
+## Web inspection
+
+An active SiteAdmin can inspect the primary repository's retained local results in
+**Actions → Local Checks**. Automatic remains the default Actions view. Selecting
+a local run shows its committed branch/SHA, actual outcome, measured duration,
+required commands and retained output. Truncation is explicit; the deleted temporary
+worktree is not presented as a current task. These observations do not establish
+current verification or approval eligibility.
+
+`GET /api/v1/repos/{id}/local-check-runs` returns version 1 JSON with `repo_id`
+and `records`, preserving the newest-five append order. It requires current
+SiteAdmin credentials and repository access, returns `Cache-Control: no-store`,
+and is bounded to 3 MiB. Secondary repositories are not routed to this primary
+history. Storage failure is an error, distinct from an empty history.
+
+Reading history does not require enabling server command execution. There is no
+run or retry action in this view: record with the explicit stopped-service CLI
+command, then restart the service to inspect its saved results. Changing repository,
+session or access clears the previous selection and pending result.

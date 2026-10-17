@@ -1,0 +1,302 @@
+{
+  "version": 1,
+  "base_commit": "0218f86aff20c37127ace173fd792550e55a14b6",
+  "scope": "Read-only primary SiteAdmin inspection of completed local CLI Checks; no execution or approval authority added",
+  "source_manifest_sha256": "abfaf3e0b1b01ffb8be010644d1db6683cd7584ddc9639b74c0d05ec921b69ee",
+  "source_sha256": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "b6295c945c38533f4f7b07c1f42fe5a9c3484663f4aa1ea58ed003aad3927b81",
+      "mode": "100644"
+    },
+    {
+      "path": "crates/gitust-server/src/lib.rs",
+      "sha256": "f9ff2133df0d8ee6abe4486a7bb8c93d8838f056dc8a6f989cb9b039abe534a4",
+      "mode": "100644"
+    },
+    {
+      "path": "crates/gitust-server/src/repository_local_checks.rs",
+      "sha256": "1db487502093f675ac0560665dd569ba2ea9c82d9ec7050e6956e963ee988296",
+      "mode": "100644"
+    },
+    {
+      "path": "crates/gitust-server/src/tests.rs",
+      "sha256": "8f9143fd92c44b054734536d1fe2d4fa0002c187bbf73de284efae28b501b829",
+      "mode": "100644"
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_local_checks.rs",
+      "sha256": "c0db9c4981c6e30abcf75a68932890237832608c1171463bcf4097851f50a5a7",
+      "mode": "100644"
+    },
+    {
+      "path": "docs/operations/local-checks.md",
+      "sha256": "4bb66b74857bf5c0e75c8ad8665f77bad5a88b4f5974fa7ebde5a0fc57bb8a21",
+      "mode": "100644"
+    },
+    {
+      "path": "docs/operations/repository-ci.md",
+      "sha256": "14c757d74b0b72b8fd2101460600a4f5f1e1c36a9010274f7c002edd4a41d242",
+      "mode": "100644"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "sha256": "d4e552c4044ef4b04b8b5278da5392fcf6ac060630514c0ff2988fb6117aa7a6",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/src/patterns/VerificationResultDetails.tsx",
+      "sha256": "69bd7d7724d4c3cd1db8a1bb6debb17127797d2ada6bd4f88a17224a0566c264",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/src/showcase/LiveLocalChecksView.tsx",
+      "sha256": "5b6bfda97e840b65fc3461b15c3f515e40b3cbe4ad6aeab6149570f277ec8496",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/src/showcase/LiveRepositoryActionsView.tsx",
+      "sha256": "f3fb7482d1759f6bb0b7db7e58bd12bbb580c066ebca47dc7e1b5a1f6d279bba",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/src/showcase/WorkbenchApp.tsx",
+      "sha256": "7625d57011bf4723b25a18aa015523690653a250872cd3632b43aecd2ab1d81e",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/src/showcase/WorkbenchTabViews.tsx",
+      "sha256": "5cf890103df3edce62719e151432565f616c80e54f9d8e3fdbbaa25cf46b8f37",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/src/showcase/live-local-checks-client.ts",
+      "sha256": "d67474b0586a586ff38076fcdba1f6e36af2ad399adf483592610685e6ba8e52",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/src/showcase/live-local-checks.ts",
+      "sha256": "46113e374c50db603aaff0ff9de9b0f18a64564edeab629fd27fcd53caa87222",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-workspace.ts",
+      "sha256": "ec64de034f9de65f4259550b924b5070a255935f033e5275ee2469dfa1a19f2c",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/tests/command-output.test.tsx",
+      "sha256": "a45d5890ad4aa744775c12137b518b62fc35f00c286cab4e24076b5636f654ba",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/tests/local-checks-client.test.ts",
+      "sha256": "d0c43869830d3ba055b6e918c33552a1d670eb1918736e8fb96a92b8d8e2c2a7",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/tests/local-checks-fixture.ts",
+      "sha256": "8f45a7123ee3ee37e28abb712c9ebc02603ef7c2d3035a1753a8821cb0f49b5a",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/tests/local-checks-view.test.tsx",
+      "sha256": "5349381d59e8d021383842d1c6d0e9cbea0de7e2be741b74254bfbe82cf05231",
+      "mode": "100644"
+    },
+    {
+      "path": "packages/design-system/tests/workbench-live-actions.test.tsx",
+      "sha256": "1c2c4fa153cc5e5c4587a6dff055ff0c08b84ffd17872a4997a8c139c5c05f60",
+      "mode": "100644"
+    },
+    {
+      "path": "scripts/local-checks-web-rehearsal.py",
+      "sha256": "e908a0539f0b4ce17ebf49988277c395fb1622b40dfc0e3cc3807ba90355d2f8",
+      "mode": "100644"
+    }
+  ],
+  "generated_bundle_manifest_sha256": "7ade27067fc9c2eefed4ceca0aa57cf74b29e4e5a3f65940f1380417a0d8ee8b",
+  "generated_bundle_files": 30,
+  "binary_sha256": "de72b8600a7bc038326a0533d93141625bd38c053c261329b7899262e8e0cbb5",
+  "binary_provenance": "Locally built base plus listed candidate source and regenerated UI; not a clean committed-candidate build",
+  "verification": {
+    "command": "scripts/verify.sh",
+    "exit": 0,
+    "log_sha256": "d6ca19a10f726e5820f1c82a92fffc35e045c03a4415084045b759e21036e4e0",
+    "rust_passed": 441,
+    "git_ignored": 2,
+    "frontend_passed": 303,
+    "frontend_files": 41,
+    "python_passed": 20
+  },
+  "source_review": {
+    "gate": "A",
+    "verdict": "SOURCE SCOPE CLEAR",
+    "open_P0": 0,
+    "open_P1": 0,
+    "open_P2": 0,
+    "report_sha256": "c60662eccb9f5a5cda97fba3fcc9f2285cac2246730727be82d845bdfe086576",
+    "resolved": [
+      "Same-value context replacements no longer retrigger Automatic requests.",
+      "Idle Local Checks after session invalidation shows a refresh prompt instead of indefinite loading."
+    ]
+  },
+  "operating": {
+    "report_sha256": "d9244845fd01583a0d487ea742f00cf7574031081f95e9fc1152770cc81db2f5",
+    "actual_repositories": 2,
+    "platform": "Darwin",
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "runtime_worktree_dirty": true,
+    "checks": {
+      "passed": true,
+      "real_cli_success_failure_and_output": true,
+      "exact_http_cli_history_match": true,
+      "empty_history_distinguished": true,
+      "http_execution_disabled": true,
+      "authorized_session_and_pat": true,
+      "anonymous_member_and_revoked_pat_denied": true,
+      "secondary_and_unknown_not_routed": true,
+      "bounded_no_store_responses": true,
+      "restart_preserves_records": true,
+      "git_and_history_unchanged_by_reads": true,
+      "git_fsck": true,
+      "private_fixture_removed": true,
+      "owned_services_reaped": true
+    },
+    "runtime_source_sha256": {
+      "scripts/local-checks-web-rehearsal.py": "e908a0539f0b4ce17ebf49988277c395fb1622b40dfc0e3cc3807ba90355d2f8",
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+      "scripts/multi-repository-rehearsal.py": "f2d35dfa03cdf03500580587711bb020473463fb04d5782b430267bc9c7fdc36",
+      "scripts/cli-checks-rehearsal.py": "af475bd3155dd5fcf60f4dc7ec3baab084ae2cfbbbca602f0ae9916f651a505a",
+      "scripts/cli-checks-history-rehearsal.py": "003f6b5e05ebadbb6f8418a5392d0eeb97136045b3342c8fd512dd4c84f27876"
+    }
+  },
+  "native_browser": {
+    "report_sha256": "e09f5fbd1d444569ea9ba2f366fb6b6224b0c81c538e13a75a775c304f0a47c6",
+    "tool": "native cua_repl in-app browser",
+    "screenshots": [
+      {
+        "width": 1440,
+        "height": 1000,
+        "scroll_width": 1440,
+        "row_heights": [
+          36,
+          36
+        ],
+        "mime_type": "image/jpeg",
+        "sha256": "bcfb09bfc357a1556a2f311a77e4d17e212ad46c9608c99a8b9877fa6b94d5dc"
+      },
+      {
+        "width": 768,
+        "height": 1024,
+        "scroll_width": 768,
+        "row_heights": [
+          36,
+          36
+        ],
+        "mime_type": "image/jpeg",
+        "sha256": "ae5fb22b2610c11a8c0dbf14b791b0110c74f20fd08971a2aee1e0ba6fb5dbac"
+      },
+      {
+        "width": 320,
+        "height": 900,
+        "scroll_width": 320,
+        "row_heights": [
+          44,
+          44
+        ],
+        "mime_type": "image/jpeg",
+        "sha256": "43eaf3d6588477d661d23deeb2e69fae22789355ab9415202ba27b6bf1780c0c"
+      }
+    ],
+    "identity": {
+      "run_id_visible": true,
+      "checked_commit_visible": true,
+      "checks_blob_oid_visible": true,
+      "failed_output_visible": true
+    },
+    "observed": {
+      "actual_rust_server_login": true,
+      "actual_cli_history": true,
+      "default_automatic_tab": true,
+      "failed_then_skipped": true,
+      "passed_stored_output_shortening": true,
+      "keyboard_run_selection": true,
+      "keyboard_tab_arrows": true,
+      "keyboard_refresh": true,
+      "no_execution_or_approval_controls": true
+    },
+    "secondary_context": {
+      "actionsButtonPresent": false,
+      "localTabPresent": false,
+      "retainedRunRows": 0
+    },
+    "mobile_branch": {
+      "height": 16,
+      "lineHeight": "16px",
+      "textOverflow": "ellipsis",
+      "whiteSpace": "nowrap"
+    },
+    "cleanup": {
+      "private_fixture_removed": true,
+      "private_credential_state_removed": true,
+      "owned_service_reaped": true,
+      "owned_tab_closed": true,
+      "viewport_override_reset": true,
+      "fixture_process_exit": 0
+    },
+    "physical_devices_tested": false,
+    "inspection_notes": [
+      "A getByRole(button, Run details) locator did not match the native summary element; inspected current AX and expanded the observed summary successfully.",
+      "An initial metadata assertion used checks_blob_id, which is not a record field; corrected to actual checks_blob_oid and verified against the same visible details."
+    ]
+  },
+  "bundle": {
+    "report_sha256": "aed1ec7359938ce5a13f5d0540abb2bfc29f967b3522836d8c47aba2f2bcb25a",
+    "environment": {
+      "node": "v24.18.1",
+      "vite": "6.4.4",
+      "zlib": "1.3.1-e00f703",
+      "platform": "darwin",
+      "os_release": "25.5.0",
+      "arch": "arm64",
+      "cpu": "Apple M4 Pro"
+    },
+    "method": "Sum each physical emitted JS file compressed separately; follow all HTML module/modulepreload roots and transitive static imports. Bytes; kB=1000 bytes.",
+    "initial_gzip9_bytes": 70555,
+    "first_overview_gzip9_bytes": 75322,
+    "initial_gzip6_bytes": 70602,
+    "first_overview_gzip6_bytes": 75376,
+    "initial_target_met": false,
+    "latency_measured": false
+  },
+  "preceding_hosted_ci": {
+    "head_sha": "0218f86aff20c37127ace173fd792550e55a14b6",
+    "run_id": 39077263040,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39077263040",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Verify and rehearse (macos-15)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify and rehearse (ubuntu-22.04)",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "report_sha256": "159cbf4b88e63f82ef62956d74faa5b9da6eb7d592ccb0414806eea50377c872"
+  },
+  "limits": [
+    "Candidate hosted Linux/macOS CI remains pending its own push.",
+    "Stored output is bounded, not secret-redacted; only currently authorized primary SiteAdmins may read it.",
+    "No HTTP execution endpoint, retry, automatic trigger, verification, approval or publication authority added.",
+    "Existing user development servers were not restarted; native evidence uses owned disposable fixture services.",
+    "No physical-device, startup-latency or network-throughput claim; initial 50 kB JavaScript target remains unmet.",
+    "Actual GitHub product publication remains user-deferred. Gate B and previously interrupted procedures were not resumed."
+  ]
+}

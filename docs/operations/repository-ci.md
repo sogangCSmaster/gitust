@@ -76,7 +76,11 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
     storage. Back up a stopped fixture, make the original repository, tasks and
     auth store unavailable, then require unchanged history, approvals, origins
     and annotated tags after relocation, with strict Git `fsck` and cleanup.
-11. Kill a disposable fixture service during an actual automatic Check and require
+11. Record actual successful and failed CLI Checks, then inspect their exact stored
+    results through a service with HTTP execution disabled. Require bounded no-store
+    responses, primary-only routing, current administrator session/PAT access,
+    unchanged history and Git state, restart, strict fsck and owned-service cleanup.
+12. Kill a disposable fixture service during an actual automatic Check and require
    a fresh service to refuse the unresolved execution fence. Stop only the
    fixture's authenticated process groups, require explicit operator recovery,
    and prove ordinary execution resumes without restoring verification authority.

@@ -355,6 +355,7 @@ export const createRepositoryWorkspace = (options: {
   return {
     state,
     selected,
+    selectionEpoch,
     open,
     navigate,
     reset,

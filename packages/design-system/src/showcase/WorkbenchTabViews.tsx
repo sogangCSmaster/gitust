@@ -31,9 +31,9 @@ const ActionsPipelineView = lazy(() =>
     default: module.ActionsPipelineView,
   })),
 );
-const LiveActionsView = lazy(() =>
-  import("./LiveActionsView").then((module) => ({
-    default: module.LiveActionsView,
+const LiveRepositoryActionsView = lazy(() =>
+  import("./LiveRepositoryActionsView").then((module) => ({
+    default: module.LiveRepositoryActionsView,
   })),
 );
 const RepositoryChangesView = lazy(() =>
@@ -71,6 +71,7 @@ export interface WorkbenchTabViewsProps {
   activeTab: WorkbenchTab;
   liveMode: boolean;
   repository?: ConnectedRepository | null;
+  repositoryEpoch?: number;
   canWorkbench?: boolean;
   swarmTasks: AgentSandboxTask[];
   focusedSwarmIdx: number;
@@ -233,7 +234,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         title="Actions"
         description={
           props.liveMode
-            ? "Read-only automatic Checks diagnostics for this repository."
+            ? "Read-only Checks diagnostics for this repository."
             : "Interface demo with generated logs and simulated jobs. Replay the sample pipeline to explore its states."
         }
       />
@@ -255,10 +256,12 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
           </DeferredView>
         }
       >
-        <DeferredView label="Automatic Actions">
-          <LiveActionsView
+        <DeferredView label="Repository Actions">
+          <LiveRepositoryActionsView
             repositoryId={props.repository?.id}
             role={props.adminAuthProps?.liveSession?.role}
+            isPrimary={props.canWorkbench === true}
+            selectionEpoch={props.repositoryEpoch ?? 0}
           />
         </DeferredView>
       </Show>

@@ -79,7 +79,7 @@ it("expands only the selected command's plain-text stdout and stderr", async () 
     await screen.findByText("step-only-out", { exact: true }),
   ).toBeTruthy();
   expect(screen.getByText(output.stderr, { exact: true })).toBeTruthy();
-  expect(screen.getByText("Command output truncated by server")).toBeTruthy();
+  expect(screen.getByText("Command output was shortened")).toBeTruthy();
   expect(document.querySelector("img")).toBeNull();
   expect(screen.getByText("checked", { exact: true })).toBeTruthy();
 });

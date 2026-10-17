@@ -450,6 +450,7 @@ export const WorkbenchApp: Component = () => {
           <WorkbenchTabViews
             branches={liveClient.branches}
             repository={selectedRepository()}
+            repositoryEpoch={connectedRepository.selectionEpoch()}
             canWorkbench={connectedRepository.canWorkbench()}
             activeTab={activeTab()}
             liveMode={liveMode()}

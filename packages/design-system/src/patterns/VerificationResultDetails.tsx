@@ -12,10 +12,14 @@ import { Icon } from "../components/workspace/icon";
 
 export const VerificationResultDetails: Component<{
   result: AgentVerificationResult;
+  commandsLabel?: string;
 }> = (props) => (
   <div class="min-w-0 space-y-4">
     <Show when={props.result.steps?.length}>
-      <ol aria-label="Verification commands" class="space-y-3">
+      <ol
+        aria-label={props.commandsLabel ?? "Verification commands"}
+        class="space-y-3"
+      >
         <For each={props.result.steps}>
           {(step) => (
             <li>
@@ -62,7 +66,7 @@ export const VerificationResultDetails: Component<{
                         <CollapsibleContent class="space-y-3 pt-2">
                           <Show when={output.truncated}>
                             <StatusBadge tone="warning">
-                              Command output truncated by server
+                              Command output was shortened
                             </StatusBadge>
                           </Show>
                           <For
@@ -102,7 +106,7 @@ export const VerificationResultDetails: Component<{
       ms
     </p>
     <Show when={props.result.outputTruncated}>
-      <StatusBadge tone="warning">Output truncated by server</StatusBadge>
+      <StatusBadge tone="warning">Output was shortened</StatusBadge>
     </Show>
     <For
       each={[

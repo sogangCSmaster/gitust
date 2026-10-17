@@ -32,6 +32,7 @@ pub mod repo;
 mod repository_default_branch;
 mod repository_group_invites;
 mod repository_group_members;
+mod repository_local_checks;
 mod repository_reads;
 mod repository_registry;
 mod repository_rename;
@@ -224,6 +225,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/repos/{id}/visibility",
             axum::routing::patch(repository_visibility::change),
+        )
+        .route(
+            "/api/v1/repos/{id}/local-check-runs",
+            get(repository_local_checks::list),
         )
         .route("/api/v1/repos/{id}/commits", get(repository_reads::commits))
         .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))

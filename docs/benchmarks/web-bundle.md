@@ -103,3 +103,14 @@ UI conditions yields 70,467 initial gzip9 bytes (-15) and 75,235 cumulative byte
 for the first Overview (-27), using the same maintained command and environment.
 The existing default-branch form stays lazy. The 50,000-byte initial target remains
 unmet; these are emitted-byte measurements, not interaction or network timing.
+
+## Local Checks history inspection, 2026-10-18
+
+Based on `0218f86aff20c37127ace173fd792550e55a14b6`, the same maintained command and
+environment measure 70,555 initial gzip9 bytes (+88) and 75,322 cumulative bytes
+for first Overview (+87). At gzip6 these totals are 70,602 and 75,376 bytes.
+The initial closure remains one JavaScript file with no HTML modulepreload roots;
+Local Checks is outside both measured closures and loads through Actions on demand.
+The 50,000-byte initial target remains unmet. These emitted-byte measurements do
+not establish startup, interaction or network timing. See the
+[candidate evidence](../operations/evidence/local-checks-web-2026-10-18.json).

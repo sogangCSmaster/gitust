@@ -537,6 +537,9 @@ mod tests_repository_registration;
 #[path = "tests_repository_catalog.rs"]
 mod tests_repository_catalog;
 
+#[path = "tests_repository_local_checks.rs"]
+mod tests_repository_local_checks;
+
 #[path = "tests_repository_rename.rs"]
 mod tests_repository_rename;
 

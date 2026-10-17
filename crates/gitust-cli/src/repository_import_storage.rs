@@ -27,6 +27,16 @@ pub(crate) struct Directory {
     pub file: File,
     pub path: PathBuf,
 }
+
+pub(crate) struct ImportClaim(File);
+
+impl Drop for ImportClaim {
+    fn drop(&mut self) {
+        // fail-open-ok: releasing this owner's claim cannot authorize another mutation here; explicit unlock prevents inherited descriptors prolonging ownership, and failure only retains the lock until all copies close.
+        let _ = self.0.unlock();
+    }
+}
+
 impl Directory {
     pub fn parent(path: &Path) -> Result<Self> {
         let file = File::options()
@@ -97,16 +107,22 @@ impl Directory {
             created,
         ))
     }
-    pub fn claim(&self, leaf: &str) -> Result<File> {
+    pub fn claim(&self, leaf: &str) -> Result<ImportClaim> {
         let file = self
             .open(leaf, libc::O_RDWR | libc::O_CREAT)?
             .ok_or_else(error)?;
         validate(&file, false)?;
-        file.try_lock()
-            .map_err(|_| anyhow::anyhow!("another import owns this destination"))?;
-        file.sync_all().map_err(|_| error())?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => {
+                bail!("another import owns this destination");
+            }
+            Err(fs::TryLockError::Error(_)) => return Err(error()),
+        }
+        let claim = ImportClaim(file);
+        claim.0.sync_all().map_err(|_| error())?;
         self.sync()?;
-        Ok(file)
+        Ok(claim)
     }
     pub fn read<T: DeserializeOwned>(&self, leaf: &str) -> Result<Option<T>> {
         let Some(mut file) = self.open(leaf, libc::O_RDONLY)? else {
@@ -198,4 +214,27 @@ fn validate(file: &File, nonempty: bool) -> Result<fs::Metadata> {
         return Err(error());
     }
     Ok(meta)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn releasing_import_claim_does_not_wait_for_an_inherited_descriptor() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = Directory::parent(root.path()).unwrap();
+        let held = directory.claim("import.lock").unwrap();
+        let inherited = held.0.try_clone().unwrap();
+        assert!(directory.claim("import.lock").is_err());
+        drop(held);
+        // A forked child also retains the same open-file description until exec or exit.
+        let next = directory
+            .claim("import.lock")
+            .expect("owner release must be immediate");
+        drop(inherited);
+        assert!(directory.claim("import.lock").is_err());
+        drop(next);
+        assert!(directory.claim("import.lock").is_ok());
+    }
 }

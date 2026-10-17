@@ -289,3 +289,30 @@ on both operating systems. Each job passed 197 frontend tests, all mechanical ga
 the ten-task rehearsal and the actual crash-recovery rehearsal. The [fixed-source
 record](evidence/alpha-ci-b243377-2026-10-17.json) excludes subsequent repository-wide
 Actions changes; it does not close the deferred publication or native-client criteria.
+
+## Name-edit checkpoint and inherited lock descriptors
+
+The [public run metadata](evidence/alpha-ci-ecf79b5-2026-10-17.json) records
+[run 39037210088](https://github.com/sogangCSmaster/gitust/actions/runs/39037210088),
+attempt 1, for `ecf79b54a9c0352409918dd6c07d4692011b74e9`. Ubuntu passed every
+mechanical gate, the ten-task operating rehearsal, the two-repository rehearsal and
+execution-crash recovery. macOS failed during the CLI import tests; subsequent
+operating rehearsals were skipped. Local verification success does not change this
+hosted failure into a passed checkpoint.
+
+The failing test immediately reopened the destination claim after an intentionally
+failed fetch. A local deterministic regression retained a duplicate of the same
+open-file description, released its owner and attempted a fresh acquisition. Both
+the import claim and auth DB lock failed before explicit unlock-on-drop guards and
+passed afterward. The tests also require exclusion while the new owner remains
+alive, even after the previous duplicate closes. This proves the descriptor-lifetime
+defect; inheritance by a concurrent fork is the likely CI trigger, not a separately
+observed process trace. The existing repository service guard already releases its
+lock explicitly.
+
+The fix preserves private persistent lock files, bounded auth-lock waits, fail-closed
+errors, import recovery acknowledgements, durable execution fences and write ordering.
+The import claim is released after its stage and repository-service handles. No
+lock file is unlinked and no sleep/retry is added to conceal the failing test.
+Hosted verification of the fixed revision must be recorded separately; this failed
+run does not establish macOS crash-recovery coverage for `ecf79b5`.

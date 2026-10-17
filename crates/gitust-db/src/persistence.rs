@@ -1,4 +1,4 @@
-use std::fs::{self, File};
+use std::fs;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::crypto::hash_token_sha256;
 pub(crate) use crate::disk_lock::acquire_advisory_lock;
-use crate::disk_lock::ensure_private_parent_dir;
+use crate::disk_lock::{ensure_private_parent_dir, AdvisoryLock};
 use crate::models::{AuthState, PersistedSnapshot};
 use crate::AuthStore;
 
@@ -74,7 +74,7 @@ pub(crate) struct PendingDiskWrite<'a> {
 
 pub(crate) struct AuthWriteGuard<'a> {
     pub(crate) guard: RwLockWriteGuard<'a, AuthState>,
-    pub(crate) _lock_file: Option<File>,
+    pub(crate) _lock_file: Option<AdvisoryLock>,
     pub(crate) rollback_state: Option<AuthState>,
 }
 

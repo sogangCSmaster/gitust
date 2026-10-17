@@ -1,7 +1,7 @@
 //! Offline import: one fixed identity, a private crash journal, then no-overwrite publication.
 use crate::{
     admin_cmd::with_admin_session_token,
-    repository_import_storage::{error, Directory},
+    repository_import_storage::{error, Directory, ImportClaim},
 };
 use anyhow::{bail, Result};
 use clap::{ArgAction, Args};
@@ -77,9 +77,10 @@ pub(crate) struct ImportTransaction {
     intent: Intent,
     final_exists: bool,
     source: String,
-    _claim: fs::File,
     stage: RefCell<Option<Directory>>,
     ownership: RefCell<Option<WorktreeServiceLock>>,
+    // Release destination ownership after every stage and repository-service handle.
+    _claim: ImportClaim,
 }
 fn digest(value: &str) -> String {
     hash_token_sha256(value)
@@ -228,9 +229,9 @@ impl ImportTransaction {
             intent,
             final_exists,
             source,
-            _claim: claim,
             stage: RefCell::new(None),
             ownership: RefCell::new(None),
+            _claim: claim,
         })
     }
     pub(crate) fn id(&self) -> RepoId {

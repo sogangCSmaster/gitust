@@ -19,6 +19,15 @@ pub(crate) const LOCK_WAIT_DEADLINE: Duration = Duration::from_secs(2);
 const LOCK_BACKOFF_MIN: Duration = Duration::from_millis(2);
 const LOCK_BACKOFF_MAX: Duration = Duration::from_millis(50);
 
+pub(crate) struct AdvisoryLock(File);
+
+impl Drop for AdvisoryLock {
+    fn drop(&mut self) {
+        // fail-open-ok: this guard is released only after its auth operation; explicit unlock prevents inherited descriptors prolonging ownership, and failure retains exclusion until all copies close.
+        let _ = self.0.unlock();
+    }
+}
+
 fn lock_file_path(db_path: &Path) -> PathBuf {
     let mut os = db_path.as_os_str().to_os_string();
     os.push(".lock");
@@ -85,14 +94,14 @@ fn open_private_lockfile(lpath: &Path) -> Result<File, AuthError> {
 pub(crate) fn acquire_advisory_lock_within(
     db_path: &Path,
     deadline: Duration,
-) -> Result<File, AuthError> {
+) -> Result<AdvisoryLock, AuthError> {
     ensure_private_parent_dir(db_path)?;
     let file = open_private_lockfile(&lock_file_path(db_path))?;
     let start = Instant::now();
     let mut backoff = LOCK_BACKOFF_MIN;
     loop {
         match file.try_lock() {
-            Ok(()) => return Ok(file),
+            Ok(()) => return Ok(AdvisoryLock(file)),
             Err(fs::TryLockError::WouldBlock) => {
                 let elapsed = start.elapsed();
                 if elapsed >= deadline {
@@ -112,6 +121,27 @@ pub(crate) fn acquire_advisory_lock_within(
 }
 
 /// Acquires the exclusive cross-process lock with the default [`LOCK_WAIT_DEADLINE`].
-pub(crate) fn acquire_advisory_lock(db_path: &Path) -> Result<File, AuthError> {
+pub(crate) fn acquire_advisory_lock(db_path: &Path) -> Result<AdvisoryLock, AuthError> {
     acquire_advisory_lock_within(db_path, LOCK_WAIT_DEADLINE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn releasing_auth_lock_does_not_wait_for_an_inherited_descriptor() {
+        let root = tempfile::tempdir().unwrap();
+        let db = root.path().join("auth.json");
+        let acquire = || acquire_advisory_lock_within(&db, Duration::ZERO);
+        let held = acquire().unwrap();
+        let inherited = held.0.try_clone().unwrap();
+        assert!(acquire().is_err());
+        drop(held);
+        let next = acquire().expect("owner release must be immediate");
+        drop(inherited);
+        assert!(acquire().is_err());
+        drop(next);
+        assert!(acquire().is_ok());
+    }
 }

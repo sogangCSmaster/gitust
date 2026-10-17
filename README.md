@@ -132,6 +132,8 @@ Local `triage approve` is an explicit operator action: it does not automatically
 
 Gitust uses Rust, Tokio, Axum, and `gix`, with a SolidJS frontend built on locally owned [solid-ui](https://www.solid-ui.com/) components, Kobalte and Tailwind CSS. Git objects, worktrees, authentication state, and approval records stay on the deployment's storage. The auth store currently uses lock-protected JSON snapshots; SQL storage is not implemented.
 
+The [workbench interface](docs/architecture/interface-design.md) uses a compact system-font design with separate workspace and repository navigation, responsive list/detail views, and explicit verification, approval, and publication actions.
+
 Self-hosting Gitust does not determine what an external AI model provider receives. That depends on the agent client and model configuration. Connecting a cloud-backed agent does not guarantee that all code stays local.
 
 Fast interaction and low-overhead workspaces are design goals. Sub-millisecond CoW worktrees and fixed API latency budgets are not achieved guarantees. See the [measured worktree benchmark](docs/benchmarks/agent-worktree.md) and [architecture overview](docs/architecture/overview.md).

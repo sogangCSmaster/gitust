@@ -4,8 +4,10 @@ import type { DiffLine } from "../src/patterns/VirtualDiffViewer";
 
 let token: string | null;
 let lines: DiffLine[] | null;
+let blobLines: DiffLine[] | null;
 let feedback: ReturnType<typeof vi.fn>;
 let fetchMock: ReturnType<typeof vi.fn>;
+let selectRevision: ReturnType<typeof vi.fn>;
 let client: ReturnType<typeof createLiveRepoClient>;
 let selectedPath: string;
 let diffFiles: string[];
@@ -29,15 +31,19 @@ async function hydrateTree(view: ReturnType<typeof createLiveRepoClient>) {
 beforeEach(async () => {
   token = "session-a";
   lines = null;
+  blobLines = null;
   feedback = vi.fn();
   selectedPath = "";
   diffFiles = [];
   diffTruncated = treeTruncated = false;
   fetchMock = vi.fn();
+  selectRevision = vi.fn();
   vi.stubGlobal("window", { localStorage: { getItem: () => token } });
   vi.stubGlobal("fetch", fetchMock);
   client = createLiveRepoClient({
-    setActiveCommitRev: vi.fn(),
+    setLiveBlobLines: (value) => { blobLines = value; },
+    setSelectedTreePath: vi.fn(),
+    setActiveCommitRev: selectRevision,
     setLookupMicros: vi.fn(),
     setSelectedFilePath: (path) => {
       selectedPath = path;
@@ -61,8 +67,13 @@ beforeEach(async () => {
   });
   await hydrateTree(client);
   lines = null;
+  blobLines = null;
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it("selects the resolved commit when the initial HEAD comparison loads", () => {
+  expect(selectRevision).toHaveBeenLastCalledWith(head);
+});
 
 it("does not accept a previous account's blob or sync response", async () => {
   const pending = deferred<Response>();
@@ -74,7 +85,7 @@ it("does not accept a previous account's blob or sync response", async () => {
   token = "session-b";
   pending.resolve(response({ content: "private account content" }));
   await lookup;
-  expect(lines).toEqual([]);
+  expect(blobLines).toEqual([]);
   token = "session-a";
   const sync = deferred<Response>();
   fetchMock.mockReturnValueOnce(sync.promise);
@@ -95,14 +106,16 @@ it("keeps the newest selected viewer response", async () => {
   await client.selectFileFromTree({ path: "new", kind: "file" });
   old.resolve(response({ content: "old" }));
   await first;
-  expect(lines?.[0].content).toBe("new");
+  expect(blobLines?.[0].content).toBe("new");
 });
 it("invalidates a pending file response when a directory is selected", async () => {
   const selected: string[] = [];
   const view = createLiveRepoClient({
+    setLiveBlobLines: (value) => { blobLines = value; },
+    setSelectedTreePath: (path) => selected.push(path),
     setActiveCommitRev: vi.fn(),
     setLookupMicros: vi.fn(),
-    setSelectedFilePath: (path) => selected.push(path),
+    setSelectedFilePath: vi.fn(),
     setLiveDiffFiles: vi.fn(),
     setDiffTruncated: vi.fn(),
     setTreeTruncated: vi.fn(),
@@ -122,7 +135,7 @@ it("invalidates a pending file response when a directory is selected", async () 
   pending.resolve(response({ content: "old file content" }));
   await first;
   expect(selected.at(-1)).toBe("src");
-  expect(lines?.[0]?.content).toContain("Directory: src");
+  expect(blobLines?.[0]?.content).toContain("Directory: src");
   expect(fetchMock).toHaveBeenCalledOnce();
 });
 
@@ -201,7 +214,7 @@ it("retains explicit truncation state for both a partial diff and a partial tree
   expect(diffTruncated).toBe(true);
   expect(treeTruncated).toBe(true);
   await client.selectFileFromTree({ path: "src", kind: "dir" });
-  expect(diffTruncated).toBe(false);
+  expect(diffTruncated).toBe(true);
   expect(treeTruncated).toBe(true);
 });
 
@@ -212,6 +225,7 @@ it("invalidates a pending file lookup on session reset even if the same token re
   client.resetRepoEpoch();
   pending.resolve(response({ content: "OBSOLETE CONTENT" }));
   await first;
+  expect(blobLines?.[0]?.content).toContain("Select a file");
   expect(lines).toEqual([]);
 });
 

@@ -91,7 +91,7 @@ const SelectItem = <T extends ValidComponent = "li">(
   return (
     <SelectPrimitive.Item
       class={cn(
-        "relative mt-0 flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        "relative mt-0 flex min-h-touch w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0",
         local.class,
       )}
       {...others}
@@ -111,7 +111,9 @@ const SelectItem = <T extends ValidComponent = "li">(
           <path d="M5 12l5 5l10 -10" />
         </svg>
       </SelectPrimitive.ItemIndicator>
-      <SelectPrimitive.ItemLabel>{local.children}</SelectPrimitive.ItemLabel>
+      <SelectPrimitive.ItemLabel class="min-w-0 flex-1">
+        {local.children}
+      </SelectPrimitive.ItemLabel>
     </SelectPrimitive.Item>
   );
 };

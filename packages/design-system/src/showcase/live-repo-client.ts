@@ -57,6 +57,8 @@ export interface LiveRepoClientCallbacks {
   setLookupMicros: (micros: number | null) => void;
   setSelectedFilePath: (path: string) => void;
   setLiveDiffLines: (lines: DiffLine[] | null) => void;
+  setSelectedTreePath: (path: string) => void;
+  setLiveBlobLines: (lines: DiffLine[] | null) => void;
   setLiveFileTreeNodes: (nodes: FileTreeNode[] | null) => void;
   setLiveCommits: (commits: LiveCommitSummary[]) => void;
   setLiveDiffFiles: (paths: string[]) => void;
@@ -70,10 +72,12 @@ export interface LiveRepoClientCallbacks {
 /**
  * Dedicated client for live Gitust HTTP API endpoints (`/api/v1/repo/*` and `/api/v1/sync/github`),
  * keeping live backend hydration strictly separated from in-memory showcase demo actions.
- * Uses a monotonically increasing `latestViewReqId` to drop out-of-order responses.
+ * Changes, file previews and metadata use independent request ordering within one session epoch.
  */
 export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   let latestViewReqId = 0;
+  let latestBlobReqId = 0;
+  let latestHydrationReqId = 0;
   let repoEpoch = 0;
   let treeRev: string | null = null;
   let commitDiff:
@@ -84,6 +88,8 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   const resetRepoEpoch = () => {
     repoEpoch += 1;
     latestViewReqId += 1;
+    latestBlobReqId += 1;
+    latestHydrationReqId += 1;
     commitDiff = undefined;
     treeRev = null;
     cb.setWorktreeReview?.(null);
@@ -92,6 +98,9 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     cb.setLiveDiffFiles([]);
     cb.setDiffTruncated(false);
     cb.setTreeTruncated(false);
+    cb.setSelectedTreePath("");
+    cb.setLiveBlobLines(statusDiffLine("[Select a file to preview.]"));
+    cb.setLiveFileTreeNodes([]);
   };
   const filePaths = (data: { files?: Array<{ path: string }> }): string[] =>
     Array.isArray(data.files)
@@ -208,8 +217,8 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       };
       if (resolvedReview) {
         cb.setWorktreeReview?.(resolvedReview);
-        cb.setActiveCommitRev(commitDiff.head);
       }
+      cb.setActiveCommitRev(commitDiff.head);
       cb.setLiveDiffFiles(paths);
       cb.setDiffTruncated(commitDiff.truncated);
       cb.setSelectedFilePath(paths[0] ?? `commit:${rev}`);
@@ -277,16 +286,12 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     path: string;
     kind: "file" | "dir";
   }) => {
-    const reqId = ++latestViewReqId;
-    commitDiff = undefined;
-    cb.setWorktreeReview?.(null);
-    cb.setLiveDiffFiles([]);
-    cb.setDiffTruncated(false);
-    cb.setSelectedFilePath(node.path);
-    cb.setLookupMicros(null);
-    cb.setLiveDiffLines([]);
+    const reqId = ++latestBlobReqId;
+    const epoch = repoEpoch;
+    cb.setSelectedTreePath(node.path);
+    cb.setLiveBlobLines([]);
     if (node.kind !== "file") {
-      cb.setLiveDiffLines(
+      cb.setLiveBlobLines(
         statusDiffLine(
           `[Directory: ${node.path} — select a file to preview]`,
           "hunk",
@@ -297,54 +302,52 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     const rev = treeRev;
     const token = getLiveToken();
     if (!token) {
-      cb.setLiveDiffLines(
+      cb.setLiveBlobLines(
         statusDiffLine("[Sign in to preview repository files]", "hunk"),
       );
       return;
     }
     if (!rev) {
       const message = "Repository tree revision is unavailable; refresh repository files before opening a file";
-      cb.setLiveDiffLines(statusDiffLine(`[${message}]`, "del"));
+      cb.setLiveBlobLines(statusDiffLine(`[${message}]`, "del"));
       cb.showQuickFeedback(message);
       return;
     }
-    cb.setActiveCommitRev(rev);
     try {
       const res = await fetch(
         `/api/v1/repo/blob?rev=${encodeURIComponent(rev)}&path=${encodeURIComponent(node.path)}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      if (reqId !== latestBlobReqId || !sessionCurrent(epoch, token)) return;
       if (!res.ok) {
         const errText = (await res.text().catch(() => "")).trim();
-        if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+        if (reqId !== latestBlobReqId || !sessionCurrent(epoch, token)) return;
         const msg = `Blob lookup failed for ${node.path} (HTTP ${res.status}${errText ? `: ${errText}` : ""})`;
-        cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
+        cb.setLiveBlobLines(statusDiffLine(`[${msg}]`, "del"));
         cb.showQuickFeedback(msg);
         return;
       }
       const blob = await res.json();
-      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      if (reqId !== latestBlobReqId || !sessionCurrent(epoch, token)) return;
       if (typeof blob.commit_sha !== "string" || blob.commit_sha.toLowerCase() !== rev.toLowerCase())
         throw new Error("Server returned a different repository snapshot; refresh repository files");
-      cb.setSelectedFilePath(node.path);
-      cb.setLookupMicros(Number(blob.lookup_micros ?? 0));
+      cb.setSelectedTreePath(node.path);
       if (blob.is_binary) {
         const msg = `Binary file: ${node.path} (${blob.size ?? 0} bytes) — raw text preview disabled`;
-        cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "hunk"));
+        cb.setLiveBlobLines(statusDiffLine(`[${msg}]`, "hunk"));
         cb.showQuickFeedback(msg);
       } else if (blob.truncated) {
         const msg = `File exceeds 1 MiB viewer limit: ${node.path} (${blob.size ?? 0} bytes) — content truncated`;
-        cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "hunk"));
+        cb.setLiveBlobLines(statusDiffLine(`[${msg}]`, "hunk"));
         cb.showQuickFeedback(msg);
       } else if (typeof blob.content === "string") {
         if (blob.content.length === 0) {
-          cb.setLiveDiffLines(
+          cb.setLiveBlobLines(
             statusDiffLine(`[Empty file: ${node.path} (0 bytes)]`, "hunk"),
           );
         } else {
           const rawLines = blob.content.split("\n");
-          cb.setLiveDiffLines(
+          cb.setLiveBlobLines(
             rawLines.map((line: string, idx: number) => ({
               index: idx,
               oldLineNumber: idx + 1,
@@ -354,18 +357,15 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
             })),
           );
         }
-        cb.showQuickFeedback(
-          `Loaded ${node.path} via in-process gix (${blob.lookup_micros ?? 0}µs)`,
-        );
       } else {
-        cb.setLiveDiffLines(
+        cb.setLiveBlobLines(
           statusDiffLine(`[No text content returned for ${node.path}]`, "hunk"),
         );
       }
     } catch (err) {
-      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      if (reqId !== latestBlobReqId || !sessionCurrent(epoch, token)) return;
       const msg = `Blob lookup failed for ${node.path}: ${formatErr(err)}`;
-      cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
+      cb.setLiveBlobLines(statusDiffLine(`[${msg}]`, "del"));
       cb.showQuickFeedback(msg);
     }
   };
@@ -373,20 +373,25 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   const hydrateFromLiveBackend = async () => {
     const token = getLiveToken();
     if (!token) return;
-    const reqId = ++latestViewReqId;
+    const reqId = ++latestHydrationReqId;
+    const diffRequestAtStart = latestViewReqId;
+    const epoch = repoEpoch;
+    const current = () => reqId === latestHydrationReqId && sessionCurrent(epoch, token);
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const [commitsRes, treeRes] = await Promise.all([
         fetch("/api/v1/repo/commits?rev=HEAD&limit=8", { headers }),
         fetch("/api/v1/repo/tree?rev=HEAD&recursive=true", { headers }),
       ]);
-      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      if (!current()) return;
       if (!commitsRes.ok || !treeRes.ok) {
         treeRev = null;
         cb.setTreeTruncated(false);
         cb.setLiveCommits([]);
         cb.setLiveFileTreeNodes([]);
-        cb.setLiveDiffLines([]);
+        latestBlobReqId++;
+        cb.setSelectedTreePath("");
+        cb.setLiveBlobLines(statusDiffLine("[Repository files are unavailable; refresh to retry.]", "del"));
         cb.showQuickFeedback(
           `Live repository hydration failed (HTTP ${commitsRes.status}/${treeRes.status})`,
         );
@@ -396,14 +401,18 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         commitsRes.json(),
         treeRes.json(),
       ]);
-      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      if (!current()) return;
       if (typeof tData.commit_sha !== "string" || !/^[0-9a-f]{40}$/i.test(tData.commit_sha))
         throw new Error("Server did not identify the repository tree revision");
       if (!Array.isArray(tData.entries)) throw new Error("Server did not provide repository tree entries");
+      if (treeRev !== tData.commit_sha) {
+        latestBlobReqId++;
+        cb.setSelectedTreePath("");
+        cb.setLiveBlobLines(statusDiffLine("[Select a file to preview.]"));
+      }
       treeRev = tData.commit_sha;
       if (Array.isArray(cData.commits)) {
         cb.setLiveCommits(cData.commits);
-        cb.setLookupMicros(Number(cData.lookup_micros ?? 0));
       }
       cb.setTreeTruncated(tData.truncated === true);
       if (Array.isArray(tData.entries)) {
@@ -414,14 +423,16 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
           })),
         );
       }
-      await loadLiveCommitDiff("HEAD");
+      if (diffRequestAtStart === latestViewReqId) await loadLiveCommitDiff("HEAD");
     } catch (err) {
-      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      if (!current()) return;
       treeRev = null;
       cb.setTreeTruncated(false);
       cb.setLiveCommits([]);
       cb.setLiveFileTreeNodes([]);
-      cb.setLiveDiffLines([]);
+      latestBlobReqId++;
+      cb.setSelectedTreePath("");
+      cb.setLiveBlobLines(statusDiffLine("[Repository files are unavailable; refresh to retry.]", "del"));
       cb.showQuickFeedback(
         `Live repository hydration failed: ${formatErr(err)}`,
       );

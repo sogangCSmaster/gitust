@@ -155,6 +155,12 @@ pub struct GitTreeEntry {
     pub is_dir: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct RepoHeadIdentity {
+    pub head_sha: CommitSha,
+    pub branch_name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoHeadSnapshot {
     pub head_sha: CommitSha,
@@ -298,25 +304,38 @@ impl GitEngine {
         }
     }
 
-    /// Inspects the repository's `HEAD` commit and root tree in-process via `gix`.
-    pub fn inspect_head_zero_copy(&self) -> Result<RepoHeadSnapshot, GitEngineError> {
-        let start = Instant::now();
+    /// Resolves `HEAD` without loading or traversing its root tree.
+    pub fn inspect_head_identity(&self) -> Result<RepoHeadIdentity, GitEngineError> {
         let repo = self.acquire_repo()?;
+        let (branch_name, commit) = Self::resolve_head_commit(&repo)?;
+        Ok(RepoHeadIdentity {
+            head_sha: CommitSha(commit.id().to_string()),
+            branch_name,
+        })
+    }
 
+    fn resolve_head_commit(
+        repo: &gix::Repository,
+    ) -> Result<(String, gix::Commit<'_>), GitEngineError> {
         let mut head = repo
             .head()
             .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?;
-
         let branch_name = head
             .referent_name()
             .map(|r| r.shorten().to_string())
             // fail-open-ok: display label for a detached HEAD only; no approval or write permission is inferred.
             .unwrap_or_else(|| "detached".to_owned());
-
         let commit = head
             .peel_to_commit_in_place()
             .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?;
+        Ok((branch_name, commit))
+    }
 
+    /// Inspects the repository's `HEAD` commit and root tree in-process via `gix`.
+    pub fn inspect_head_zero_copy(&self) -> Result<RepoHeadSnapshot, GitEngineError> {
+        let start = Instant::now();
+        let repo = self.acquire_repo()?;
+        let (branch_name, commit) = Self::resolve_head_commit(&repo)?;
         let head_sha = CommitSha(commit.id().to_string());
         let tree = commit
             .tree()

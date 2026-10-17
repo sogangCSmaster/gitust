@@ -19,6 +19,7 @@ pub mod oauth;
 mod outbound;
 pub(crate) mod quota;
 pub mod repo;
+mod repository_summary;
 mod run_history;
 pub mod state;
 pub mod webui;
@@ -107,6 +108,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/assets/{*path}", get(webui::web_asset_handler))
         .route("/api/v1/health", get(health_handler))
         .route("/api/v1/git/head", get(worktrees::git_head_handler))
+        .route("/api/v1/repo", get(repository_summary::handler))
         // Step 2-4: Blazing-Fast (<30ms) In-Process gix Code, Commit, Tree & Diff Browsing
         .route("/api/v1/repo/commits", get(repo::repo_commits_handler))
         .route("/api/v1/repo/tree", get(repo::repo_tree_handler))

@@ -26,6 +26,7 @@ function deferred<T>() {
 }
 let token: string | null;
 let lines: DiffLine[] | null;
+let blobLines: DiffLine[] | null;
 let review: LiveWorktreeReview | null;
 let truncated: boolean;
 let treePaths: string[];
@@ -34,6 +35,7 @@ let client: ReturnType<typeof createLiveRepoClient>;
 beforeEach(() => {
   token = "review-session";
   lines = null;
+  blobLines = null;
   review = null;
   truncated = false;
   treePaths = [];
@@ -41,6 +43,7 @@ beforeEach(() => {
   vi.stubGlobal("window", { localStorage: { getItem: () => token } });
   vi.stubGlobal("fetch", fetchMock);
   client = createLiveRepoClient({
+    setLiveBlobLines: (value) => { blobLines = value; }, setSelectedTreePath: vi.fn(),
     setActiveCommitRev: vi.fn(), setLookupMicros: vi.fn(), setSelectedFilePath: vi.fn(),
     setLiveDiffLines: (value) => { lines = value; },
     setLiveFileTreeNodes: (value) => { treePaths = value?.map((node) => node.path) ?? []; },
@@ -149,7 +152,7 @@ it("does not republish a prior account's resolved branch context", async () => {
   expect(lines).toEqual([]);
 });
 
-it("leaves worktree review when a HEAD tree file is opened and uses that tree's own commit", async () => {
+it("preserves worktree review when a HEAD tree file is opened at that tree's own commit", async () => {
   const treeSha = "d".repeat(40);
   fetchMock.mockImplementation(async (url: string) => response(
     url.includes("/repo/commits") ? { commits: [] } :
@@ -159,9 +162,10 @@ it("leaves worktree review when a HEAD tree file is opened and uses that tree's 
   await client.hydrateFromLiveBackend();
   await client.loadLiveWorktreeDiff(task());
   await client.selectFileFromTree({ path: "head-only.txt", kind: "file" });
-  expect(review).toBeNull();
+  expect(review).toMatchObject({ headSha: head, baseSha: base, state: "ready" });
   expect(query(fetchMock.mock.calls.length - 1).get("rev")).toBe(treeSha);
-  expect(lines?.[0]?.content).toBe("TREE FILE");
+  expect(blobLines?.[0]?.content).toBe("TREE FILE");
+  expect(lines?.[0]?.content).toBe("REVIEW");
 });
 
 it.each([undefined, "main", "d".repeat(39)])("requires immutable tree metadata before exposing paths or opening blobs: %j", async (commit) => {
@@ -172,7 +176,7 @@ it.each([undefined, "main", "d".repeat(39)])("requires immutable tree metadata b
   const requests = fetchMock.mock.calls.length;
   await client.selectFileFromTree({ path: "unbound.txt", kind: "file" });
   expect(fetchMock).toHaveBeenCalledTimes(requests);
-  expect(lines?.[0]?.content).toContain("revision is unavailable");
+  expect(blobLines?.[0]?.content).toContain("revision is unavailable");
 });
 
 it("rejects a blob from a different commit than the displayed tree snapshot", async () => {
@@ -183,8 +187,8 @@ it("rejects a blob from a different commit than the displayed tree snapshot", as
   await client.hydrateFromLiveBackend();
   await client.selectFileFromTree({ path: "snapshot.txt", kind: "file" });
   expect(query(fetchMock.mock.calls.length - 1).get("rev")).toBe(base);
-  expect(lines?.[0]?.type).toBe("del");
-  expect(lines?.[0]?.content).not.toContain("WRONG SNAPSHOT");
+  expect(blobLines?.[0]?.type).toBe("del");
+  expect(blobLines?.[0]?.content).not.toContain("WRONG SNAPSHOT");
 });
 
 it("refuses repository hydration that changes the tree SHA without providing a path list", async () => {

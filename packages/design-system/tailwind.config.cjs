@@ -37,6 +37,9 @@ module.exports = {
             : {
                 DEFAULT: `hsl(var(--${name}) / <alpha-value>)`,
                 foreground: `hsl(var(--${name}-foreground) / <alpha-value>)`,
+                ...(name === "primary"
+                  ? { hover: "hsl(var(--primary-hover) / <alpha-value>)" }
+                  : {}),
                 ...(name === "sidebar"
                   ? {
                       accent: "hsl(var(--sidebar-accent))",
@@ -55,13 +58,7 @@ module.exports = {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        sans: [
-          "Inter",
-          "-apple-system",
-          "BlinkMacSystemFont",
-          "Segoe UI",
-          "sans-serif",
-        ],
+        sans: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
         mono: ["SFMono-Regular", "Consolas", "Liberation Mono", "monospace"],
       },
     },

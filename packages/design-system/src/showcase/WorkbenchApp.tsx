@@ -3,7 +3,6 @@ import {
   createMemo,
   createEffect,
   createSignal,
-  For,
   onCleanup,
   onMount,
   Show,
@@ -29,14 +28,10 @@ import { createLiveAuthClient } from "./live-auth-client";
 import {
   createLiveRepoClient,
   getLiveToken,
-  LiveCommitSummary,
-  LiveWorktreeReview,
 } from "./live-repo-client";
 import { createLiveSwarmClient } from "./live-swarm-client";
 import {
   generateActionLogs,
-  generateLargeDiff,
-  generateMonorepoFileTree,
   INITIAL_ACTION_JOBS,
   INITIAL_AGENT_SWARM_TASKS,
   INITIAL_ENTERPRISE_USERS,
@@ -50,17 +45,31 @@ import { LiveRunHistoryDialog } from "./LiveRunHistoryDialog";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { SidebarProvider, SidebarInset } from "../components/ui/sidebar";
 import { WorkbenchNavigation, workbenchNavItems } from "./WorkbenchNavigation";
+import { createWorkbenchRepositoryState } from "./workbench-repository-state";
+import { readWorkbenchAccessLink } from "./workbench-access-link";
+import { createRepositoryWorkspace } from "./repository-workspace";
+import { RepositoryLanding, RepositoryOverview } from "./RepositoryViews";
 
 export type WorkbenchTab =
-  "swarm" | "issues" | "diff" | "actions" | "admin" | "tree" | "primitives";
+  | "repositories"
+  | "overview"
+  | "swarm"
+  | "issues"
+  | "diff"
+  | "actions"
+  | "admin"
+  | "tree"
+  | "primitives";
 
 export const WorkbenchApp: Component = () => {
+  let accessLink = readWorkbenchAccessLink();
   const [liveMode, setLiveMode] = createSignal(Boolean(getLiveToken()));
-  const [activeTab, setActiveTab] = createSignal<WorkbenchTab>("swarm");
+  const [activeTab, setActiveTab] = createSignal<WorkbenchTab>(
+    accessLink ? "admin" : "repositories",
+  );
   const [cmdOpen, setCmdOpen] = createSignal(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = createSignal(false);
 
-  // Showcase Local-First Agent Swarm & Sandbox Fleet Store
   const [swarmTasks, setSwarmTasks] = createSignal<AgentSandboxTask[]>(
     liveMode() ? [] : INITIAL_AGENT_SWARM_TASKS,
   );
@@ -70,7 +79,6 @@ export const WorkbenchApp: Component = () => {
     filterAgentSwarmTasks(swarmTasks(), swarmFilter()),
   );
 
-  // Showcase Local-First / Optimistic Issue Store
   const [issues, setIssues] = createSignal<IssueItem[]>(INITIAL_ISSUES);
   const [issueFilter, setIssueFilter] = createSignal("");
   const [focusedIssueIdx, setFocusedIssueIdx] = createSignal(0);
@@ -83,13 +91,11 @@ export const WorkbenchApp: Component = () => {
   );
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Showcase Gitust Actions CI/CD State
   const [actionJobs, setActionJobs] =
     createSignal<ActionJobStep[]>(INITIAL_ACTION_JOBS);
   const [activeJobId, setActiveJobId] = createSignal("job-docker");
   const actionLogs = createMemo(() => generateActionLogs(10000));
 
-  // Showcase & Live Enterprise Self-Hosted Admin & IAM State
   const [enterpriseUsers, setEnterpriseUsers] = createSignal<EnterpriseUser[]>(
     liveMode() ? [] : INITIAL_ENTERPRISE_USERS,
   );
@@ -110,9 +116,9 @@ export const WorkbenchApp: Component = () => {
       setHistoryTask(null);
   });
   const [redeemMode, setRedeemMode] = createSignal<"invite" | "reset">(
-    "invite",
+    accessLink?.mode ?? "invite",
   );
-  const [redeemToken, setRedeemToken] = createSignal("");
+  const [redeemToken, setRedeemToken] = createSignal(accessLink?.token ?? "");
   const [liveInvites, setLiveInvites] = createSignal<LiveInviteItem[]>([]);
   const [lastIssuedInviteUrl, setLastIssuedInviteUrl] = createSignal<
     string | null
@@ -125,53 +131,32 @@ export const WorkbenchApp: Component = () => {
 
   let filterInputRef: HTMLInputElement | undefined;
 
-  // Demo data is only available in the explicitly labelled showcase mode.
-  const fallbackDiffLines = createMemo(() =>
-    liveMode() ? [] : generateLargeDiff(10000),
-  );
-  const fallbackFileTreeNodes = createMemo(() =>
-    liveMode() ? [] : generateMonorepoFileTree(5000),
-  );
-  const [liveDiffLines, setLiveDiffLines] = createSignal<ReturnType<
-    typeof generateLargeDiff
-  > | null>(null);
-  const [liveFileTreeNodes, setLiveFileTreeNodes] = createSignal<ReturnType<
-    typeof generateMonorepoFileTree
-  > | null>(null);
-  const [liveCommits, setLiveCommits] = createSignal<LiveCommitSummary[]>(
-    liveMode()
-      ? []
-      : [
-          {
-            sha: "554fb6c",
-            short_sha: "554fb6c",
-            summary:
-              "feat(git,server): Step 2-4 gix commit/tree/blob/diff & GitHub mirror sync",
-            author_name: "yuseungjae",
-          },
-          {
-            sha: "5edd70a",
-            short_sha: "5edd70a",
-            summary:
-              "feat(mcp,oauth): Step 2-3 OAuth 2.1 PKCE S256 & MCP gateway",
-            author_name: "yuseungjae",
-          },
-        ],
-  );
-  const [activeCommitRev, setActiveCommitRev] = createSignal("HEAD");
-  const [worktreeReview, setWorktreeReview] = createSignal<LiveWorktreeReview | null>(null);
-  const [lookupMicros, setLookupMicros] = createSignal<number | null>(null);
-  const [liveDiffFiles, setLiveDiffFiles] = createSignal<string[]>([]);
-  const [diffTruncated, setDiffTruncated] = createSignal(false);
-  const [treeTruncated, setTreeTruncated] = createSignal(false);
-  const [selectedFilePath, setSelectedFilePath] = createSignal(
-    liveMode() ? "Repository preview" : "crates/gitust-git/src/browse.rs",
-  );
-
-  const diffLines = createMemo(() => liveDiffLines() ?? fallbackDiffLines());
-  const fileTreeNodes = createMemo(
-    () => liveFileTreeNodes() ?? fallbackFileTreeNodes(),
-  );
+  const {
+    setActiveCommitRev,
+    setLookupMicros,
+    setSelectedFilePath,
+    setLiveDiffLines,
+    setSelectedTreePath,
+    setLiveBlobLines,
+    setLiveFileTreeNodes,
+    setLiveCommits,
+    activeCommitRev,
+    setLiveDiffFiles,
+    setDiffTruncated,
+    setTreeTruncated,
+    setWorktreeReview,
+    liveCommits,
+    worktreeReview,
+    lookupMicros,
+    selectedFilePath,
+    diffLines,
+    liveDiffFiles,
+    diffTruncated,
+    treeTruncated,
+    fileTreeNodes,
+    selectedTreePath,
+    blobLines,
+  } = createWorkbenchRepositoryState(liveMode);
 
   const showQuickFeedback = (msg: string) => {
     if (toastTimer) {
@@ -184,12 +169,13 @@ export const WorkbenchApp: Component = () => {
     }, 2200);
   };
 
-  // Dedicated Live Backend Client (`/api/v1/repo/*` & `/api/v1/sync/github`)
   const liveClient = createLiveRepoClient({
     setActiveCommitRev,
     setLookupMicros,
     setSelectedFilePath,
     setLiveDiffLines,
+    setSelectedTreePath,
+    setLiveBlobLines,
     setLiveFileTreeNodes,
     setLiveCommits,
     getActiveCommitRev: activeCommitRev,
@@ -200,15 +186,44 @@ export const WorkbenchApp: Component = () => {
     showQuickFeedback,
   });
 
-  // Dedicated Live Agent Swarm Client (`/api/v1/swarm/worktrees/*`)
   const liveSwarmClient = createLiveSwarmClient({
     getSwarmTasks: swarmTasks,
     setSwarmTasks,
-    onRepoMutated: () => void liveClient.hydrateFromLiveBackend(),
+    onRepoMutated: () => {
+      void liveClient.hydrateFromLiveBackend();
+      void connectedRepository.refresh();
+    },
     showQuickFeedback,
   });
 
-  // Dedicated Live Auth & Credential Client (`/api/v1/auth/*` & `/api/v1/admin/*`)
+  const clearRepositoryView = () => {
+    setHistoryTask(null);
+    liveClient.resetRepoEpoch();
+    liveSwarmClient.resetSwarmEpoch();
+    setSwarmFilter("");
+    setFocusedSwarmIdx(0);
+    if (!liveMode()) {
+      setLiveDiffLines(null);
+      setLiveFileTreeNodes(null);
+    }
+  };
+  const connectedRepository = createRepositoryWorkspace({
+    liveMode,
+    setActiveTab,
+    clearView: clearRepositoryView,
+    hydrate: () => {
+      setSwarmTasks([]);
+      void liveClient.hydrateFromLiveBackend();
+      void liveSwarmClient.hydrateSwarmWorktrees();
+    },
+  });
+  const {
+    state: repositoryState,
+    selected: selectedRepository,
+    open: openRepository,
+    navigate,
+  } = connectedRepository;
+
   const liveAuthClient = createLiveAuthClient({
     setLiveSession,
     setEnterpriseUsers,
@@ -220,8 +235,9 @@ export const WorkbenchApp: Component = () => {
     setRedeemToken,
     fallbackUsers: INITIAL_ENTERPRISE_USERS,
     onTokenAuthenticated: () => {
-      setHistoryTask(null);
-      liveClient.resetRepoEpoch();
+      accessLink = null;
+      clearRepositoryView();
+      connectedRepository.reset();
       setLiveMode(true);
       setOptimisticToast(null);
       setActiveCommitRev("HEAD");
@@ -231,14 +247,16 @@ export const WorkbenchApp: Component = () => {
       setLiveDiffLines([]);
       setLiveFileTreeNodes([]);
       setLookupMicros(null);
-      liveSwarmClient.resetSwarmEpoch();
       setSwarmTasks([]);
-      void liveClient.hydrateFromLiveBackend();
-      void liveSwarmClient.hydrateSwarmWorktrees();
+      void connectedRepository.refresh();
     },
     onTokenCleared: () => {
-      setHistoryTask(null);
-      liveClient.resetRepoEpoch();
+      clearRepositoryView();
+      connectedRepository.reset();
+      if (accessLink) {
+        setActiveTab("admin");
+        setRedeemToken(accessLink.token);
+      }
       setLiveMode(false);
       setOptimisticToast(null);
       setActiveCommitRev("HEAD");
@@ -258,7 +276,7 @@ export const WorkbenchApp: Component = () => {
     setSwarmTasks,
     getIssues: issues,
     setIssues,
-    setActiveTab,
+    setActiveTab: navigate,
     setFocusedIssueIdx,
     setActionJobs,
     setEnterpriseUsers,
@@ -266,6 +284,7 @@ export const WorkbenchApp: Component = () => {
   });
 
   const approveAndMergeSwarmTask = (id: number) => {
+    if (!selectedRepository() || activeTab() !== "swarm") return;
     if (liveMode() || getLiveToken()) {
       void liveSwarmClient.approveLiveWorktree(id);
     } else {
@@ -274,10 +293,12 @@ export const WorkbenchApp: Component = () => {
   };
 
   const publishSwarmTask = (id: number) => {
+    if (!selectedRepository() || activeTab() !== "swarm") return;
     void liveSwarmClient.publishLiveWorktree(id);
   };
 
   const discardSwarmTask = (id: number) => {
+    if (!selectedRepository() || activeTab() !== "swarm") return;
     if (liveMode() || getLiveToken()) {
       void liveSwarmClient.discardLiveWorktree(id);
     } else {
@@ -286,6 +307,7 @@ export const WorkbenchApp: Component = () => {
   };
 
   const spawnBatchAgentSwarm = () => {
+    if (!selectedRepository() || activeTab() !== "swarm") return;
     if (liveMode() || getLiveToken()) {
       void liveSwarmClient.spawnLiveWorktree();
     } else {
@@ -294,6 +316,7 @@ export const WorkbenchApp: Component = () => {
   };
 
   const reviewSwarmTask = (id: number) => {
+    if (!selectedRepository() || activeTab() !== "swarm") return;
     const task = swarmTasks().find((task) => task.id === id);
     if (!liveMode() || !getLiveToken() || !task?.liveId) return;
     setActiveTab("diff");
@@ -301,39 +324,16 @@ export const WorkbenchApp: Component = () => {
   };
 
   onMount(() => {
-    if (typeof window !== "undefined") {
-      const path = window.location.pathname;
-      const params = new URLSearchParams(window.location.search);
-      const urlToken = (params.get("token") ?? "").trim();
-      if (
-        path.startsWith("/auth/accept-invite") ||
-        urlToken.startsWith("gitust_inv_")
-      ) {
-        setActiveTab("admin");
-        setRedeemMode("invite");
-        if (urlToken) setRedeemToken(urlToken);
-        window.history.replaceState({}, "", path);
-      } else if (
-        path.startsWith("/auth/reset-password") ||
-        urlToken.startsWith("gitust_rst_")
-      ) {
-        setActiveTab("admin");
-        setRedeemMode("reset");
-        if (urlToken) setRedeemToken(urlToken);
-        window.history.replaceState({}, "", path);
-      }
-    }
     const sessionChanged = (event: StorageEvent) => {
       if (event.key === "gitust_token" || event.key === null)
         void liveAuthClient.syncStoredSession();
     };
     window.addEventListener("storage", sessionChanged);
     void liveAuthClient.hydrateAuthData();
-    void liveClient.hydrateFromLiveBackend();
-    void liveSwarmClient.hydrateSwarmWorktrees();
+    void connectedRepository.refresh();
     const cleanups = registerWorkbenchShortcuts({
       getActiveTab: activeTab,
-      setActiveTab,
+      setActiveTab: navigate,
       toggleCommandPalette: () => setCmdOpen((v) => !v),
       toggleShortcutsModal: () => setShortcutsModalOpen((v) => !v),
       getVisibleSwarmTasks: visibleSwarmTasks,
@@ -354,6 +354,8 @@ export const WorkbenchApp: Component = () => {
 
     onCleanup(() => {
       window.removeEventListener("storage", sessionChanged);
+      connectedRepository.reset();
+      clearRepositoryView();
       if (toastTimer) clearTimeout(toastTimer);
       cleanups.forEach((fn) => fn());
     });
@@ -369,35 +371,53 @@ export const WorkbenchApp: Component = () => {
       <WorkbenchNavigation
         items={tabs()}
         active={activeTab()}
-        onSelect={setActiveTab}
+        onSelect={navigate}
+        repositoryName={selectedRepository()?.name}
+        liveMode={liveMode()}
+        username={liveSession()?.username}
       />
       <SidebarInset class="min-w-0">
         <WorkbenchHeader
+          title={
+            tabs().find((item) => item.id === activeTab())?.label ??
+            "Repositories"
+          }
+          repositoryName={
+            ["overview", "swarm", "tree", "diff"].includes(activeTab())
+              ? selectedRepository()?.name
+              : undefined
+          }
+          onBackToRepositories={() => navigate("repositories")}
           onOpenCommandPalette={() => setCmdOpen(true)}
           onOpenShortcutsModal={() => setShortcutsModalOpen(true)}
         />
-        <div class="mx-auto w-full max-w-6xl space-y-5 p-4 sm:p-5 lg:p-6">
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-            <span class="inline-flex items-center gap-2 text-foreground">
-              <span class="size-1.5 rounded-full bg-foreground" />
-              {liveMode() ? "Live workspace" : "Demo workspace"}
-            </span>
-            <span>
-              {liveMode()
-                ? "Issues and Actions use sample data."
-                : "Explore with sample data, or connect your local server."}
-            </span>
+        <main class="mx-auto w-full max-w-7xl min-w-0 space-y-4 p-3 sm:p-5 lg:p-6">
+          <div class="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
+            <span class="size-1.5 shrink-0 rounded-full bg-primary" />
+            <span>{liveMode() ? "Live workspace" : "Demo workspace"}</span>
             <Show when={!liveMode()}>
-              <Button
-                size="sm"
-                variant="ghost"
-                class="-ml-2"
-                onClick={() => setActiveTab("admin")}
-              >
-                Sign in <Icon name="chevron-right" size={12} />
-              </Button>
+              <span class="truncate">Sample data</span>
             </Show>
           </div>
+          <Show when={activeTab() === "repositories"}>
+            <RepositoryLanding
+              state={repositoryState()}
+              liveMode={liveMode()}
+              onOpen={openRepository}
+              onRefresh={() => void connectedRepository.refresh()}
+              onSignIn={() => navigate("admin")}
+            />
+          </Show>
+          <Show when={activeTab() === "overview" && selectedRepository()}>
+            {(repo) => (
+              <RepositoryOverview
+                repository={repo()}
+                liveMode={liveMode()}
+                worktrees={swarmTasks().length}
+                onNavigate={navigate}
+              />
+            )}
+          </Show>
           <Show when={optimisticToast()}>
             {(message) => (
               <Alert>
@@ -416,15 +436,21 @@ export const WorkbenchApp: Component = () => {
             onDiscardSwarmTask={discardSwarmTask}
             onPublishSwarmTask={publishSwarmTask}
             onReviewSwarmTask={reviewSwarmTask}
-            onVerifySwarmTask={(id, command) =>
-              void liveSwarmClient.verifyLiveWorktree(id, command)
-            }
+            onVerifySwarmTask={(id, command) => {
+              if (selectedRepository() && activeTab() === "swarm")
+                void liveSwarmClient.verifyLiveWorktree(id, command);
+            }}
             onRefreshSwarmTasks={() =>
               void liveSwarmClient.hydrateSwarmWorktrees()
             }
             onViewRunHistory={(id) => {
               const task = swarmTasks().find((task) => task.liveId === id);
-              if (task && liveMode() && liveSession()?.role === "SiteAdmin")
+              if (
+                task &&
+                selectedRepository() &&
+                liveMode() &&
+                liveSession()?.role === "SiteAdmin"
+              )
                 setHistoryTask(task);
             }}
             onSpawnBatchAgentSwarm={spawnBatchAgentSwarm}
@@ -448,6 +474,8 @@ export const WorkbenchApp: Component = () => {
             lookupMicros={lookupMicros()}
             selectedFilePath={selectedFilePath()}
             diffLines={diffLines()}
+            selectedTreePath={selectedTreePath()}
+            blobLines={blobLines()}
             liveDiffFiles={liveDiffFiles()}
             diffTruncated={diffTruncated()}
             treeTruncated={treeTruncated()}
@@ -501,7 +529,7 @@ export const WorkbenchApp: Component = () => {
               void liveClient.selectFileFromTree(node)
             }
           />
-        </div>
+        </main>
       </SidebarInset>
 
       {/* Global Command Palette (Cmd+K) */}

@@ -77,7 +77,7 @@ it("never renders repository-controlled task text as executable markup", () => {
       ])}
     />
   ));
-  expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeTruthy();
+  expect(screen.getAllByText('<img src=x onerror="alert(1)">')).toHaveLength(2);
   expect(document.querySelector("script, img")).toBeNull();
 });
 it("submits the labelled sign-in form and clears the entered password", async () => {
@@ -165,6 +165,7 @@ it("keeps role-selection typeahead out of global worktree shortcuts", async () =
         onPolicyFeedback={vi.fn()}
       />
     ));
+    await fireEvent.click(screen.getByRole("tab", { name: "Members", exact: true }));
     const trigger = screen.getByLabelText("Invite role");
     await fireEvent.keyDown(trigger, { key: "s" });
     expect(spawn).not.toHaveBeenCalled();

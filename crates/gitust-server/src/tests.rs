@@ -29,6 +29,8 @@ mod tests_mcp_discard;
 mod tests_oauth;
 #[path = "tests_outbound.rs"]
 mod tests_outbound;
+#[path = "tests_repository_summary.rs"]
+mod tests_repository_summary;
 #[path = "tests_required_checks.rs"]
 mod tests_required_checks;
 #[path = "tests_run_history.rs"]

@@ -1,10 +1,8 @@
-import { For, Show, lazy, type Component } from "solid-js";
+import { Show, lazy, type Component } from "solid-js";
 import {
   ActionsPipelineView,
   AgentSwarmView,
   IssueListView,
-  VirtualDiffViewer,
-  VirtualFileTree,
   type ActionJobStep,
   type AgentSandboxTask,
   type DiffLine,
@@ -15,13 +13,22 @@ import {
   type ActionLogLine,
 } from "../index";
 import { Button } from "../components/ui/button";
-import { Card, CardContent } from "../components/ui/card";
-import { PageHeading, StatusBadge } from "../components/workspace/presentation";
+import { PageHeading } from "../components/workspace/presentation";
 import { Icon } from "../components/workspace/icon";
 import type { LiveCommitSummary, LiveWorktreeReview } from "./live-repo-client";
 import type { WorkbenchTab } from "./WorkbenchApp";
 import { DeferredView } from "../components/workspace/deferred-view";
 import { Alert, AlertDescription } from "../components/ui/alert";
+const RepositoryChangesView = lazy(() =>
+  import("./RepositoryChangesView").then((module) => ({
+    default: module.RepositoryChangesView,
+  })),
+);
+const RepositoryFilesView = lazy(() =>
+  import("./RepositoryFilesView").then((module) => ({
+    default: module.RepositoryFilesView,
+  })),
+);
 const EnterpriseAdminView = lazy(() =>
   import("../patterns/EnterpriseAdminView").then((module) => ({
     default: module.EnterpriseAdminView,
@@ -65,6 +72,8 @@ export interface WorkbenchTabViewsProps {
   lookupMicros: number | null;
   selectedFilePath: string;
   diffLines: DiffLine[];
+  selectedTreePath: string;
+  blobLines: DiffLine[];
   liveDiffFiles: string[];
   diffTruncated: boolean;
   treeTruncated: boolean;
@@ -141,94 +150,21 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
             : "Explore sample commits and a virtualized diff."
         }
       />
-      <Show when={props.worktreeReview}>
-        {(review) => (
-          <Card class="min-w-0">
-            <CardContent class="space-y-2 pt-4 text-xs">
-              <p class="font-medium">Committed worktree changes</p>
-              <p class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <span class="break-all">Head {review().branch}</span>
-                <code class="inline-block max-w-full break-all">{review().headSha ?? "Unresolved"}</code>
-              </p>
-              <p class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <span class="break-all">Base {review().baseBranch || "Unknown merge target"}</span>
-                <code class="inline-block max-w-full break-all">{review().baseSha ?? "Unresolved"}</code>
-              </p>
-              <p class="text-muted-foreground">
-                {review().source === "verified" ? "Requested verified head snapshot. " : "Committed branch comparison. "}
-                Comparing against the merge target at review time. Uncommitted files are not included.
-              </p>
-              <Show when={review().state === "loading"}>
-                <p role="status">Resolving committed revisions...</p>
-              </Show>
-              <Show when={review().error}>
-                {(error) => <p role="status" class="text-error-foreground">{error()}</p>}
-              </Show>
-            </CardContent>
-          </Card>
-        )}
-      </Show>
-      <div class="flex flex-wrap gap-2">
-        <For each={props.liveCommits}>
-          {(commit) => (
-            <Button
-              variant={
-                props.activeCommitRev === commit.sha ||
-                props.activeCommitRev === commit.short_sha
-                  ? "secondary"
-                  : "outline"
-              }
-              size="sm"
-              title={commit.summary}
-              onClick={() => props.onSelectCommitDiff(commit.sha)}
-            >
-              <Icon name="git-commit" />
-              <span>{commit.short_sha}</span>
-              <span class="hidden max-w-52 truncate sm:inline">
-                {commit.summary}
-              </span>
-            </Button>
-          )}
-        </For>
-        <Show when={props.lookupMicros !== null}>
-          <StatusBadge tone="success">
-            Lookup: {props.lookupMicros}µs
-          </StatusBadge>
-        </Show>
-      </div>
-      <Show when={props.diffTruncated}>
-        <Alert>
-          <AlertDescription>
-            This diff preview is incomplete because the server limit was
-            reached. Some changed files or lines may be missing.
-          </AlertDescription>
-        </Alert>
-      </Show>
-      <div
-        class={
-          props.liveDiffFiles.length > 1
-            ? "grid min-w-0 gap-4 lg:grid-cols-[minmax(14rem,1fr)_minmax(0,2fr)]"
-            : "min-w-0"
-        }
-      >
-        <Show when={props.liveDiffFiles.length > 1}>
-          <VirtualFileTree
-            label="Changed files"
-            files={props.liveDiffFiles.map((path) => ({
-              path,
-              kind: "file" as const,
-            }))}
-            activePath={props.selectedFilePath}
-            onSelect={(file) => props.onSelectCommitDiffFile(file.path)}
-            height={240}
-          />
-        </Show>
-        <VirtualDiffViewer
-          filePath={props.selectedFilePath}
+      <DeferredView label="Changes">
+        <RepositoryChangesView
+          liveMode={props.liveMode}
+          commits={props.liveCommits}
+          activeCommitRev={props.activeCommitRev}
+          onSelectCommit={props.onSelectCommitDiff}
+          lookupMicros={props.lookupMicros}
+          review={props.worktreeReview}
+          selectedFilePath={props.selectedFilePath}
           lines={props.diffLines}
-          height={480}
+          files={props.liveDiffFiles}
+          truncated={props.diffTruncated}
+          onSelectFile={props.onSelectCommitDiffFile}
         />
-      </div>
+      </DeferredView>
     </Show>
     <Show when={props.activeTab === "actions"}>
       <PageHeading
@@ -279,27 +215,14 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
           </AlertDescription>
         </Alert>
       </Show>
-      <Show when={props.diffTruncated}>
-        <Alert>
-          <AlertDescription>
-            This diff preview is incomplete because the server limit was
-            reached.
-          </AlertDescription>
-        </Alert>
-      </Show>
-      <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(14rem,1fr)_minmax(0,2fr)]">
-        <VirtualFileTree
+      <DeferredView label="Repository files">
+        <RepositoryFilesView
           files={props.fileTreeNodes}
-          activePath={props.selectedFilePath}
+          selectedFilePath={props.selectedTreePath}
+          lines={props.blobLines}
           onSelect={props.onSelectFileFromTree}
-          height={400}
         />
-        <VirtualDiffViewer
-          filePath={props.selectedFilePath}
-          lines={props.diffLines}
-          height={400}
-        />
-      </div>
+      </DeferredView>
     </Show>
     <Show when={props.activeTab === "primitives"}>
       <DeferredView label="Components">

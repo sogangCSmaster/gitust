@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, type Component } from "solid-js";
+import { createMemo, createSignal, For, Show, type Component } from "solid-js";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Icon } from "../components/workspace/icon";
@@ -48,7 +48,7 @@ export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
           }
           hideLabel
           type="search"
-          placeholder={`Find a file in ${props.files.length.toLocaleString()} paths...`}
+          placeholder="Find a file"
           value={query()}
           onValueChange={(value) => {
             setQuery(value);
@@ -64,6 +64,14 @@ export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
         aria-label={props.label ?? "Repository files"}
       >
+        <Show when={files().length === 0}>
+          <p
+            role="status"
+            class="px-4 py-8 text-center text-xs text-muted-foreground"
+          >
+            {query().trim() ? "No matching files." : "No files to display."}
+          </p>
+        </Show>
         <div
           class="relative"
           style={{ height: `${files().length * rowHeight}px` }}

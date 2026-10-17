@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@solidjs/testing-library";
 import { WorkbenchApp } from "../src/showcase/WorkbenchApp";
 
@@ -59,15 +60,22 @@ beforeEach(() => {
         JSON.stringify(
           url.endsWith("/auth/me")
             ? { user_id: "admin", username: "Admin", role: "SiteAdmin" }
-            : url.endsWith("/swarm/worktrees")
-              ? [row]
-              : url.includes("/repo/commits")
-                ? { commits: [] }
-                : url.includes("/repo/tree")
-                  ? { commit_sha: "c".repeat(40), entries: [] }
-                  : url.includes("/repo/diff")
-                    ? { files: [], lines: [] }
-                    : [],
+            : url.endsWith("/api/v1/repo")
+              ? {
+                  id: "22222222-2222-4222-8222-222222222222",
+                  name: "real-repo",
+                  branch: "main",
+                  head_commit: "c".repeat(40),
+                }
+              : url.endsWith("/swarm/worktrees")
+                ? [row]
+                : url.includes("/repo/commits")
+                  ? { commits: [] }
+                  : url.includes("/repo/tree")
+                    ? { commit_sha: "c".repeat(40), entries: [] }
+                    : url.includes("/repo/diff")
+                      ? { files: [], lines: [] }
+                      : [],
         ),
       ),
   );
@@ -75,6 +83,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   cleanup();
+  window.history.replaceState({}, "", "/");
   await new Promise((resolve) => setTimeout(resolve, 0));
   localStorage.clear();
   vi.unstubAllGlobals();
@@ -93,9 +102,48 @@ const storageChanged = (value: string | null) => {
   );
 };
 
-it("clears live rows on another tab's logout instead of allowing a fake live merge", async () => {
+const renderConnectedWorkbench = async () => {
   render(() => <WorkbenchApp />);
-  await screen.findByText("REAL worktree");
+  await fireEvent.click(
+    await screen.findByRole("button", { name: "Open repository real-repo" }),
+  );
+  await fireEvent.click(
+    within(
+      screen.getByRole("navigation", { name: "Repository views" }),
+    ).getByRole("button", { name: "Worktrees", exact: true }),
+  );
+};
+
+it("starts with repository selection and returns to the list without exposing stale repository views", async () => {
+  render(() => <WorkbenchApp />);
+  const repository = await screen.findByRole("button", {
+    name: "Open repository real-repo",
+  });
+  expect(screen.queryAllByText("REAL worktree")).toHaveLength(0);
+  expect(
+    fetcher.mock.calls.some(([url]) => url.endsWith("/swarm/worktrees")),
+  ).toBe(false);
+  await fireEvent.click(repository);
+  await screen.findByRole("heading", { name: "real-repo" });
+  await fireEvent.click(
+    within(
+      screen.getByRole("navigation", { name: "Repository views" }),
+    ).getByRole("button", { name: "Worktrees", exact: true }),
+  );
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Back to repositories" }),
+  );
+  await screen.findByRole("heading", { name: "Repositories" });
+  expect(
+    screen.queryByRole("navigation", { name: "Repository views" }),
+  ).toBeNull();
+  expect(screen.queryAllByText("REAL worktree")).toHaveLength(0);
+});
+
+it("clears live rows on another tab's logout instead of allowing a fake live merge", async () => {
+  await renderConnectedWorkbench();
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
   await waitFor(() =>
     expect(
       (
@@ -109,7 +157,7 @@ it("clears live rows on another tab's logout instead of allowing a fake live mer
   const requests = fetcher.mock.calls.length;
   storageChanged(null);
   expect(screen.getByText("Demo workspace")).toBeTruthy();
-  expect(screen.queryByText("REAL worktree")).toBeNull();
+  expect(screen.queryAllByText("REAL worktree")).toHaveLength(0);
   await fireEvent.click(oldButton);
   expect(
     screen.queryByText(/Fast-forward merged agent\/real-branch/),
@@ -118,8 +166,8 @@ it("clears live rows on another tab's logout instead of allowing a fake live mer
 });
 
 it("never sends a live row into demo actions while its storage event is still pending", async () => {
-  render(() => <WorkbenchApp />);
-  await screen.findByText("REAL worktree");
+  await renderConnectedWorkbench();
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
   localStorage.removeItem("gitust_token");
   await fireEvent.click(
     screen.getByRole("button", { name: "Approve & merge" }),
@@ -131,12 +179,12 @@ it("never sends a live row into demo actions while its storage event is still pe
 });
 
 it("drops the old account and rows immediately when a replacement account is still loading", async () => {
-  render(() => <WorkbenchApp />);
-  await screen.findByText("REAL worktree");
+  await renderConnectedWorkbench();
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
   fetcher.mockImplementation(() => new Promise<Response>(() => {}));
   storageChanged("session-b");
   expect(screen.getByText("Live workspace")).toBeTruthy();
-  expect(screen.queryByText("REAL worktree")).toBeNull();
+  expect(screen.queryAllByText("REAL worktree")).toHaveLength(0);
   expect(screen.queryByRole("button", { name: "Run history" })).toBeNull();
   expect(
     fetcher.mock.calls.some(
@@ -174,10 +222,10 @@ it("shows persistent partial-result notices in Changes and Repository files", as
       );
     return normalFetch(url, options);
   });
-  render(() => <WorkbenchApp />);
-  await screen.findByText("REAL worktree");
+  await renderConnectedWorkbench();
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
   await fireEvent.click(
-    screen.getByRole("button", { name: "Diff", exact: true }),
+    screen.getByRole("button", { name: "Changes", exact: true }),
   );
   await screen.findByText(/This diff preview is incomplete/);
   await fireEvent.click(
@@ -187,9 +235,11 @@ it("shows persistent partial-result notices in Changes and Repository files", as
     screen.getByText(/This repository path list is incomplete/),
   ).toBeTruthy();
   await fireEvent.click(
-    screen.getByRole("button", { name: "Diff", exact: true }),
+    screen.getByRole("button", { name: "Changes", exact: true }),
   );
-  expect(screen.getByText(/This diff preview is incomplete/)).toBeTruthy();
+  expect(
+    await screen.findByText(/This diff preview is incomplete/),
+  ).toBeTruthy();
 });
 
 it("changes the selected diff file without displaying the aggregate multi-file content", async () => {
@@ -224,10 +274,10 @@ it("changes the selected diff file without displaying the aggregate multi-file c
     }
     return normalFetch(url, options);
   });
-  render(() => <WorkbenchApp />);
-  await screen.findByText("REAL worktree");
+  await renderConnectedWorkbench();
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
   await fireEvent.click(
-    screen.getByRole("button", { name: "Diff", exact: true }),
+    screen.getByRole("button", { name: "Changes", exact: true }),
   );
   await screen.findByText("FIRST FILE");
   expect(screen.queryByText("UNATTRIBUTED AGGREGATE")).toBeNull();
@@ -242,24 +292,50 @@ it("opens committed worktree changes at the displayed verified SHA and merge tar
   const normalFetch = fetcher.getMockImplementation()!;
   const base = "c".repeat(40);
   fetcher.mockImplementation(async (url: string, options?: RequestInit) => {
-    if (url.includes("/repo/diff")) return new Response(JSON.stringify({
-      head_sha: row.verified_commit, base_sha: base, files: [{ path: "reviewed.txt" }],
-      files_changed: 1, lines: [{ old_line: null, new_line: 1, kind: "add", content: "COMMITTED WORKTREE CONTENT" }],
-    }));
+    if (url.includes("/repo/diff"))
+      return new Response(
+        JSON.stringify({
+          head_sha: row.verified_commit,
+          base_sha: base,
+          files: [{ path: "reviewed.txt" }],
+          files_changed: 1,
+          lines: [
+            {
+              old_line: null,
+              new_line: 1,
+              kind: "add",
+              content: "COMMITTED WORKTREE CONTENT",
+            },
+          ],
+        }),
+      );
     return normalFetch(url, options);
   });
-  render(() => <WorkbenchApp />);
-  await screen.findByText("REAL worktree");
-  await fireEvent.click(screen.getByRole("button", { name: "Review committed changes", exact: true }));
+  await renderConnectedWorkbench();
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
+  await fireEvent.click(
+    screen.getByRole("button", {
+      name: "Review committed changes",
+      exact: true,
+    }),
+  );
   await screen.findByRole("heading", { name: "Changes", exact: true });
   await screen.findByText("COMMITTED WORKTREE CONTENT");
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Comparison details", exact: true }),
+  );
   expect(screen.getByText(/Uncommitted files are not included/)).toBeTruthy();
   expect(screen.getByText(`Head ${row.branch}`)).toBeTruthy();
-  expect(screen.getByText(row.verified_commit, { selector: "code" })).toBeTruthy();
+  expect(
+    screen.getByText(row.verified_commit, { selector: "code" }),
+  ).toBeTruthy();
   expect(screen.getByText("Base main")).toBeTruthy();
   expect(screen.getByText(base, { selector: "code" })).toBeTruthy();
-  const requests = fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff"));
-  const query = new URL(requests.at(-1)![0], "https://example.invalid").searchParams;
+  const requests = fetcher.mock.calls.filter(([url]) =>
+    url.includes("/repo/diff"),
+  );
+  const query = new URL(requests.at(-1)![0], "https://example.invalid")
+    .searchParams;
   expect(query.get("head")).toBe(row.verified_commit);
   expect(query.get("base")).toBe("refs/heads/main");
 });
@@ -267,23 +343,148 @@ it("opens committed worktree changes at the displayed verified SHA and merge tar
 it("preserves an unknown worktree target and reports it instead of reviewing main", async () => {
   const normalFetch = fetcher.getMockImplementation()!;
   fetcher.mockImplementation(async (url: string, options?: RequestInit) =>
-    url.endsWith("/swarm/worktrees") ? new Response(JSON.stringify([{ ...row, base_branch: "" }])) : normalFetch(url, options),
+    url.endsWith("/swarm/worktrees")
+      ? new Response(JSON.stringify([{ ...row, base_branch: "" }]))
+      : normalFetch(url, options),
   );
-  render(() => <WorkbenchApp />);
-  await screen.findByText("REAL worktree");
-  const before = fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff")).length;
-  await fireEvent.click(screen.getByRole("button", { name: "Review committed changes", exact: true }));
-  await screen.findByText(/Worktree merge target is unknown/, { selector: "p" });
-  expect(fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff"))).toHaveLength(before);
+  await renderConnectedWorkbench();
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
+  const before = fetcher.mock.calls.filter(([url]) =>
+    url.includes("/repo/diff"),
+  ).length;
+  await fireEvent.click(
+    screen.getByRole("button", {
+      name: "Review committed changes",
+      exact: true,
+    }),
+  );
+  await screen.findByText(/Worktree merge target is unknown/, {
+    selector: "p",
+  });
+  expect(
+    fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff")),
+  ).toHaveLength(before);
 });
 
 it("does not expose live review in demo mode or dispatch a detached live opener after logout", async () => {
-  render(() => <WorkbenchApp />);
-  await screen.findByText("REAL worktree");
-  const button = screen.getByRole("button", { name: "Review committed changes", exact: true });
+  await renderConnectedWorkbench();
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
+  const button = screen.getByRole("button", {
+    name: "Review committed changes",
+    exact: true,
+  });
   storageChanged(null);
-  expect(screen.queryByRole("button", { name: "Review committed changes", exact: true })).toBeNull();
-  const requests = fetcher.mock.calls.length;
+  expect(
+    screen.queryByRole("button", {
+      name: "Review committed changes",
+      exact: true,
+    }),
+  ).toBeNull();
+  const requests = fetcher.mock.calls.filter(([url]) =>
+    url.includes("/repo/diff"),
+  ).length;
   await fireEvent.click(button);
-  expect(fetcher).toHaveBeenCalledTimes(requests);
+  expect(
+    fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff")),
+  ).toHaveLength(requests);
+});
+
+it("preserves password-reset access links when an old stored session is rejected", async () => {
+  window.history.replaceState(
+    {},
+    "",
+    "/auth/reset-password?token=gitust_rst_sample-link",
+  );
+  const normalFetch = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation((url: string, options?: RequestInit) =>
+    url.endsWith("/auth/me")
+      ? Promise.resolve(new Response("Expired", { status: 401 }))
+      : normalFetch(url, options),
+  );
+  render(() => <WorkbenchApp />);
+  const input = await screen.findByRole("textbox", {
+    name: "Single-use token",
+  });
+  expect((input as HTMLInputElement).value).toBe("gitust_rst_sample-link");
+  expect(window.location.search).toBe("");
+  expect(
+    screen
+      .getByRole("tab", { name: "Reset password" })
+      .getAttribute("aria-selected"),
+  ).toBe("true");
+  expect(screen.queryByRole("heading", { name: "Repositories" })).toBeNull();
+});
+
+it("keeps file previews separate from a selected worktree comparison across navigation", async () => {
+  const normalFetch = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (url: string, options?: RequestInit) => {
+    if (url.includes("/repo/tree"))
+      return new Response(
+        JSON.stringify({
+          commit_sha: "c".repeat(40),
+          entries: [{ path: "snapshot.txt", is_dir: false }],
+        }),
+      );
+    if (url.includes("/repo/blob"))
+      return new Response(
+        JSON.stringify({
+          commit_sha: "c".repeat(40),
+          content: "FILE SNAPSHOT CONTENT",
+        }),
+      );
+    if (url.includes("/repo/diff"))
+      return new Response(
+        JSON.stringify({
+          head_sha: row.verified_commit,
+          base_sha: row.base_commit,
+          files: [{ path: "reviewed.txt" }],
+          files_changed: 1,
+          lines: [
+            {
+              old_line: null,
+              new_line: 1,
+              kind: "add",
+              content: "REVIEW DIFF CONTENT",
+            },
+          ],
+        }),
+      );
+    return normalFetch(url, options);
+  });
+  await renderConnectedWorkbench();
+  await screen.findByRole("heading", { name: "REAL worktree", exact: true });
+  await fireEvent.click(
+    screen.getByRole("button", {
+      name: "Review committed changes",
+      exact: true,
+    }),
+  );
+  await screen.findByText("REVIEW DIFF CONTENT");
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Files", exact: true }),
+  );
+  await screen.findByRole("heading", { name: "Repository files", exact: true });
+  expect(screen.queryByText("REVIEW DIFF CONTENT")).toBeNull();
+  await fireEvent.click(
+    await screen.findByRole("button", { name: "snapshot.txt", exact: true }),
+  );
+  await screen.findByText("FILE SNAPSHOT CONTENT");
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Changes", exact: true }),
+  );
+  await screen.findByText("REVIEW DIFF CONTENT");
+  expect(screen.queryByText("FILE SNAPSHOT CONTENT")).toBeNull();
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Comparison details", exact: true }),
+  );
+  expect(
+    screen.getByText(row.verified_commit, { selector: "code" }),
+  ).toBeTruthy();
+  expect(screen.getByText(row.base_commit, { selector: "code" })).toBeTruthy();
+  expect(screen.getByText(`Head ${row.branch}`)).toBeTruthy();
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Files", exact: true }),
+  );
+  await screen.findByText("FILE SNAPSHOT CONTENT");
+  expect(screen.queryByText("REVIEW DIFF CONTENT")).toBeNull();
 });

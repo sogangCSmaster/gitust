@@ -61,9 +61,11 @@ export const VirtualDiffViewer: Component<VirtualDiffViewerProps> = (props) => {
   }));
   return (
     <Card class="min-w-0 overflow-hidden">
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
-        <code class="min-w-0 break-all text-xs">{props.filePath}</code>
-        <div class="flex items-center gap-3 text-xs">
+      <div class="flex items-center justify-between gap-3 border-b bg-muted/30 px-3 py-2">
+        <code class="min-w-0 flex-1 truncate text-xs" title={props.filePath}>
+          {props.filePath}
+        </code>
+        <div class="flex shrink-0 items-center gap-2 text-xs">
           <span class="text-success-foreground">+{stats().add}</span>
           <span class="text-error-foreground">−{stats().del}</span>
           <StatusBadge>{props.lines.length.toLocaleString()} lines</StatusBadge>

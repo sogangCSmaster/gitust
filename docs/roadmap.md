@@ -8,6 +8,8 @@ The immediate milestone is the [trusted single-user self-hosted alpha](operation
 
 Implemented: SolidJS components, CSS tokens, SVG icons, keyboard navigation, and workbench views. Repository browsing and the agent workflow have live server connections. Other views, including broader Actions and enterprise administration concepts, still include demonstrations.
 
+The adopted [workbench interface](architecture/interface-design.md) separates workspace and repository navigation, uses responsive list/detail layouts, and shares compact light/dark theme primitives. The repository list currently represents the server's single configured repository.
+
 ## Phase 2 — Agent workspaces and inbound mirrors
 
 Implemented foundations:
@@ -41,7 +43,7 @@ In progress. Implemented portions:
 Remaining work:
 
 - Durable automatic-run scheduling/restart recovery and start/timeout/cancellation records; non-managed branch triggers and the live Actions workflow screen.
-- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is 80.79 kB gzip.
+- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is 84.17 kB gzip after deferring Files and Changes modules.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Broader administration UI and repository lifecycle management.

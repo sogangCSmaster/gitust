@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-10-17T01:47:31.832158+00:00",
+  "source_base_commit": "11143a4cb6f5d65a495ca84cf9cf9a43d24d9d12",
+  "uncommitted_follow_up": true,
+  "server_binary_sha256": "0837660b38b3cb7946a0b6ed2df265d02565a691268834a649675bc85ab7415a",
+  "source_sha256": {
+    "crates/gitust-git/src/browse.rs": "877d1505b37d7ec821e33877e90b69392efa25ba747e50c7905f75e684a33fac",
+    "packages/design-system/src/patterns/AgentSwarmView.tsx": "5d25225d3df3accb8c8f2733bc274c62addb8c55cff10eadb6c47a616428a394",
+    "packages/design-system/src/showcase/WorkbenchApp.tsx": "0d695e5279d11e12019a97083d28c5657beb4ecfa1803736cb02e0d8cb822eb3",
+    "packages/design-system/src/showcase/WorkbenchTabViews.tsx": "a9cfda6bfe10ffbde7e1bb0f593a01b05c67b6868e4bcfe245b5a93be9d3d175",
+    "packages/design-system/src/showcase/live-repo-client.ts": "1b0a1f52a02e487054b66dd5b70109f8be726c65d141563070153d9d2aaae38c",
+    "packages/design-system/src/showcase/live-swarm-client.ts": "792eaaf7e796b5f79863fb04c38f307fc7441c00565d9212f628e50ef80c03df",
+    "packages/design-system/dist/assets/index.js": "064ef8d021f350c759e66bf197df17f802b4bc0eba2079650249ef4a53359cb7",
+    "packages/design-system/dist/assets/index.css": "8b31d9d6bcdd6f1f91af5026cb0f15a3527748e46a621910a290539772b8c325"
+  },
+  "environment": "macOS arm64; live Vite UI, loopback Rust server, ignored local preview repository and local bare upstream",
+  "fixture": {
+    "worktree_id": "2afa2bb4-bcd5-4ddb-8de6-6baf23ff07cb",
+    "branch": "agent/claude/task-mvbq9wbl-4",
+    "review_head": "0f7c632baf1ba69a37a3fc877cfaf3ab0d8a614e",
+    "review_base": "544b46e0032c860080ce205084748ce9e86b5be9",
+    "files": [
+      "docs/review-proof/checklist.md",
+      "docs/review-proof/summary.md"
+    ],
+    "creation": "UI creation and MCP commit before final backend restart; final review, verification and approval used the identified binary"
+  },
+  "observations": [
+    "Pending branch review resolved both SHAs and switched file content",
+    "Restart cleared verification and disabled approval",
+    "Fresh explicit verification and two required Checks passed for the review head",
+    "Verified review used the displayed SHA and both file selections retained head/base",
+    "Browser approval fast-forwarded preview main to the reviewed head",
+    "390px page clientWidth and scrollWidth were both 390; 1280px used side-by-side file list and diff",
+    "Temporary viewport overrides were reset"
+  ],
+  "git_oracle": {
+    "main_equals_reviewed_head": true,
+    "worktree_branch_equals_reviewed_head": true,
+    "preview_checkout_clean": true,
+    "preview_and_local_upstream_fsck": "passed"
+  },
+  "screenshots": {
+    "worktree-verification.jpg": "cca345e19fee0c2e23b67adaf8295390f776742ddda90ab00579fddc2888b8a2",
+    "worktree-review-mobile.jpg": "982114b62c5b0bd22aa03b204c9f058c358c98defa0ac1d651f4fe15c507efee",
+    "worktree-approved.jpg": "987cd8bcc8e64a7867df3be3bbea6604c4c1860e0d3bfc3e29ba9eb8b7ed74f2",
+    "repository-diff-after-approval.jpg": "3cbe4cbbc7884fbe477cf55f828711fdb48e9ddcd48c0f301bd472110e9249fa"
+  },
+  "checks": {
+    "scripts/verify.sh": "exit 0",
+    "frontend_tests": 136,
+    "git_tests": 81,
+    "ignored_git_benchmarks": 2,
+    "sandbox_tests": 20,
+    "server_tests": 68,
+    "gate_a": "CLEAR TO COMMIT; no remaining verified P0/P1/P2 in scope",
+    "gate_b": "Not completed; user separately approved this follow-up exception on 2026-10-17 and ended automatic Gate B reviews. Historical absence of a verdict is not a pass."
+  },
+  "limitations": [
+    "Browser proof used the Vite development UI, not a standalone release installation",
+    "No actual GitHub publication or production deployment",
+    "Linux Bubblewrap, intended IDE-agent sessions and separately provisioned installation remain unverified",
+    "Initial JS gzip is 80.73 kB, above the 50 kB target"
+  ],
+  "screenshot_context": "Mobile image shows the pinned worktree comparison before approval; desktop repository-diff image shows the refreshed HEAD comparison after approval; approved image shows the merged worktree row.",
+  "review_policy": {
+    "updated_at": "2026-10-17",
+    "worktree_review_gate_b_exception_approved": true,
+    "automatic_gate_b_required": false,
+    "gate_a_and_project_checks_required": true
+  }
+}

@@ -1,5 +1,6 @@
 import type { DiffLine } from "../patterns/VirtualDiffViewer";
 import type { FileTreeNode } from "../patterns/VirtualFileTree";
+import type { AgentSandboxTask } from "../patterns/AgentSwarmView";
 
 const EMPTY_TREE_SHA1 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
@@ -8,6 +9,17 @@ export interface LiveCommitSummary {
   short_sha: string;
   summary: string;
   author_name: string;
+}
+
+export interface LiveWorktreeReview {
+  worktreeId: string;
+  branch: string;
+  baseBranch: string;
+  source: "verified" | "branch";
+  headSha?: string;
+  baseSha?: string;
+  state: "loading" | "ready" | "error";
+  error?: string;
 }
 
 export const formatErr = (err: unknown): string =>
@@ -50,6 +62,7 @@ export interface LiveRepoClientCallbacks {
   setLiveDiffFiles: (paths: string[]) => void;
   setDiffTruncated: (value: boolean) => void;
   setTreeTruncated: (value: boolean) => void;
+  setWorktreeReview?: (review: LiveWorktreeReview | null) => void;
   getActiveCommitRev: () => string;
   showQuickFeedback: (msg: string) => void;
 }
@@ -62,15 +75,20 @@ export interface LiveRepoClientCallbacks {
 export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   let latestViewReqId = 0;
   let repoEpoch = 0;
+  let treeRev: string | null = null;
   let commitDiff:
-    | { head: string; base?: string; files: string[]; truncated: boolean }
+    | { head: string; base?: string; files: string[]; truncated: boolean; review?: LiveWorktreeReview }
     | undefined;
-  const sessionCurrent = (epoch: number, token: string) =>
+  const sessionCurrent = (epoch: number, token: string | null) =>
     epoch === repoEpoch && token === getLiveToken();
   const resetRepoEpoch = () => {
     repoEpoch += 1;
     latestViewReqId += 1;
     commitDiff = undefined;
+    treeRev = null;
+    cb.setWorktreeReview?.(null);
+    cb.setLiveDiffLines([]);
+    cb.setLookupMicros(null);
     cb.setLiveDiffFiles([]);
     cb.setDiffTruncated(false);
     cb.setTreeTruncated(false);
@@ -111,7 +129,9 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         : statusDiffLine(
             (data.files_changed ?? filePaths(data).length) > 0
               ? "[Changed file with no textual hunks — binary content, an empty file, or file metadata changed.]"
-              : `[No file changes in commit ${cb.getActiveCommitRev()}]`,
+              : commitDiff?.review
+                ? "[No committed changes between the worktree head and merge target.]"
+                : `[No file changes in commit ${cb.getActiveCommitRev()}]`,
           ),
     );
   };
@@ -134,7 +154,13 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       );
     return response.json();
   };
-  const loadLiveCommitDiff = async (rev: string) => {
+  const assertSnapshot = (data: { head_sha?: string; base_sha?: string }, head: string, base?: string) => {
+    if (typeof data.head_sha !== "string" || data.head_sha.toLowerCase() !== head.toLowerCase() ||
+        typeof data.base_sha !== "string" || data.base_sha.toLowerCase() !== base?.toLowerCase()) {
+      throw new Error("Server returned a different diff revision; reopen the comparison");
+    }
+  };
+  const loadDiff = async (rev: string, base?: string, reviewTarget?: LiveWorktreeReview) => {
     const reqId = ++latestViewReqId;
     const epoch = repoEpoch;
     const token = getLiveToken();
@@ -142,49 +168,82 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     cb.setLiveDiffFiles([]);
     cb.setDiffTruncated(false);
     cb.setLookupMicros(null);
+    cb.setLiveDiffLines([]);
+    cb.setSelectedFilePath(reviewTarget ? `worktree:${reviewTarget.branch}` : `commit:${rev}`);
+    cb.setWorktreeReview?.(reviewTarget ?? null);
     commitDiff = undefined;
-    if (!token) return;
     const current = () =>
       reqId === latestViewReqId && sessionCurrent(epoch, token);
-    cb.setLiveDiffLines([]);
     try {
-      const data = await fetchDiff(rev, token);
+      if (!token) throw new Error("Sign in to review committed changes");
+      if (reviewTarget) {
+        if (!reviewTarget.worktreeId) throw new Error("No live worktree is available for review");
+        if (!reviewTarget.baseBranch.trim()) throw new Error("Worktree merge target is unknown; restore its creation metadata before review");
+        if (!reviewTarget.branch.trim()) throw new Error("Worktree branch is unknown");
+        if (reviewTarget.source === "verified" && !/^[0-9a-f]{40}$/i.test(rev))
+          throw new Error("Verified worktree has no immutable commit SHA; refresh worktrees");
+      }
+      const data = await fetchDiff(rev, token, undefined, base);
       if (!current()) return;
       const paths = filePaths(data);
-      const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+      const oid = reviewTarget ? /^[0-9a-f]{40}$/i : /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
       if (
-        paths.length > 1 &&
+        (reviewTarget || paths.length > 1) &&
         (!oid.test(data.head_sha) || !oid.test(data.base_sha))
       )
         throw new Error(
-          "Server did not provide immutable commit IDs for this multi-file diff",
+          "Server did not provide immutable commit IDs for this diff",
         );
+      if (reviewTarget?.source === "verified" && data.head_sha.toLowerCase() !== rev.toLowerCase())
+        throw new Error("Server did not return the displayed verified commit; refresh worktrees");
+      const resolvedReview: LiveWorktreeReview | undefined = reviewTarget
+        ? { ...reviewTarget, state: "ready", headSha: data.head_sha, baseSha: data.base_sha }
+        : undefined;
       commitDiff = {
         head: data.head_sha ?? rev,
         base: data.base_sha,
         files: paths,
         truncated: data.truncated === true,
+        review: resolvedReview,
       };
+      if (resolvedReview) {
+        cb.setWorktreeReview?.(resolvedReview);
+        cb.setActiveCommitRev(commitDiff.head);
+      }
       cb.setLiveDiffFiles(paths);
       cb.setDiffTruncated(commitDiff.truncated);
       cb.setSelectedFilePath(paths[0] ?? `commit:${rev}`);
       const firstPath = paths[0];
       if (paths.length > 1 && firstPath !== undefined) {
+        const snapshot = commitDiff;
         // Aggregate lines have no file boundaries. Fetch only the selected path at fixed commits.
         const first = await fetchDiff(
-          commitDiff.head,
+          snapshot.head,
           token,
           firstPath,
-          commitDiff.base,
+          snapshot.base,
         );
-        if (current()) showDiff(first, firstPath);
+        if (current()) {
+          assertSnapshot(first, snapshot.head, snapshot.base);
+          showDiff(first, firstPath);
+        }
       } else showDiff(data, paths[0] ?? `commit:${rev}`);
     } catch (err) {
       if (!current()) return;
       const msg = `Diff lookup failed for ${rev}: ${formatErr(err)}`;
       cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
+      if (reviewTarget) cb.setWorktreeReview?.({ ...(commitDiff?.review ?? reviewTarget), state: "error", error: formatErr(err) });
       cb.showQuickFeedback(msg);
     }
+  };
+  const loadLiveCommitDiff = (rev: string) => loadDiff(rev);
+  const branchRef = (branch: string) => branch.startsWith("refs/heads/") ? branch : `refs/heads/${branch}`;
+  const loadLiveWorktreeDiff = (task: AgentSandboxTask) => {
+    const verified = task.sandboxStatus === "verified";
+    return loadDiff(verified ? task.verifiedCommit ?? "" : branchRef(task.branch), branchRef(task.baseBranch), {
+      worktreeId: task.liveId ?? "", branch: task.branch, baseBranch: task.baseBranch,
+      source: verified ? "verified" : "branch", headSha: verified ? task.verifiedCommit : undefined, state: "loading",
+    });
   };
   const selectCommitDiffFile = async (path: string) => {
     const snapshot = commitDiff;
@@ -200,11 +259,16 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     cb.setDiffTruncated(snapshot.truncated);
     try {
       const data = await fetchDiff(snapshot.head, token, path, snapshot.base);
-      if (current()) showDiff(data, path);
+      if (current()) {
+        assertSnapshot(data, snapshot.head, snapshot.base);
+        if (snapshot.review) cb.setWorktreeReview?.(snapshot.review);
+        showDiff(data, path);
+      }
     } catch (err) {
       if (!current()) return;
       const msg = `Diff lookup failed for ${path}: ${formatErr(err)}`;
       cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
+      if (snapshot.review) cb.setWorktreeReview?.({ ...snapshot.review, state: "error", error: formatErr(err) });
       cb.showQuickFeedback(msg);
     }
   };
@@ -215,6 +279,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   }) => {
     const reqId = ++latestViewReqId;
     commitDiff = undefined;
+    cb.setWorktreeReview?.(null);
     cb.setLiveDiffFiles([]);
     cb.setDiffTruncated(false);
     cb.setSelectedFilePath(node.path);
@@ -229,7 +294,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       );
       return;
     }
-    const rev = cb.getActiveCommitRev();
+    const rev = treeRev;
     const token = getLiveToken();
     if (!token) {
       cb.setLiveDiffLines(
@@ -237,6 +302,13 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       );
       return;
     }
+    if (!rev) {
+      const message = "Repository tree revision is unavailable; refresh repository files before opening a file";
+      cb.setLiveDiffLines(statusDiffLine(`[${message}]`, "del"));
+      cb.showQuickFeedback(message);
+      return;
+    }
+    cb.setActiveCommitRev(rev);
     try {
       const res = await fetch(
         `/api/v1/repo/blob?rev=${encodeURIComponent(rev)}&path=${encodeURIComponent(node.path)}`,
@@ -253,6 +325,8 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       }
       const blob = await res.json();
       if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      if (typeof blob.commit_sha !== "string" || blob.commit_sha.toLowerCase() !== rev.toLowerCase())
+        throw new Error("Server returned a different repository snapshot; refresh repository files");
       cb.setSelectedFilePath(node.path);
       cb.setLookupMicros(Number(blob.lookup_micros ?? 0));
       if (blob.is_binary) {
@@ -308,6 +382,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       ]);
       if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       if (!commitsRes.ok || !treeRes.ok) {
+        treeRev = null;
         cb.setTreeTruncated(false);
         cb.setLiveCommits([]);
         cb.setLiveFileTreeNodes([]);
@@ -322,6 +397,10 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         treeRes.json(),
       ]);
       if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      if (typeof tData.commit_sha !== "string" || !/^[0-9a-f]{40}$/i.test(tData.commit_sha))
+        throw new Error("Server did not identify the repository tree revision");
+      if (!Array.isArray(tData.entries)) throw new Error("Server did not provide repository tree entries");
+      treeRev = tData.commit_sha;
       if (Array.isArray(cData.commits)) {
         cb.setLiveCommits(cData.commits);
         cb.setLookupMicros(Number(cData.lookup_micros ?? 0));
@@ -338,6 +417,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       await loadLiveCommitDiff("HEAD");
     } catch (err) {
       if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      treeRev = null;
       cb.setTreeTruncated(false);
       cb.setLiveCommits([]);
       cb.setLiveFileTreeNodes([]);
@@ -401,6 +481,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
 
   return {
     loadLiveCommitDiff,
+    loadLiveWorktreeDiff,
     selectFileFromTree,
     selectCommitDiffFile,
     resetRepoEpoch,

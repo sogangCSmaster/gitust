@@ -22,10 +22,15 @@ Support claims require execution evidence on the named platform, not merely comp
 | A5 | The web workflow completes task creation, diff review, verification, history, approval and publication. | Browser evidence for the live server; failure feedback, keyboard/modal boundaries, compact desktop and mobile layouts; demos visibly identified. |
 | A6 | Failure, concurrency and restart do not silently damage work or grant authority. | Network failure/retry, duplicate operations, process restart, durable owner/approval/history checks; pending verification authority is not restored. |
 | A7 | A stopped installation can be backed up and restored to a different location. | Restored auth, refs, dirty worktrees, owner/origin records, approvals/publications and history; original remains unchanged; reverify pending tasks before approval. |
-| A8 | A fixed release candidate passes all project checks and independent reviews. | `scripts/verify.sh` exit 0; architecture audit and live probe results with P0/P1/P2 resolved; regression tests for reproduced defects. |
+| A8 | A fixed release candidate passes all project checks and an independent Gate A review. | `scripts/verify.sh` exit 0; architecture/correctness review with P0/P1/P2 resolved; regression and relevant runtime tests for reproduced defects. |
 | A9 | Ten actual task rehearsals complete with recorded results. | Ten distinct managed tasks modifying committed Gitust source, successful and failed/retried/discarded cases, exact commit/result records, explicit local-vs-GitHub evidence boundary. |
 
 ## Evidence ledger
+
+On 2026-10-17 the user approved the worktree-review follow-up's Gate B exception and
+ended automatic Gate B reviews. A8 now requires Gate A and the existing project checks;
+historical incomplete Gate B results remain incomplete evidence, not passed reviews.
+The other acceptance conditions and functional/security regressions remain in force.
 
 Record the source revision **and dirty working-tree scope**, OS/toolchain, commands, exit
 codes, and artifact paths. Do not store credentials, model inputs or private output in a

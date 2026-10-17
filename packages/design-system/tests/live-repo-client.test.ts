@@ -19,7 +19,14 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-beforeEach(() => {
+async function hydrateTree(view: ReturnType<typeof createLiveRepoClient>) {
+  fetchMock.mockResolvedValueOnce(response({ commits: [] }))
+    .mockResolvedValueOnce(response({ commit_sha: head, entries: [] }))
+    .mockResolvedValueOnce(response({ head_sha: head, base_sha: base, files: [], lines: [] }));
+  await view.hydrateFromLiveBackend();
+  fetchMock.mockReset();
+}
+beforeEach(async () => {
   token = "session-a";
   lines = null;
   feedback = vi.fn();
@@ -52,6 +59,8 @@ beforeEach(() => {
     getActiveCommitRev: () => "HEAD",
     showQuickFeedback: feedback,
   });
+  await hydrateTree(client);
+  lines = null;
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -81,7 +90,7 @@ it("keeps the newest selected viewer response", async () => {
   const old = deferred<Response>();
   fetchMock
     .mockReturnValueOnce(old.promise)
-    .mockResolvedValueOnce(response({ content: "new" }));
+    .mockResolvedValueOnce(response({ commit_sha: head, content: "new" }));
   const first = client.selectFileFromTree({ path: "old", kind: "file" });
   await client.selectFileFromTree({ path: "new", kind: "file" });
   old.resolve(response({ content: "old" }));
@@ -105,6 +114,7 @@ it("invalidates a pending file response when a directory is selected", async () 
     getActiveCommitRev: () => "HEAD",
     showQuickFeedback: feedback,
   });
+  await hydrateTree(view);
   const pending = deferred<Response>();
   fetchMock.mockReturnValueOnce(pending.promise);
   const first = view.selectFileFromTree({ path: "old.txt", kind: "file" });
@@ -183,7 +193,7 @@ it("retains explicit truncation state for both a partial diff and a partial tree
       url.includes("/repo/commits")
         ? { commits: [] }
         : url.includes("/repo/tree")
-          ? { entries: [{ path: "one.txt", is_dir: false }], truncated: true }
+          ? { commit_sha: head, entries: [{ path: "one.txt", is_dir: false }], truncated: true }
           : diff("one.txt", "PARTIAL DIFF", true),
     ),
   );

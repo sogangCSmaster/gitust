@@ -7,6 +7,8 @@ use tempfile::TempDir;
 
 #[path = "tests_approvals.rs"]
 mod tests_approvals;
+#[path = "tests_browse_immutable.rs"]
+mod tests_browse_immutable;
 #[path = "tests_checks.rs"]
 mod tests_checks;
 #[path = "tests_review_security.rs"]

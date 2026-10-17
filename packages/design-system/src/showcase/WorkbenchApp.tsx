@@ -30,6 +30,7 @@ import {
   createLiveRepoClient,
   getLiveToken,
   LiveCommitSummary,
+  LiveWorktreeReview,
 } from "./live-repo-client";
 import { createLiveSwarmClient } from "./live-swarm-client";
 import {
@@ -158,6 +159,7 @@ export const WorkbenchApp: Component = () => {
         ],
   );
   const [activeCommitRev, setActiveCommitRev] = createSignal("HEAD");
+  const [worktreeReview, setWorktreeReview] = createSignal<LiveWorktreeReview | null>(null);
   const [lookupMicros, setLookupMicros] = createSignal<number | null>(null);
   const [liveDiffFiles, setLiveDiffFiles] = createSignal<string[]>([]);
   const [diffTruncated, setDiffTruncated] = createSignal(false);
@@ -194,6 +196,7 @@ export const WorkbenchApp: Component = () => {
     setLiveDiffFiles,
     setDiffTruncated,
     setTreeTruncated,
+    setWorktreeReview,
     showQuickFeedback,
   });
 
@@ -288,6 +291,13 @@ export const WorkbenchApp: Component = () => {
     } else {
       demoActions.spawnDemoBatchSwarm();
     }
+  };
+
+  const reviewSwarmTask = (id: number) => {
+    const task = swarmTasks().find((task) => task.id === id);
+    if (!liveMode() || !getLiveToken() || !task?.liveId) return;
+    setActiveTab("diff");
+    void liveClient.loadLiveWorktreeDiff(task);
   };
 
   onMount(() => {
@@ -405,6 +415,7 @@ export const WorkbenchApp: Component = () => {
             onApproveMergeSwarmTask={approveAndMergeSwarmTask}
             onDiscardSwarmTask={discardSwarmTask}
             onPublishSwarmTask={publishSwarmTask}
+            onReviewSwarmTask={reviewSwarmTask}
             onVerifySwarmTask={(id, command) =>
               void liveSwarmClient.verifyLiveWorktree(id, command)
             }
@@ -429,6 +440,7 @@ export const WorkbenchApp: Component = () => {
             issueFilter={issueFilter()}
             onIssueFilterChange={setIssueFilter}
             liveCommits={liveCommits()}
+            worktreeReview={worktreeReview()}
             activeCommitRev={activeCommitRev()}
             onSelectCommitDiff={(sha) =>
               void liveClient.loadLiveCommitDiff(sha)

@@ -138,7 +138,8 @@ impl GitEngine {
     }
 
     /// Resolves a revision specifier (`HEAD`, branch, tag, 40-hex OID, plus `~N`/`^N` ancestry
-    /// suffixes) to a `gix::Commit` in-process without spawning any subprocess.
+    /// suffixes) to a `gix::Commit` in-process without spawning any subprocess. A full OID is
+    /// immutable object identity; a same-named branch or tag requires its fully qualified ref.
     pub(crate) fn resolve_commit<'a>(
         repo: &'a gix::Repository,
         rev: Option<&str>,
@@ -157,6 +158,22 @@ impl GitEngine {
                 .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?;
             head.peel_to_commit_in_place()
                 .map_err(|_| GitEngineError::RevisionNotFound(clean_rev.clone()))?
+        } else if anchor.len() == 40 && anchor.bytes().all(|b| b.is_ascii_hexdigit()) {
+            // Check full object identity before mutable refs, including when the object is missing.
+            let oid = gix::ObjectId::from_hex(anchor.as_bytes())
+                .map_err(|_| GitEngineError::RevisionNotFound(clean_rev.clone()))?;
+            // fail-open-ok: a missing or non-commit object returns RevisionNotFound without reference fallback.
+            repo.find_object(oid)
+                .ok()
+                .and_then(|o| o.peel_to_commit().ok())
+                .ok_or_else(|| GitEngineError::RevisionNotFound(clean_rev.clone()))?
+        } else if anchor.starts_with("refs/") {
+            let mut reference = repo
+                .find_reference(anchor)
+                .map_err(|_| GitEngineError::RevisionNotFound(clean_rev.clone()))?;
+            reference
+                .peel_to_commit()
+                .map_err(|_| GitEngineError::RevisionNotFound(clean_rev.clone()))?
         } else if let Some(mut r) = [
             format!("refs/heads/{anchor}"),
             format!("refs/tags/{anchor}"),
@@ -168,22 +185,17 @@ impl GitEngine {
         {
             r.peel_to_commit()
                 .map_err(|_| GitEngineError::RevisionNotFound(clean_rev.clone()))?
-        } else if (7..=40).contains(&anchor.len()) && anchor.bytes().all(|b| b.is_ascii_hexdigit())
-        {
-            let oid = if anchor.len() == 40 {
-                gix::ObjectId::from_hex(anchor.as_bytes())
-                    .map_err(|_| GitEngineError::RevisionNotFound(clean_rev.clone()))?
-            } else {
-                let prefix = gix::hash::Prefix::from_hex(anchor)
-                    .map_err(|_| GitEngineError::RevisionNotFound(clean_rev.clone()))?;
-                // fail-open-ok: maps non-existent or ambiguous short OID prefix to `RevisionNotFound` via `.ok_or_else(...)` below.
-                repo.objects
-                    .lookup_prefix(prefix, None)
-                    .ok()
-                    .flatten()
-                    .and_then(Result::ok)
-                    .ok_or_else(|| GitEngineError::RevisionNotFound(clean_rev.clone()))?
-            };
+        } else if (7..40).contains(&anchor.len()) && anchor.bytes().all(|b| b.is_ascii_hexdigit()) {
+            let prefix = gix::hash::Prefix::from_hex(anchor)
+                .map_err(|_| GitEngineError::RevisionNotFound(clean_rev.clone()))?;
+            // fail-open-ok: maps non-existent or ambiguous short OID prefix to `RevisionNotFound` via `.ok_or_else(...)` below.
+            let oid = repo
+                .objects
+                .lookup_prefix(prefix, None)
+                .ok()
+                .flatten()
+                .and_then(Result::ok)
+                .ok_or_else(|| GitEngineError::RevisionNotFound(clean_rev.clone()))?;
             // fail-open-ok: maps missing or non-commit object OID to `RevisionNotFound` via `.ok_or_else(...)` below.
             repo.find_object(oid)
                 .ok()

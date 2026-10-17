@@ -82,6 +82,7 @@ export interface AgentSwarmViewProps {
   onVerifyWorktree: (id: number, command: string) => void;
   onRefreshWorktrees: () => void;
   onViewRunHistory?: (worktreeId: string) => void;
+  onReviewWorktree?: (id: number) => void;
   canRunVerification: boolean;
   liveMode: boolean;
   onSpawnBatchSwarm: () => void;
@@ -252,6 +253,15 @@ export const AgentSwarmView: Component<AgentSwarmViewProps> = (props) => {
                     </CollapsibleContent>
                   </Collapsible>
                   <div class="flex flex-wrap gap-2">
+                    <Show when={props.liveMode && task.liveId && props.onReviewWorktree}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => props.onReviewWorktree?.(task.id)}
+                      >
+                        <Icon name="diff" /> Review committed changes
+                      </Button>
+                    </Show>
                     <Show
                       when={
                         props.liveMode &&

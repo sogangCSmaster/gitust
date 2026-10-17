@@ -15,9 +15,10 @@ import {
   type ActionLogLine,
 } from "../index";
 import { Button } from "../components/ui/button";
+import { Card, CardContent } from "../components/ui/card";
 import { PageHeading, StatusBadge } from "../components/workspace/presentation";
 import { Icon } from "../components/workspace/icon";
-import type { LiveCommitSummary } from "./live-repo-client";
+import type { LiveCommitSummary, LiveWorktreeReview } from "./live-repo-client";
 import type { WorkbenchTab } from "./WorkbenchApp";
 import { DeferredView } from "../components/workspace/deferred-view";
 import { Alert, AlertDescription } from "../components/ui/alert";
@@ -44,6 +45,7 @@ export interface WorkbenchTabViewsProps {
   onVerifySwarmTask: (id: number, command: string) => void;
   onRefreshSwarmTasks: () => void;
   onViewRunHistory: (worktreeId: string) => void;
+  onReviewSwarmTask?: (id: number) => void;
   onSpawnBatchAgentSwarm: () => void;
   onTriggerGithubSync: () => void;
   swarmFilter: string;
@@ -57,6 +59,7 @@ export interface WorkbenchTabViewsProps {
   issueFilter: string;
   onIssueFilterChange: (q: string) => void;
   liveCommits: LiveCommitSummary[];
+  worktreeReview?: LiveWorktreeReview | null;
   activeCommitRev: string;
   onSelectCommitDiff: (sha: string) => void;
   lookupMicros: number | null;
@@ -97,6 +100,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         onVerifyWorktree={props.onVerifySwarmTask}
         onRefreshWorktrees={props.onRefreshSwarmTasks}
         onViewRunHistory={props.onViewRunHistory}
+        onReviewWorktree={props.onReviewSwarmTask}
         canRunVerification={
           props.adminAuthProps?.liveSession?.role === "SiteAdmin"
         }
@@ -137,6 +141,33 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
             : "Explore sample commits and a virtualized diff."
         }
       />
+      <Show when={props.worktreeReview}>
+        {(review) => (
+          <Card class="min-w-0">
+            <CardContent class="space-y-2 pt-4 text-xs">
+              <p class="font-medium">Committed worktree changes</p>
+              <p class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span class="break-all">Head {review().branch}</span>
+                <code class="inline-block max-w-full break-all">{review().headSha ?? "Unresolved"}</code>
+              </p>
+              <p class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span class="break-all">Base {review().baseBranch || "Unknown merge target"}</span>
+                <code class="inline-block max-w-full break-all">{review().baseSha ?? "Unresolved"}</code>
+              </p>
+              <p class="text-muted-foreground">
+                {review().source === "verified" ? "Requested verified head snapshot. " : "Committed branch comparison. "}
+                Comparing against the merge target at review time. Uncommitted files are not included.
+              </p>
+              <Show when={review().state === "loading"}>
+                <p role="status">Resolving committed revisions...</p>
+              </Show>
+              <Show when={review().error}>
+                {(error) => <p role="status" class="text-error-foreground">{error()}</p>}
+              </Show>
+            </CardContent>
+          </Card>
+        )}
+      </Show>
       <div class="flex flex-wrap gap-2">
         <For each={props.liveCommits}>
           {(commit) => (

@@ -33,16 +33,19 @@ In progress. Implemented portions:
 - Per-command verification outcomes, measured durations, skipped checks and expandable command-specific stdout/stderr in HTTP/MCP and the workbench; stored output is bounded separately for history.
 - Bounded durable history of completed HTTP/MCP runs, with a SiteAdmin-only read API and no restoration of approval authority.
 - A live workbench history viewer for the latest five completed runs, including per-command outcomes, captured output and execution metadata, separate from current verification authority.
+- A live worktree-to-diff review entry that pins head/base commits across file switches, refuses unknown targets and keeps tree/blob snapshots consistent. The follow-up passed local checks and Gate A; its Gate B exception was approved before automatic Gate B reviews were stopped by the user.
 - A stopped-installation backup/relocated-restore utility, regression tests and recorded local macOS rehearsals, including MCP commits after relocation. Linux and release acceptance remain open.
 
 Remaining work:
 
 - Automatic Checks on branch updates; durable start/timeout/cancellation records.
+- Persist task labels across restarts; recovered tasks currently retain their branch identity but display a generic recovered label.
+- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current production entry is 80.73 kB gzip.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Broader administration UI and repository lifecycle management.
 - Final-candidate restoration evidence for auth state, Git data, worktrees and approval records on the intended platforms.
-- Deployment validation, platform coverage, and remaining independent security review.
+- Deployment validation, platform coverage, and final-candidate checks and Gate A review.
 
 The MCP commit implementation passed current full checks, an independent architecture review and the local ten-task rehearsal after index-aware normalization fixes. The independent HTTP review has partial executed evidence but no final verdict because further checks were interrupted by tool policy. Actual intended IDE-agent sessions, authorized GitHub publication, Linux execution and a separately provisioned installation remain open. Track those boundaries in the [alpha progress report](operations/alpha-progress-2026-10-17.md); all nine acceptance conditions remain in force.
 

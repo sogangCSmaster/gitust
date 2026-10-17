@@ -100,7 +100,7 @@ Gitust는 Git 호스팅, 에이전트 워크트리, 로컬 명령 실행, 사람
 - 각 Step의 개발이 끝나면 7.4의 검증과 7.5의 리뷰 에이전트(Subagent) 감사를 거쳐 지적 사항을 모두 해결한 상태로 워킹 트리에 유지하고, **사용자의 명시적인 요청이 있을 때만 `git commit` / `git push`를 수행**합니다.
 - **"커밋/푸시해줘" 요청은 게이트 생략 허가가 아닙니다.** 요청을 받으면 반드시 다음 순서로 진행합니다.
   1. `scripts/verify.sh` 실행 (종료 코드 0 필수, `grep` 파이프로 실패를 숨기지 않음).
-  2. 아직 7.5 Gate A/B를 통과하지 않은 변경이 있으면 두 리뷰 Subagent를 먼저 구동하고, P0/P1을 모두 해결한 뒤 결과(Verdict)를 사용자에게 보고.
+  2. 아직 7.5 Gate A를 통과하지 않은 변경이 있으면 독립 리뷰 Subagent를 먼저 구동하고, P0/P1을 모두 해결한 뒤 결과(Verdict)를 사용자에게 보고.
   3. 그 다음에만 commit/push. 게이트를 생략해야 할 사정이 있으면 push 전에 사용자에게 명시적으로 묻습니다.
 - 저장소 pre-push hook(`.githooks/pre-push` → `scripts/verify.sh`)을 사용합니다. 새 클론에서는 `git config core.hooksPath .githooks`로 활성화하며, `--no-verify` 사용을 금지합니다.
 
@@ -112,15 +112,14 @@ Gitust는 Git 호스팅, 에이전트 워크트리, 로컬 명령 실행, 사람
 - **동기화**: 미러 결과가 원본 GitHub 저장소의 ref·커밋과 일치하는지 비교 검증합니다.
 - **백업/복구**: Phase 3부터 백업에서 실제로 복구하는 리허설 테스트를 둡니다.
 - **성능**: 6장 수치를 주장하는 변경은 벤치마크 결과를 함께 남깁니다.
-- **리뷰 PoC의 회귀 테스트화**: Gate A/B에서 `[Verified]`로 보고된 모든 P0/P1은 해당 PoC를 저장소 테스트로 옮겨, 수정 전 코드에서 실패하고 수정 후 통과함을 확인합니다. 같은 버그 유형의 다른 위치도 함께 찾아 고칩니다(`adversarial-audit` 2.5 Fix-Sweep Rule).
+- **리뷰 PoC의 회귀 테스트화**: 독립 리뷰에서 `[Verified]`로 보고된 모든 P0/P1은 해당 PoC를 저장소 테스트로 옮겨, 수정 전 코드에서 실패하고 수정 후 통과함을 확인합니다. 같은 버그 유형의 다른 위치도 함께 찾아 고칩니다(`adversarial-audit` 2.5 Fix-Sweep Rule).
 - **Fail-closed**: 인증·영속화·샌드박스·Git·동기화 경로에서 오류를 "변경 없음/허용/건너뜀"으로 바꾸지 않습니다. `scripts/audit-fail-open.sh`가 이를 기계적으로 검사합니다.
 
-### 7.5 Mandatory Per-Step Dual Subagent Review Gate (아키텍처 감사 + 독립 외부 해킹 Red-Team Subagent)
-각 Step이나 작업 개발이 끝날 때마다 **`git commit` / `git push` 전에 반드시 아래 두 개의 전용 스킬과 독립 Subagent(`invoke_subagent`)를 분리 구동하여 교차 감사**를 수행하고, 발견된 P0/P1 이슈를 모두 수정해야 합니다. 형식적인 고무도장(Rubber-stamp) 통과를 엄격히 금지합니다.
+### 7.5 Mandatory Per-Step Independent Review Gate (코드 품질·성능·아키텍처 감사)
+각 Step이나 작업 개발이 끝날 때마다 **`git commit` / `git push` 전에 `adversarial-audit` 스킬을 적용한 독립 Subagent로 Gate A 감사**를 수행하고, 발견된 P0/P1 이슈를 모두 수정해야 합니다. 형식적인 고무도장(Rubber-stamp) 통과를 엄격히 금지합니다.
 
 - **Gate A — 코드 품질·성능·아키텍처 감사 ([`adversarial-audit` 스킬](.agents/skills/adversarial-audit/SKILL.md))**:
   1. **속도 (Blazing Speed)**: 락 경합(Lock Contention), 비동기 런타임 내 블로킹 I/O 및 CPU 병목, N+1 쿼리, 불필요한 메모리 할당/복사 여부.
   2. **안정성 (Stability & Edge Cases)**: `unwrap()`/`expect()` 제거, `spawn_blocking` 취소 시 가드/리소스 누수, 경계값 및 엣지케이스 처리 여부.
   3. **스파게티 코드 방지 (Clean Architecture & Hard `<600` Line Gate)**: 모든 Rust/TS/TSX 소스 및 테스트 파일은 **단일 파일 600줄 미만(`wc -l < 600`)을 강제(Hard P1 Gate)** 하며, 다중 맵 락 순서 조합(`AppState` 등)은 반드시 단일 상태 전이 메서드로 캡슐화하고, 실서버 API 클라이언트와 쇼케이스 데모 상태를 한 파일에 섞지 않으며, 상태 이원화(Split-Brain) 및 허위 측정치를 엄격히 금지합니다.
-- **Gate B — 독립 외부 해킹 & 실전 익스플로잇 프로브 감사 ([`redteam-pentest` 스킬](.agents/skills/redteam-pentest/SKILL.md) + 독립 `redteam-pentester` Subagent)**:
-  - 작성자 관점의 코드 리뷰와 완전히 분리된 **외부 해커(Red Team) 전담 Subagent**를 스폰하여 `.agents/skills/redteam-pentest/SKILL.md`의 **7대 외부 공격 표면(Slow-loris 네트워크 스트림 TOCTOU, 멀티 프로세스 락 우회, OAuth/PKCE/토큰 탈취·재사용, BOLA/IDOR/BFLA 및 비활성 계정 우회, 샌드박스/심볼릭 링크 탈출, Git 파서/플래그/훅 인젝션, 파이프/메모리 고갈 DoS)** 에 대해 **임시 디렉터리(`mktemp -d`)에서 실제 공격 프로브(PoC)를 실행**하여 검증합니다.
+- **Gate B 중단**: 2026-10-17 사용자 지시에 따라 Gate B와 `redteam-pentest` Subagent를 자동 실행하지 않습니다. 이후 사용자가 별도로 요청할 때만 수행합니다. 7.4의 기능·권한·격리·실패 경로 검증과 Gate A는 계속 유지하며, 과거 Gate B 미완료 기록을 통과로 바꾸지 않습니다.

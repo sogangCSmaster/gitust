@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify.sh — mechanical verification gates (AGENTS.md 7.1 / 7.4 / 7.5).
 # Run by .githooks/pre-push; also run manually before asking for review / committing.
-# NOTE: This does NOT replace the Gate A/B review subagents (7.5); it only enforces the
+# NOTE: This does NOT replace the independent Gate A review (7.5); it only enforces the
 # checks a machine can enforce.
 set -euo pipefail
 

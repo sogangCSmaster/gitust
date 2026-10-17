@@ -66,7 +66,7 @@ build output can occupy substantial disk space.
 
 The result describes a fresh **source/output directory using existing host
 toolchains and caches**, not a freshly installed machine. It does not replace
-`scripts/verify.sh`, independent Gate A/B review, the ten-task operating
+`scripts/verify.sh`, independent Gate A review, the ten-task operating
 rehearsal, backup restoration, a real agent-client connection, or GitHub
 authentication/publication validation.
 

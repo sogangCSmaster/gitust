@@ -246,3 +246,8 @@ Whenever a new class of P0 or P1 bug is uncovered during development, testing, o
 ### Check 25: Human Approval Must Bind the Commit the Client Observed
 - Require the full reviewed commit SHA in approval requests. Compare it with the current verified SHA while holding the worktree guard, and pass that same SHA to the merge engine. Another client's newer valid verification must not silently replace the human's intended target; reject the stale request without erasing the newer evidence.
 - Re-authenticate the original credential after reading a bounded approval body. Return the checked SHA with execution results, correlate it with the current verification state, and clear stale output on SHA changes. The UI must also verify the approved response SHA before offering publication.
+
+### Check 26: Immutable Viewers Must Preserve Revision Identity
+- Treat a full commit OID as object identity before looking up named refs; a missing object must not fall back to a same-named branch or tag. Resolve fully qualified `refs/...` exactly, without trying nested branch/tag namespaces first. Test both shadowing cases against independent Git object/ref queries.
+- Resolve a worktree comparison once, retain both returned head/base SHAs, and use and validate those SHAs on every file switch. Tree entries and blob content must share the tree's returned commit SHA. Missing or inconsistent revision metadata is an error, not permission to follow `HEAD` or substitute `main`.
+- Keep review context, file content and request/session epochs synchronized. Late responses and failed reads must not display another comparison's content or claim successful resolution; distinguish committed comparisons from uncommitted working files.

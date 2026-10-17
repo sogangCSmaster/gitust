@@ -1,7 +1,8 @@
 # Alpha acceptance progress — 2026-10-17
 
-The alpha goal remains **open**, with all [nine acceptance conditions](alpha-acceptance.md)
-unchanged. This report records local operational evidence, not release approval. Base
+The alpha goal remains **open**, with [nine acceptance conditions](alpha-acceptance.md).
+The user changed A8's review policy on 2026-10-17 as recorded below. This report records
+local operational evidence, not release approval. Base
 revision: `adb4b6e2e09b99ff8bb3ebf268dad11199c6f718`, plus uncommitted command-output,
 review-fix, operations and MCP commit changes in the working tree. The observations below
 belong to the binaries/scripts identified by their reports. The latest local checks and
@@ -87,16 +88,45 @@ completion, input limits and private auth-file denial. Further checks were inter
 by tool policy before a final verdict; those results do not clear Gate B for the latest
 normalization changes. See the [MCP review record](../security/mcp-commit-review-2026-10-17.md).
 
+## Worktree review follow-up after the source checkpoint
+
+Source checkpoint `11143a4cb6f5d65a495ca84cf9cf9a43d24d9d12` was committed and pushed
+with the user's explicit Gate B exception. The following step received a separate Gate B
+exception on 2026-10-17. The user also ended automatic Gate B reviews going forward;
+Gate A, project checks and runtime regressions remain mandatory. Historical incomplete
+Gate B results are not recorded as passed.
+
+The workbench now opens committed worktree changes directly from the task row. It
+resolves head/base once, validates those immutable SHAs on file switches, refuses an
+unknown merge target and binds tree/blob previews to the tree's own commit. The shared
+Git resolver also prevents same-named refs from replacing a full OID or an explicitly
+qualified ref. Independent Git regressions failed before both fixes and pass afterward.
+
+[Browser evidence](evidence/alpha-web-review-macos-2026-10-17.json) records a real local
+preview task with two MCP-committed files, branch and verified-SHA comparisons, file
+switching, fresh Checks after server restart and approval of that same SHA. Independent
+Git queries confirmed the task/main SHA, clean checkout and repository/upstream `fsck`.
+The final browser review/verification/approval used binary SHA-256
+`0837660b38b3cb7946a0b6ed2df265d02565a691268834a649675bc85ab7415a` and the Vite
+development UI. This does not establish a standalone release installation or GitHub
+publication. Desktop 1280px and mobile 390px layouts were inspected; the mobile page
+had no page-level horizontal overflow, and temporary viewport overrides were reset.
+
+The follow-up's `scripts/verify.sh` exited 0 with 136 frontend tests, 81 Git tests
+(two benchmark cases ignored), 20 sandbox tests, 68 server tests and the remaining
+workspace/operations checks. Production UI build and CLI build passed. Independent
+Gate A ended CLEAR with no remaining verified P0/P1/P2 in this scope; all 183 Rust/TS/TSX
+source/test files remained below 600 lines. Gate B was not completed; the user approved
+the exception and removed it as a standing requirement. The
+production entry bundle is 80.73 kB gzip, above the 50 kB goal. Task labels also remain
+generic after restart; branch/owner/approval identity is preserved.
+
 ## Remaining exit conditions
 
 - Execute the acceptance suite on an actual Linux host with functioning Bubblewrap
   namespaces. No usable Linux VM/container runtime was available locally.
 - Verify real intended agent-client integration. The two Python clients prove protocol
   concurrency; the rehearsal does not represent IDE/LLM sessions.
-- Complete the independent Gate B verdict for the latest MCP commit changes. Local
-  full checks, Gate A and the latest ten-task binary report have passed; partial HTTP
-  probe results are not a completed security review. The user approved a documented
-  exception for this source commit/push; alpha acceptance still requires the missing evidence.
 - Validate authorized GitHub authentication/publication and a separately provisioned
   installation. Local bare upstreams do not prove either external integration.
 - Complete the live browser workflow evidence against the eventual release candidate,

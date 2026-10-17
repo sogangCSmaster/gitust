@@ -64,7 +64,7 @@ beforeEach(() => {
               : url.includes("/repo/commits")
                 ? { commits: [] }
                 : url.includes("/repo/tree")
-                  ? { entries: [] }
+                  ? { commit_sha: "c".repeat(40), entries: [] }
                   : url.includes("/repo/diff")
                     ? { files: [], lines: [] }
                     : [],
@@ -152,6 +152,7 @@ it("shows persistent partial-result notices in Changes and Repository files", as
       return new Response(
         JSON.stringify({
           entries: [{ path: "partial.txt", is_dir: false }],
+          commit_sha: "c".repeat(40),
           truncated: true,
         }),
       );
@@ -235,4 +236,54 @@ it("changes the selected diff file without displaying the aggregate multi-file c
   );
   await screen.findByText("SECOND FILE");
   expect(screen.queryByText("FIRST FILE")).toBeNull();
+});
+
+it("opens committed worktree changes at the displayed verified SHA and merge target", async () => {
+  const normalFetch = fetcher.getMockImplementation()!;
+  const base = "c".repeat(40);
+  fetcher.mockImplementation(async (url: string, options?: RequestInit) => {
+    if (url.includes("/repo/diff")) return new Response(JSON.stringify({
+      head_sha: row.verified_commit, base_sha: base, files: [{ path: "reviewed.txt" }],
+      files_changed: 1, lines: [{ old_line: null, new_line: 1, kind: "add", content: "COMMITTED WORKTREE CONTENT" }],
+    }));
+    return normalFetch(url, options);
+  });
+  render(() => <WorkbenchApp />);
+  await screen.findByText("REAL worktree");
+  await fireEvent.click(screen.getByRole("button", { name: "Review committed changes", exact: true }));
+  await screen.findByRole("heading", { name: "Changes", exact: true });
+  await screen.findByText("COMMITTED WORKTREE CONTENT");
+  expect(screen.getByText(/Uncommitted files are not included/)).toBeTruthy();
+  expect(screen.getByText(`Head ${row.branch}`)).toBeTruthy();
+  expect(screen.getByText(row.verified_commit, { selector: "code" })).toBeTruthy();
+  expect(screen.getByText("Base main")).toBeTruthy();
+  expect(screen.getByText(base, { selector: "code" })).toBeTruthy();
+  const requests = fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff"));
+  const query = new URL(requests.at(-1)![0], "https://example.invalid").searchParams;
+  expect(query.get("head")).toBe(row.verified_commit);
+  expect(query.get("base")).toBe("refs/heads/main");
+});
+
+it("preserves an unknown worktree target and reports it instead of reviewing main", async () => {
+  const normalFetch = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (url: string, options?: RequestInit) =>
+    url.endsWith("/swarm/worktrees") ? new Response(JSON.stringify([{ ...row, base_branch: "" }])) : normalFetch(url, options),
+  );
+  render(() => <WorkbenchApp />);
+  await screen.findByText("REAL worktree");
+  const before = fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff")).length;
+  await fireEvent.click(screen.getByRole("button", { name: "Review committed changes", exact: true }));
+  await screen.findByText(/Worktree merge target is unknown/, { selector: "p" });
+  expect(fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff"))).toHaveLength(before);
+});
+
+it("does not expose live review in demo mode or dispatch a detached live opener after logout", async () => {
+  render(() => <WorkbenchApp />);
+  await screen.findByText("REAL worktree");
+  const button = screen.getByRole("button", { name: "Review committed changes", exact: true });
+  storageChanged(null);
+  expect(screen.queryByRole("button", { name: "Review committed changes", exact: true })).toBeNull();
+  const requests = fetcher.mock.calls.length;
+  await fireEvent.click(button);
+  expect(fetcher).toHaveBeenCalledTimes(requests);
 });

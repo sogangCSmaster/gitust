@@ -81,7 +81,7 @@ export const mapLiveWorktreeToTask = (
   liveId: wt.id,
   agent: mapAgentProvider(wt.agent),
   branch: wt.branch,
-  baseBranch: wt.base_branch || "main",
+  baseBranch: wt.base_branch ?? "",
   forkLatencyMs: Number(((wt.materialize_micros ?? 0) / 1000).toFixed(2)),
   promptSummary: wt.prompt_summary,
   sandboxStatus: wt.status.toLowerCase() === "verified" && !wt.verified_commit

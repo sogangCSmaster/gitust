@@ -11,9 +11,14 @@ async fn outbound_requires_approval_privilege_and_preserves_exact_merge() {
         let out = std::process::Command::new("git")
             .arg("-C")
             .arg(dir)
+            .args(["-c", "commit.gpgsign=false"])
             .args(args)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Gitust Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Gitust Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
             .output()
             .unwrap();
         assert!(

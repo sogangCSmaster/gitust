@@ -19,7 +19,7 @@ mod models;
 mod oauth_session;
 mod persistence;
 mod repository_registration;
-pub use repository_registration::RegisteredRepository;
+pub use repository_registration::{AuthorizedRepository, RegisteredRepository};
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -28,6 +28,8 @@ mod tests_automatic_actor;
 mod tests_persistence;
 #[cfg(test)]
 mod tests_repository_registration;
+#[cfg(test)]
+mod tests_repository_rename;
 #[cfg(test)]
 mod tests_review_regressions;
 #[cfg(test)]

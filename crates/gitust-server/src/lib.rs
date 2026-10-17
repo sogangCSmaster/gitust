@@ -27,6 +27,7 @@ pub(crate) mod quota;
 pub mod repo;
 mod repository_reads;
 mod repository_registry;
+mod repository_rename;
 mod repository_summary;
 mod run_history;
 pub mod state;
@@ -196,7 +197,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))
         .route("/api/v1/repos/{id}/blob", get(repository_reads::blob))
         .route("/api/v1/repos/{id}/diff", get(repository_reads::diff))
-        .route("/api/v1/repos/{id}", get(auth::get_team_repo_handler))
+        .route(
+            "/api/v1/repos/{id}",
+            get(auth::get_team_repo_handler).patch(repository_rename::rename),
+        )
         .route("/api/v1/repo/automatic-runs", get(automatic_run_page::list))
         // Agent Swarm, Sync & MCP Routes (Authenticated & Team/Role BOLA protected)
         .route(

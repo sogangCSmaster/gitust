@@ -224,3 +224,51 @@ fn rejected_credentials_create_no_import_journal_and_changed_inputs_never_resume
     args.name = "Imported".into();
     assert_eq!(crate::repository_import_cmd::run(&args).unwrap(), id);
 }
+
+#[test]
+fn completed_import_with_old_name_cannot_revert_a_later_display_rename() {
+    let root = tempfile::tempdir().unwrap();
+    let args = fixture(root.path());
+    let id = crate::repository_import_cmd::run(&args).unwrap();
+    let store = AuthStore::open_persistent(&args.auth_db).unwrap();
+    let session = store
+        .login(&args.admin_username, &args.admin_password)
+        .unwrap();
+    let admin = store
+        .authenticate_session(&session.raw_session_token)
+        .unwrap();
+    let engine = GitEngine::new(&args.repo);
+    let gitust_git::RegistrationReceipt::Complete(binding) =
+        engine.repository_registration_state(id).unwrap()
+    else {
+        panic!("missing synthetic import registration")
+    };
+    let access = store
+        .configured_repository_access(id, Some(binding))
+        .unwrap();
+    let expected = store
+        .rename_registered_repository(&admin, access, "renamed-after-import")
+        .unwrap();
+    let before = git(
+        &args.repo,
+        &["for-each-ref", "--format=%(refname) %(objectname)"],
+    );
+    assert!(crate::repository_import_cmd::run(&args).is_err());
+    assert_eq!(
+        store.authorize_repository_access(&admin, id).unwrap(),
+        expected
+    );
+    assert_eq!(
+        store
+            .configured_repository_access(id, Some(binding))
+            .unwrap(),
+        access
+    );
+    assert_eq!(
+        git(
+            &args.repo,
+            &["for-each-ref", "--format=%(refname) %(objectname)"]
+        ),
+        before
+    );
+}

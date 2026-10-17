@@ -34,7 +34,8 @@ export type IconName =
   | "server"
   | "bot"
   | "cpu"
-  | "layers";
+  | "layers"
+  | "pencil";
 
 interface IconDef {
   /** SVG inner elements (path, circle, etc.) on a 16x16 viewBox */
@@ -163,6 +164,9 @@ export const ICON_DEFS: Record<IconName, IconDef> = {
   },
   plus: {
     paths: ["M8 3.25v9.5", "M3.25 8h9.5"],
+  },
+  pencil: {
+    paths: ["m10.5 2.5 3 3-8 8-4 1 1-4 8-8Z", "m8.5 4.5 3 3"],
   },
   "chevron-right": {
     paths: ["m6 4 4 4-4 4"],

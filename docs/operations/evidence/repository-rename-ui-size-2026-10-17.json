@@ -1,0 +1,28 @@
+{
+  "source_ui_manifest_sha256": "3606177635aed53ae79ea54b0e4f36e9f5c4cd7f91509920b98d6e3874f082e9",
+  "scope": "complete static JavaScript import closure from production assets/index.js; excludes CSS and dynamic imports",
+  "parser": "installed es-module-lexer 1.7.0",
+  "compression": "individual files gzip level 9",
+  "files": [
+    {
+      "path": "assets/index.js",
+      "bytes": 216294,
+      "gzip_level_9_bytes": 69794,
+      "sha256": "ec737ee590cd3d1d7249961ec81102e30f4459765ed643a3c7d88f7478e4625a"
+    }
+  ],
+  "raw_bytes": 216294,
+  "gzip_bytes": 69794,
+  "target_bytes": 50000,
+  "target_met": false,
+  "runtime_latency_measured": false,
+  "environment": {
+    "node": "v24.18.1",
+    "zlib": "1.3.1-e00f703",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "build_command": "pnpm --filter @gitust/design-system build",
+  "closure_method": "Starting at assets/index.js, follow every es-module-lexer static import (d == -1); this candidate has one module.",
+  "gzip_reproduction_for_this_single_module": "node --input-type=module -e \"import {readFileSync} from 'node:fs'; import {gzipSync} from 'node:zlib'; console.log(gzipSync(readFileSync('packages/design-system/dist/assets/index.js'),{level:9}).length)\""
+}

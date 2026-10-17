@@ -436,6 +436,7 @@ export const WorkbenchApp: Component = () => {
                 liveMode={liveMode()}
                 worktrees={swarmTasks().length}
                 onNavigate={navigate}
+                rename={connectedRepository.rename}
               />
             )}
           </Show>

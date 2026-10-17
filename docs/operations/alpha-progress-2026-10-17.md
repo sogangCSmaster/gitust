@@ -1,13 +1,35 @@
 # Alpha acceptance progress — 2026-10-17
 
-The subsequent [offline repository-import slice](repository-import.md) passed local
-mechanical gates and the actual two-repository rehearsal, including a requested
-default branch distinct from upstream HEAD, annotated tags, fresh identity, exact
-retry and source preservation. Independent local probes also passed interruption
+The subsequent repository-name editing slice passed local full gates and the real
+two-repository import/rename/ACL/restart rehearsal. Browser checks saved names on
+both primary and secondary repositories, retained the name after a remembered-session
+reload, and found no page overflow at 320/768/1440px. Matching dialog buttons measure
+44px on the mobile viewport and 32px on the larger viewports; physical devices were
+not tested. The [initial static JavaScript closure](evidence/repository-rename-ui-size-2026-10-17.json)
+is 69,794 bytes gzip and remains above the 50 kB target.
+
+Adjacent original-credential omissions in the summary, four legacy object-read routes
+and inbound synchronization were reproduced and fixed. Permanent session/PAT regressions
+failed before the fixes and passed afterward, including checks before actual Git
+publication phases. Independent local pre-fix sync probes observed publication after
+revocation; the additional independent native post-fix probe was not completed because
+the reviewing agent was interrupted by tool security policy. This is not a completed
+external review or Gate B. The first full run also exposed a cold-module test deadline;
+waiting for the actual import after the pending-modal assertions made the full rerun
+pass without preloading the feature or extending timeouts. Exact-source hosted CI for
+this later slice remains pending.
+
+The [offline repository-import checkpoint](repository-import.md)
+`2a0a81bbecc151a743265c870fe20cbc59730bd7` passed
+[exact-source Linux/macOS CI](evidence/alpha-ci-2a0a81b-2026-10-17.json).
+Both platforms completed all mechanical gates, the ten operating tasks, crash
+recovery and the actual two-repository import rehearsal, including a requested
+default branch distinct from upstream HEAD, annotated tags, fresh identity,
+exact retry and source preservation. Independent local probes also passed interruption
 during both Git initialization and fetch, refusal while an orphan child could
 remain, explicit stopped-process recovery and administrator deactivation during
 fetch. These are process-interruption checks, not Git-payload power-loss evidence.
-This later change has not yet accumulated exact-source hosted CI evidence here.
+This fixed checkpoint excludes the subsequent repository-name editing work.
 
 The multiple-repository browsing checkpoint `689cdb58ac5067987af0a25efd3af2195c6c442f`
 passed [exact-source Linux/macOS CI](evidence/alpha-ci-689cdb5-2026-10-17.json).

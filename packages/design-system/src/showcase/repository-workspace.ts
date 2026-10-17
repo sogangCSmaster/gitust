@@ -6,6 +6,8 @@ import {
   type ConnectedRepositoryState,
 } from "./connected-repository-client";
 import { DEMO_REPOSITORY } from "./RepositoryViews";
+import { getLiveToken } from "./live-repo-client";
+import type { RepositoryRenameActions } from "./repository-rename-types";
 
 export const isRepositoryTab = (tab: WorkbenchTab, liveMode: boolean) =>
   ["overview", "swarm", "tree", "diff"].includes(tab) ||
@@ -24,6 +26,12 @@ export const createRepositoryWorkspace = (options: {
   });
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const client = createConnectedRepositoryClient(setState);
+  const [selectionEpoch, setSelectionEpoch] = createSignal(0);
+  let renameKey = 0;
+  const invalidateRename = () => {
+    setSelectionEpoch((value) => value + 1);
+    client.cancelRename();
+  };
   const repositories = createMemo(() =>
     options.liveMode() ? state().repositories : [DEMO_REPOSITORY],
   );
@@ -44,6 +52,7 @@ export const createRepositoryWorkspace = (options: {
   const canNavigate = (tab: WorkbenchTab) =>
     !["swarm", "actions"].includes(tab) || !browseOnly();
   const clearSelection = () => {
+    invalidateRename();
     options.clearView();
     setSelectedId(null);
     options.setActiveTab("repositories");
@@ -56,6 +65,7 @@ export const createRepositoryWorkspace = (options: {
     }
     const target = repositories().find((entry) => entry.id === repo.id);
     if (!target) return;
+    invalidateRename();
     options.clearView();
     setSelectedId(target.id);
     options.setActiveTab(canNavigate(tab) ? tab : "overview");
@@ -83,6 +93,47 @@ export const createRepositoryWorkspace = (options: {
     client.reset();
     void client.refresh();
   };
+  const rename: RepositoryRenameActions = {
+    begin: () => {
+      const repository = selected();
+      const token = getLiveToken();
+      if (
+        !options.liveMode() ||
+        !repository?.canRename ||
+        !token ||
+        !client.isCurrentSession()
+      )
+        return null;
+      return {
+        repoId: repository.id,
+        name: repository.name,
+        token,
+        epoch: selectionEpoch(),
+        key: ++renameKey,
+      };
+    },
+    isCurrent: (intent) => {
+      const repository = selected();
+      const epoch = selectionEpoch();
+      return (
+        options.liveMode() &&
+        repository?.id === intent.repoId &&
+        repository.canRename === true &&
+        epoch === intent.epoch &&
+        intent.token === getLiveToken() &&
+        client.isCurrentSession()
+      );
+    },
+    save: async (intent, name) => {
+      const result = await client.rename(intent, name, () =>
+        rename.isCurrent(intent),
+      );
+      if (result.kind === "saved" && rename.isCurrent(intent))
+        void client.refresh();
+      return result;
+    },
+    cancel: (intent) => client.cancelRename(intent.key),
+  };
   return {
     state,
     selected,
@@ -92,6 +143,7 @@ export const createRepositoryWorkspace = (options: {
     canWorkbench,
     browseOnly,
     unavailable,
+    rename,
     refresh: client.refresh,
   };
 };

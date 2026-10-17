@@ -7,6 +7,8 @@ import type {
   ConnectedRepository,
   ConnectedRepositoryState,
 } from "./connected-repository-client";
+import type { RepositoryRenameActions } from "./repository-rename-types";
+import { RepositoryRename } from "./RepositoryRename";
 
 export const DEMO_REPOSITORY: ConnectedRepository = {
   id: "demo",
@@ -171,6 +173,7 @@ export const RepositoryOverview: Component<{
   liveMode: boolean;
   worktrees: number;
   onNavigate: (tab: "swarm" | "tree" | "diff" | "actions") => void;
+  rename?: RepositoryRenameActions;
 }> = (props) => {
   const destinations: Array<{
     id: "swarm" | "tree" | "diff" | "actions";
@@ -222,6 +225,11 @@ export const RepositoryOverview: Component<{
           >
             {props.repository.name}
           </h1>
+          <RepositoryRename
+            repository={props.repository}
+            liveMode={props.liveMode}
+            actions={props.rename}
+          />
           <Show when={!props.liveMode}>
             <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
               Demo

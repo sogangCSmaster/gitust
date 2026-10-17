@@ -1,0 +1,278 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@solidjs/testing-library";
+import { createSignal, Show } from "solid-js";
+import { createRepositoryWorkspace } from "../src/showcase/repository-workspace";
+import {
+  RepositoryLanding,
+  RepositoryOverview,
+} from "../src/showcase/RepositoryViews";
+
+const primary = {
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "primary",
+  branch: "main",
+  head_commit: "a".repeat(40),
+  capability: "workbench",
+  is_default: true,
+  can_rename: true,
+};
+const secondary = {
+  ...primary,
+  id: "22222222-2222-4222-8222-222222222222",
+  name: "secondary",
+  capability: "browse",
+  is_default: false,
+};
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+beforeEach(() => {
+  localStorage.setItem("gitust_token", "remembered-session");
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn(),
+  });
+});
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+const setup = async (
+  patch: (url: string, init: RequestInit) => Promise<Response>,
+) => {
+  let serverName = primary.name;
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "PATCH") return patch(url, init);
+    return new Response(
+      JSON.stringify({
+        repositories: [{ ...primary, name: serverName }, secondary],
+      }),
+    );
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const hydrate = vi.fn(),
+    clearView = vi.fn();
+  let workspace!: ReturnType<typeof createRepositoryWorkspace>;
+  render(() => {
+    const [tab, setTab] = createSignal("repositories");
+    workspace = createRepositoryWorkspace({
+      liveMode: () => true,
+      setActiveTab: setTab,
+      hydrate,
+      clearView,
+    });
+    return (
+      <>
+        <Show when={tab() === "repositories"}>
+          <RepositoryLanding
+            state={workspace.state()}
+            liveMode
+            onOpen={workspace.open}
+            onRefresh={() => void workspace.refresh()}
+            onSignIn={vi.fn()}
+          />
+        </Show>
+        <Show when={tab() === "overview" && workspace.selected()}>
+          {(repository) => (
+            <RepositoryOverview
+              repository={repository()}
+              liveMode
+              worktrees={0}
+              onNavigate={workspace.navigate}
+              rename={workspace.rename}
+            />
+          )}
+        </Show>
+      </>
+    );
+  });
+  await workspace.refresh();
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Open repository primary" }),
+  );
+  return {
+    workspace,
+    fetcher,
+    hydrate,
+    clearView,
+    setServerName: (value: string) => {
+      serverName = value;
+    },
+  };
+};
+const openEditor = async (value: string) => {
+  const trigger = screen.getByRole("button", { name: "Rename repository" });
+  trigger.focus();
+  await fireEvent.click(trigger);
+  const input = await screen.findByRole("textbox", { name: "Repository name" });
+  await waitFor(() => expect(document.activeElement).toBe(input));
+  await fireEvent.input(input, { target: { value } });
+  return { input: input as HTMLInputElement, trigger };
+};
+const save = () =>
+  fireEvent.submit(screen.getByRole("dialog").querySelector("form")!);
+
+it("renames a remembered-session repository optimistically, survives background refresh and updates list/title without clearing the viewer", async () => {
+  const pending = deferred<Response>();
+  const { workspace, hydrate, clearView, fetcher, setServerName } = await setup(
+    () => pending.promise,
+  );
+  const initialHydration = hydrate.mock.calls.length,
+    initialClear = clearView.mock.calls.length;
+  await openEditor(" primary-renamed ");
+  await save();
+  expect(
+    screen.getByRole("heading", {
+      name: "primary-renamed",
+      exact: true,
+      hidden: true,
+    }),
+  ).toBeTruthy();
+  await workspace.refresh();
+  expect(
+    screen.getByRole("heading", {
+      name: "primary-renamed",
+      exact: true,
+      hidden: true,
+    }),
+  ).toBeTruthy();
+  expect(hydrate.mock.calls.length).toBe(initialHydration);
+  expect(clearView.mock.calls.length).toBe(initialClear);
+  setServerName("primary-renamed");
+  pending.resolve(
+    new Response(JSON.stringify({ id: primary.id, name: "primary-renamed" })),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await screen.findByRole("heading", { name: "primary-renamed", exact: true });
+  expect(hydrate.mock.calls.length).toBe(initialHydration);
+  expect(clearView.mock.calls.length).toBe(initialClear);
+  const patches = fetcher.mock.calls.filter(
+    ([, init]) => init?.method === "PATCH",
+  );
+  expect(patches).toHaveLength(1);
+  expect(patches[0]).toMatchObject([
+    `/api/v1/repos/${primary.id}`,
+    {
+      headers: { Authorization: "Bearer remembered-session" },
+      body: JSON.stringify({ name: "primary-renamed" }),
+    },
+  ]);
+  workspace.navigate("repositories");
+  await screen.findByRole("button", {
+    name: "Open repository primary-renamed",
+  });
+  expect(
+    fetcher.mock.calls.every(
+      ([url]) =>
+        url === "/api/v1/repos" || url === `/api/v1/repos/${primary.id}`,
+    ),
+  ).toBe(true);
+});
+
+it("restores the latest confirmed name after failure, retains the input and closes with Escape back to its trigger", async () => {
+  const pending = deferred<Response>();
+  const { workspace, setServerName } = await setup(async () => pending.promise);
+  const { input, trigger } = await openEditor("wanted-name");
+  await save();
+  setServerName("other-admin-name");
+  await workspace.refresh();
+  pending.resolve(
+    new Response("private error is not displayed", { status: 503 }),
+  );
+  await screen.findByRole("alert");
+  expect(screen.getByRole("alert").textContent).toContain(
+    "Could not confirm the name change",
+  );
+  expect(screen.queryByText("private error is not displayed")).toBeNull();
+  expect(input.value).toBe("wanted-name");
+  expect(workspace.selected()?.name).toBe("other-admin-name");
+  expect(
+    screen.getByRole("heading", {
+      name: "other-admin-name",
+      exact: true,
+      hidden: true,
+    }),
+  ).toBeTruthy();
+  input.focus();
+  await fireEvent.keyDown(input, { key: "Escape", code: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
+
+it("invalidates an old PATCH body across A to B to A even when UUID and token match again", async () => {
+  const body = deferred<string>(),
+    started = deferred<void>();
+  const { workspace, fetcher } = await setup(
+    async () =>
+      ({
+        status: 200,
+        text: () => {
+          started.resolve();
+          return body.promise;
+        },
+      }) as Response,
+  );
+  await openEditor("late-primary-name");
+  await save();
+  await started.promise;
+  const rows = workspace.state().repositories;
+  workspace.open(rows[1]!);
+  workspace.open(rows[0]!);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(workspace.selected()?.name).toBe("primary");
+  body.resolve(JSON.stringify({ id: primary.id, name: "late-primary-name" }));
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(workspace.selected()?.name).toBe("primary");
+  await screen.findByRole("heading", { name: "primary", exact: true });
+  expect(
+    fetcher.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+  ).toHaveLength(1);
+});
+
+it.each(["logout", "replacement"])(
+  "drops a late body after eventless %s without issuing a request under the new credential",
+  async (mode) => {
+    const body = deferred<string>(),
+      started = deferred<void>();
+    const { workspace, fetcher } = await setup(
+      async () =>
+        ({
+          status: 200,
+          text: () => {
+            started.resolve();
+            return body.promise;
+          },
+        }) as Response,
+    );
+    await openEditor("old-session-name");
+    await save();
+    await started.promise;
+    const count = fetcher.mock.calls.length;
+    if (mode === "logout") localStorage.removeItem("gitust_token");
+    else localStorage.setItem("gitust_token", "replacement-session");
+    body.resolve(JSON.stringify({ id: primary.id, name: "old-session-name" }));
+    await waitFor(() => expect(workspace.selected()).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(workspace.state().repositories).toEqual([]);
+    expect(fetcher.mock.calls.length).toBe(count);
+    expect(
+      screen.queryByRole("heading", { name: "old-session-name", exact: true }),
+    ).toBeNull();
+  },
+);

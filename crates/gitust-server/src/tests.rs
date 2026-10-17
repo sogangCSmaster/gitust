@@ -514,3 +514,12 @@ mod tests_repository_registration;
 
 #[path = "tests_repository_catalog.rs"]
 mod tests_repository_catalog;
+
+#[path = "tests_repository_rename.rs"]
+mod tests_repository_rename;
+
+#[path = "tests_repository_read_credentials.rs"]
+mod tests_repository_read_credentials;
+
+#[path = "tests_sync_credentials.rs"]
+mod tests_sync_credentials;

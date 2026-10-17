@@ -1,15 +1,14 @@
 //! Step 2-4: Inbound Read-Only Mirror Sync (`POST /api/v1/sync/github`) and Blazing-Fast
 //! (`< 30ms`) Repository Code, Commit, Tree & Diff Browsing HTTP Handlers.
 
-use axum::extract::{Query, Request, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, Query, Request, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::Response;
 use axum::Json;
 use chrono::Utc;
 use gitust_core::AuthError;
-use gitust_core::{AuthenticatedPrincipal, EnterpriseRole};
-use gitust_git::{
-    GitEngineError, RepoBlobSnapshot, RepoCommitList, RepoDiffSnapshot, RepoTreeSnapshot,
-};
+use gitust_core::EnterpriseRole;
+use gitust_git::GitEngineError;
 use gitust_sync::SyncStatusReport;
 use serde::Deserialize;
 
@@ -48,102 +47,44 @@ struct OptionalSyncRequest {
     github_remote_url: Option<String>,
 }
 
-/// `GET /api/v1/repo/commits` — Lists commit history starting from `rev` (default `HEAD`).
+/// Legacy primary route; all authorization and bounded reads share the UUID implementation.
 pub(crate) async fn repo_commits_handler(
     State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
     Query(query): Query<RepoCommitsQuery>,
-) -> Result<Json<RepoCommitList>, (StatusCode, String)> {
-    let store = state.auth_store.clone();
-    let repo_id = state.repo_id;
-    let repo_access = state.repo_access;
-    let engine = state.git_engine.clone();
-    let rev = query.rev;
-    // fail-open-ok: optional page size defaults to a bounded limit; repository authorization is unchanged.
-    let limit = query.limit.unwrap_or(50).clamp(1, 200);
-
-    let list = tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, repo_id, repo_access, &caller, repo_id)?;
-        engine
-            .list_commits(rev.as_deref(), limit)
-            .map_err(map_git_err)
-    })
-    .await
-    .map_err(internal_err)??;
-    Ok(Json(list))
+) -> Response {
+    let primary = state.repo_id.0.to_string();
+    crate::repository_reads::commits(State(state), headers, Path(primary), Query(query)).await
 }
 
-/// `GET /api/v1/repo/tree` — Inspects a directory tree (or recursive flat file tree) at `rev`.
+/// Legacy primary route; all authorization and bounded reads share the UUID implementation.
 pub(crate) async fn repo_tree_handler(
     State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
     Query(query): Query<RepoTreeQuery>,
-) -> Result<Json<RepoTreeSnapshot>, (StatusCode, String)> {
-    let store = state.auth_store.clone();
-    let repo_id = state.repo_id;
-    let repo_access = state.repo_access;
-    let engine = state.git_engine.clone();
-    let rev = query.rev;
-    let path = query.path;
-    // fail-open-ok: optional query parameter default (`recursive=false` lists single directory level).
-    let recursive = query.recursive.unwrap_or(false);
-
-    let tree = tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, repo_id, repo_access, &caller, repo_id)?;
-        engine
-            .inspect_tree(rev.as_deref(), path.as_deref(), recursive)
-            .map_err(map_git_err)
-    })
-    .await
-    .map_err(internal_err)??;
-    Ok(Json(tree))
+) -> Response {
+    let primary = state.repo_id.0.to_string();
+    crate::repository_reads::tree(State(state), headers, Path(primary), Query(query)).await
 }
 
-/// `GET /api/v1/repo/blob` — Reads a file blob at `rev:path` in-process via `gix` (1 MiB cap).
+/// Legacy primary route; all authorization and bounded reads share the UUID implementation.
 pub(crate) async fn repo_blob_handler(
     State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
     Query(query): Query<RepoBlobQuery>,
-) -> Result<Json<RepoBlobSnapshot>, (StatusCode, String)> {
-    let store = state.auth_store.clone();
-    let repo_id = state.repo_id;
-    let repo_access = state.repo_access;
-    let engine = state.git_engine.clone();
-    let rev = query.rev;
-    let path = query.path;
-
-    let blob = tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, repo_id, repo_access, &caller, repo_id)?;
-        engine.read_blob(rev.as_deref(), &path).map_err(map_git_err)
-    })
-    .await
-    .map_err(internal_err)??;
-    Ok(Json(blob))
+) -> Response {
+    let primary = state.repo_id.0.to_string();
+    crate::repository_reads::blob(State(state), headers, Path(primary), Query(query)).await
 }
 
-/// `GET /api/v1/repo/diff` — Computes unified diff lines and summary stats between `base` and `head`.
+/// Legacy primary route; all authorization and bounded reads share the UUID implementation.
 pub(crate) async fn repo_diff_handler(
     State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
+    headers: HeaderMap,
     Query(query): Query<RepoDiffQuery>,
-) -> Result<Json<RepoDiffSnapshot>, (StatusCode, String)> {
-    let store = state.auth_store.clone();
-    let repo_id = state.repo_id;
-    let repo_access = state.repo_access;
-    let engine = state.git_engine.clone();
-    let base = query.base;
-    let head = query.head;
-    let path = query.path;
-
-    let diff = tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, repo_id, repo_access, &caller, repo_id)?;
-        engine
-            .inspect_diff(base.as_deref(), head.as_deref(), path.as_deref())
-            .map_err(map_git_err)
-    })
-    .await
-    .map_err(internal_err)??;
-    Ok(Json(diff))
+) -> Response {
+    let primary = state.repo_id.0.to_string();
+    crate::repository_reads::diff(State(state), headers, Path(primary), Query(query)).await
 }
 
 /// `POST /api/v1/sync/github` — Triggers an inbound read-only mirror synchronization from the
@@ -172,15 +113,17 @@ pub(crate) async fn sync_github_handler(
     let repo_id = state.repo_id;
     let repo_access = state.repo_access;
     let headers = parts.headers;
-    tokio::task::spawn_blocking(move || {
-        let caller = extract_principal(&headers, &store)?;
+    let initial_headers = headers.clone();
+    let caller = tokio::task::spawn_blocking(move || {
+        let caller = extract_principal(&initial_headers, &store)?;
         if !matches!(
             caller.role,
             EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
         ) {
             return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
         }
-        check_repo_bola(&store, repo_id, repo_access, &caller, repo_id)
+        check_repo_bola(&store, repo_id, repo_access, &caller, repo_id)?;
+        Ok::<_, (StatusCode, String)>(caller)
     })
     .await
     .map_err(internal_err)??;
@@ -243,18 +186,48 @@ pub(crate) async fn sync_github_handler(
     })?;
 
     let engine = state.git_engine.clone();
+    let store = state.auth_store.clone();
+    #[cfg(test)]
+    let hook = state.sync_after_fetch_hook.lock().take();
     let outcome = tokio::task::spawn_blocking(move || {
         let _held = repo_guard;
         let _held_fetch = fetch_guard;
-        engine.apply_inbound_mirror_refs(&configured_url, start)
+        #[cfg(test)]
+        if let Some(hook) = hook {
+            hook();
+        }
+        let mut denied = None;
+        let outcome = engine.apply_inbound_mirror_refs_with_gate(&configured_url, start, || {
+            let authority = extract_principal(&headers, &store).and_then(|current| {
+                if current.user_id != caller.user_id
+                    || !matches!(
+                        current.role,
+                        EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
+                    )
+                {
+                    return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+                }
+                check_repo_bola(&store, repo_id, repo_access, &current, repo_id)
+            });
+            if let Err(error) = authority {
+                denied = Some(error);
+                return Err(GitEngineError::VerificationInvalid(
+                    "mirror synchronization authority changed".into(),
+                ));
+            }
+            Ok(())
+        });
+        if let Some(error) = denied {
+            return Err(error);
+        }
+        outcome.map_err(|err| match err {
+            GitEngineError::InvalidRemoteUrl(_) => (StatusCode::BAD_REQUEST, err.to_string()),
+            GitEngineError::GitCommand { .. } => (StatusCode::BAD_GATEWAY, err.to_string()),
+            other => map_git_err(other),
+        })
     })
     .await
-    .map_err(internal_err)?
-    .map_err(|err| match err {
-        GitEngineError::InvalidRemoteUrl(_) => (StatusCode::BAD_REQUEST, err.to_string()),
-        GitEngineError::GitCommand { .. } => (StatusCode::BAD_GATEWAY, err.to_string()),
-        other => map_git_err(other),
-    })?;
+    .map_err(internal_err)??;
 
     Ok(Json(SyncStatusReport {
         github_remote_url: outcome.github_remote_url,

@@ -87,6 +87,8 @@ Add repeated `--read-only-repo /absolute/path/to/another/repository` arguments t
 
 To prepare a new registered bare repository from an existing Git source, use the offline [`repository import`](docs/operations/repository-import.md) command. It preserves a fixed import identity through retries and never overwrites an existing destination; serving it still requires explicit configuration.
 
+SiteAdmins can rename the display name of a configured registered repository from its overview. Its UUID, team/privacy settings, host path and Git URLs stay unchanged; secondary repositories remain browse-only.
+
 The upstream URL configures synchronization and publication. Starting the server does not automatically mirror or publish commits. Private outbound GitHub authentication currently uses SSH keys/agent and a preconfigured `known_hosts`, rather than HTTPS credential helpers.
 
 For frontend development, keep the Rust server running on `127.0.0.1:3000` and start Vite in another terminal:

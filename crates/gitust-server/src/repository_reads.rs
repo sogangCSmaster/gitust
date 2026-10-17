@@ -18,7 +18,7 @@ type ApiError = (StatusCode, String);
 #[cfg(test)]
 pub(crate) type TestHook = std::sync::Arc<dyn Fn() + Send + Sync>;
 #[cfg(test)]
-fn after_read(state: &AppState) {
+pub(crate) fn after_read(state: &AppState) {
     let hook = state.repository_read_hook.lock().take();
     if let Some(hook) = hook {
         hook();
@@ -48,7 +48,7 @@ fn read_error(error: GitEngineError) -> ApiError {
 fn forbidden() -> ApiError {
     (StatusCode::FORBIDDEN, "repository access denied".into())
 }
-fn response<T: Serialize>(value: Result<T, ApiError>) -> Response {
+pub(crate) fn response<T: Serialize>(value: Result<T, ApiError>) -> Response {
     let value = value.map_err(|(status, message)| {
         if status.is_server_error() {
             (status, "repository data is unavailable".into())
@@ -63,7 +63,7 @@ fn response<T: Serialize>(value: Result<T, ApiError>) -> Response {
     );
     response
 }
-fn id(raw: &str) -> Result<RepoId, ApiError> {
+pub(crate) fn id(raw: &str) -> Result<RepoId, ApiError> {
     let invalid = || (StatusCode::BAD_REQUEST, "invalid repository ID".into());
     let id = uuid::Uuid::parse_str(raw).map_err(|_| invalid())?;
     if id.is_nil() {
@@ -126,6 +126,7 @@ struct CatalogEntry {
     head_commit: gitust_core::CommitSha,
     capability: &'static str,
     is_default: bool,
+    can_rename: bool,
 }
 fn display_name(engine: &GitEngine, metadata: Option<&RepositoryRecord>) -> String {
     if let Some(metadata) = metadata {
@@ -158,7 +159,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
             .map_err(map_auth_err)?;
         let mut repositories = Vec::with_capacity(allowed.len());
         for context in contexts {
-            let Some((_, metadata)) = allowed.iter().find(|(id, _)| *id == context.access.repo_id)
+            let Some(authorization) = allowed.iter().find(|row| row.id == context.access.repo_id)
             else {
                 continue;
             };
@@ -167,7 +168,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 .lock_worktree_service()
                 .map_err(unavailable)?;
             let head = context.engine.inspect_head_identity().map_err(read_error)?;
-            let name = display_name(&context.engine, metadata.as_ref());
+            let name = display_name(&context.engine, authorization.metadata.as_ref());
             if head.branch_name.len() > 32 * 1024 || name.len() > 1024 {
                 return Err(unavailable("repository metadata exceeds its limit"));
             }
@@ -182,6 +183,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                     "browse"
                 },
                 is_default: context.is_default,
+                can_rename: authorization.can_rename,
             });
         }
         #[cfg(test)]
@@ -194,8 +196,34 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
             .auth_store
             .authorized_repository_catalog(&current, &expected)
             .map_err(map_auth_err)?;
-        if allowed != after {
+        if after.iter().any(|row| {
+            row.metadata
+                .as_ref()
+                .is_some_and(|metadata| metadata.name.len() > 1024)
+        }) {
+            return Err(unavailable("repository metadata exceeds its limit"));
+        }
+        // Names are presentation metadata; every other field and capability must still match.
+        let same_access = allowed.len() == after.len()
+            && allowed.iter().zip(&after).all(|(before, after)| {
+                let mut before = before.clone();
+                if let (Some(before), Some(after)) = (&mut before.metadata, &after.metadata) {
+                    before.name.clone_from(&after.name);
+                }
+                before == *after
+            });
+        if !same_access {
             return Err(forbidden());
+        }
+        for entry in &mut repositories {
+            let current = after
+                .iter()
+                .find(|row| row.id == entry.id)
+                .ok_or_else(forbidden)?;
+            if let Some(metadata) = &current.metadata {
+                entry.name.clone_from(&metadata.name);
+            }
+            entry.can_rename = current.can_rename;
         }
         Ok(Catalog { repositories })
     })

@@ -118,6 +118,13 @@ impl PersistedSnapshot {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthorizedRepository {
+    pub id: RepoId,
+    pub metadata: Option<RepositoryRecord>,
+    pub can_rename: bool,
+}
+
 pub struct RegisteredRepository {
     pub metadata: RepositoryRecord,
     pub binding: RepositoryRegistration,
@@ -174,7 +181,7 @@ impl AuthStore {
         &self,
         caller: &AuthenticatedPrincipal,
         expected: &[RepoAccess],
-    ) -> Result<Vec<(RepoId, Option<RepositoryRecord>)>, AuthError> {
+    ) -> Result<Vec<AuthorizedRepository>, AuthError> {
         if expected.is_empty() || expected.len() > 32 {
             return Err(invalid());
         }
@@ -188,7 +195,11 @@ impl AuthStore {
             }
             let row = guard.repositories.get(&access.repo_id);
             match (access.registration, row) {
-                (None, None) => visible.push((access.repo_id, None)),
+                (None, None) => visible.push(AuthorizedRepository {
+                    id: access.repo_id,
+                    metadata: None,
+                    can_rename: false,
+                }),
                 (Some(binding), Some(row))
                     if binding.valid_for(access.repo_id) && row.binding == Some(binding) =>
                 {
@@ -196,13 +207,53 @@ impl AuthStore {
                         || active.role == EnterpriseRole::SiteAdmin
                         || active.team_ids.contains(&row.metadata.owner_team_id)
                     {
-                        visible.push((access.repo_id, Some(row.metadata.clone())));
+                        visible.push(AuthorizedRepository {
+                            id: access.repo_id,
+                            metadata: Some(row.metadata.clone()),
+                            can_rename: active.role == EnterpriseRole::SiteAdmin,
+                        });
                     }
                 }
                 _ => return Err(invalid()),
             }
         }
         Ok(visible)
+    }
+
+    /// Changes only the display name of an exactly pinned registered repository.
+    pub fn rename_registered_repository(
+        &self,
+        caller: &AuthenticatedPrincipal,
+        expected: RepoAccess,
+        name: &str,
+    ) -> Result<RepositoryRecord, AuthError> {
+        let name = validate_repository_name(name)?;
+        let binding = expected
+            .registration
+            .ok_or(AuthError::ForbiddenRepositoryAccess)?;
+        if !binding.valid_for(expected.repo_id) {
+            return Err(invalid());
+        }
+        let (record, snapshot) = {
+            let mut guard = self.write_state()?;
+            let active = Self::verify_active_user_locked(&guard, caller)?;
+            if active.role != EnterpriseRole::SiteAdmin {
+                return Err(AuthError::AdminPrivilegeRequired);
+            }
+            let row = guard
+                .repositories
+                .get_mut(&expected.repo_id)
+                .ok_or_else(invalid)?;
+            if row.binding != Some(binding) {
+                return Err(invalid());
+            }
+            row.metadata.name = name;
+            let record = row.metadata.clone();
+            // Even an identical-name retry must reconfirm persistence after an uncertain fsync.
+            (record, self.maybe_snapshot(guard))
+        };
+        self.persist_snapshot(snapshot)?;
+        Ok(record)
     }
 
     /// Offline CLI registration: existing metadata is never adopted, and retries retain the nonce.

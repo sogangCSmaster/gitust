@@ -17,6 +17,11 @@ an Apple product or an official Apple design.
   Actions opens the exact retained run in Activity and has no execution controls.
   A visible back action returns to Repositories. Hosting configuration remains an
   operator task; this screen does not provision repositories.
+  A small title action lets SiteAdmins rename registered repositories when the
+  server permits it. The compact dialog changes the display name, preserving the
+  repository UUID, host location, ownership and privacy. Saving refreshes names
+  without clearing the selected files or comparison; uncertain failures retain
+  the input and restore the latest confirmed name for another attempt.
 - **Previews:** Issues, signed-out Actions, and Components are grouped separately
   as previews. Their sample data never establishes live capabilities.
 

@@ -2,7 +2,7 @@ use super::*;
 use crate::repository_registry::RepositoryRegistry;
 use std::sync::Arc;
 
-fn registered_pair() -> (tempfile::TempDir, AppState, String, PathBuf, RepoId) {
+pub(super) fn registered_pair() -> (tempfile::TempDir, AppState, String, PathBuf, RepoId) {
     let temp = tempfile::tempdir().unwrap();
     let primary = temp.path().join("primary");
     let secondary = temp.path().join("secondary");

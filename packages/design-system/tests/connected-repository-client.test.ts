@@ -36,6 +36,67 @@ afterEach(() => {
   token = "session-a";
 });
 
+it("uses the server rename hint and defaults old catalogs to read-only metadata", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(response([{ ...repo, can_rename: true }]))
+      .mockResolvedValueOnce(response([repo]))
+      .mockResolvedValueOnce(response([{ ...repo, can_rename: "true" }])),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]).toMatchObject({
+    id: repo.id,
+    canRename: true,
+  });
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]).toMatchObject({
+    id: repo.id,
+    canRename: false,
+  });
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+});
+
+it("rejects a rename response for another UUID and clears cached targets when access is denied", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(response([{ ...repo, can_rename: true }, secondary]))
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: secondary.id, name: "wrong-target" })),
+    )
+    .mockResolvedValueOnce(
+      new Response("private denial detail", { status: 403 }),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  const { states, client } = setup();
+  await client.refresh();
+  const intent = {
+    repoId: repo.id,
+    name: repo.name,
+    token: "session-a",
+    epoch: 0,
+    key: 1,
+  };
+  expect(await client.rename(intent, "requested-name", () => true)).toEqual({
+    kind: "error",
+    error: "Could not confirm the name change. Try again.",
+  });
+  expect(states.at(-1)?.repositories.map((row) => row.name)).toEqual([
+    repo.name,
+    secondary.name,
+  ]);
+  expect(
+    await client.rename({ ...intent, key: 2 }, "requested-name", () => true),
+  ).toEqual({ kind: "stale" });
+  expect(states.at(-1)?.repositories).toEqual([]);
+  expect(states.at(-1)?.error).toBe(
+    "Repository access changed. Refresh the repository list.",
+  );
+});
+
 it("loads multiple hosted repositories and accepts browse-only or empty authorized inventories", async () => {
   const fetcher = vi
     .fn()

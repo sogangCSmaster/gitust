@@ -107,6 +107,9 @@ it("opens a real browse-only repository without exposing primary worktree action
     within(nav).queryByRole("button", { name: "Actions", exact: true }),
   ).toBeNull();
   expect(screen.getByText("Browse only", { exact: true })).toBeTruthy();
+  expect(
+    screen.queryByRole("button", { name: "Rename repository" }),
+  ).toBeNull();
   const before = fetcher.mock.calls.length;
   expect(shortcutManager.executeById("nav.swarm")).toBe(false);
   expect(shortcutManager.executeById("nav.actions")).toBe(false);

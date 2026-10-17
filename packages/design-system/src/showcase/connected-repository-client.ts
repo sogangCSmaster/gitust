@@ -1,4 +1,9 @@
 import { formatErr, getLiveToken } from "./live-repo-client";
+import {
+  validRepositoryName,
+  type RepositoryRenameIntent,
+  type RepositoryRenameResult,
+} from "./repository-rename-types";
 
 export interface ConnectedRepository {
   id: string;
@@ -7,11 +12,21 @@ export interface ConnectedRepository {
   headCommit: string;
   capability: "workbench" | "browse";
   isDefault: boolean;
+  canRename?: boolean;
 }
 export interface ConnectedRepositoryState {
   repositories: ConnectedRepository[];
   loading: boolean;
   error: string | null;
+}
+interface PendingRename {
+  key: number;
+  id: string;
+  name: string;
+  restoreName: string;
+  current: () => boolean;
+  controller: AbortController;
+  rollback: () => void;
 }
 const EMPTY: ConnectedRepositoryState = {
   repositories: [],
@@ -37,7 +52,9 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       throw invalid();
     const raw = value as Record<string, unknown>;
     if (
-      Object.keys(raw).length !== 6 ||
+      Object.keys(raw).length !== (Object.hasOwn(raw, "can_rename") ? 7 : 6) ||
+      (Object.hasOwn(raw, "can_rename") &&
+        typeof raw.can_rename !== "boolean") ||
       typeof raw.id !== "string" ||
       !uuid.test(raw.id) ||
       /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(raw.id) ||
@@ -67,6 +84,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       headCommit: raw.head_commit.toLowerCase(),
       capability: raw.capability,
       isDefault: raw.is_default,
+      canRename: raw.can_rename === true,
     };
   });
 };
@@ -80,11 +98,28 @@ export const createConnectedRepositoryClient = (
   let session: string | null = null;
   let abort: AbortController | undefined;
   let state = EMPTY;
+  let pendingRename: PendingRename | undefined;
   const update = (next: ConnectedRepositoryState) => {
     state = next;
     publish(next);
   };
+  const replaceName = (id: string, name: string) =>
+    update({
+      ...state,
+      repositories: state.repositories.map((row) =>
+        row.id === id ? { ...row, name } : row,
+      ),
+    });
+  const cancelRename = (key?: number) => {
+    if (!pendingRename || (key !== undefined && pendingRename.key !== key))
+      return;
+    const own = pendingRename;
+    pendingRename = undefined;
+    own.controller.abort();
+    own.rollback();
+  };
   const invalidate = () => {
+    cancelRename();
     epoch++;
     requestId++;
     abort?.abort();
@@ -132,7 +167,14 @@ export const createConnectedRepositoryClient = (
         new TextEncoder().encode(text).length > 4 * 1024 * 1024
       )
         throw invalid();
-      const repositories = parseRepositories(JSON.parse(text));
+      const repositories = parseRepositories(JSON.parse(text)).map((row) => {
+        const pending = pendingRename;
+        if (pending?.current() && row.id === pending.id && row.canRename) {
+          pending.restoreName = row.name;
+          return { ...row, name: pending.name };
+        }
+        return row;
+      });
       if (!current()) return;
       update({ repositories, loading: false, error: null });
     } catch (error) {
@@ -140,10 +182,120 @@ export const createConnectedRepositoryClient = (
         update({ repositories: [], loading: false, error: formatErr(error) });
     }
   };
+  const rename = async (
+    intent: RepositoryRenameIntent,
+    rawName: string,
+    isCurrent: () => boolean,
+  ): Promise<RepositoryRenameResult> => {
+    const stale = (): RepositoryRenameResult => {
+      if (session === intent.token && getLiveToken() !== intent.token) reset();
+      return { kind: "stale" };
+    };
+    const name = rawName.trim();
+    const original = state.repositories.find((row) => row.id === intent.repoId);
+    if (
+      !isCurrent() ||
+      intent.token !== getLiveToken() ||
+      session !== intent.token ||
+      !original?.canRename
+    )
+      return stale();
+    if (pendingRename)
+      return { kind: "error", error: "A rename is already in progress." };
+    if (!validRepositoryName(name))
+      return {
+        kind: "error",
+        error:
+          "Use 1–100 letters, numbers, dots, underscores or hyphens; avoid edge or repeated dots.",
+      };
+    invalidate();
+    const ownEpoch = epoch;
+    const controller = new AbortController();
+    const sessionCurrent = () =>
+      ownEpoch === epoch &&
+      session === intent.token &&
+      getLiveToken() === intent.token;
+    const own: PendingRename = {
+      key: intent.key,
+      id: intent.repoId,
+      name,
+      restoreName: original.name,
+      controller,
+      current: () => pendingRename === own && sessionCurrent() && isCurrent(),
+      rollback: () => {
+        const row = state.repositories.find(
+          (entry) => entry.id === intent.repoId,
+        );
+        if (sessionCurrent() && row?.canRename && row.name === name)
+          replaceName(intent.repoId, own.restoreName);
+      },
+    };
+    pendingRename = own;
+    replaceName(intent.repoId, name);
+    try {
+      const response = await fetch(
+        `/api/v1/repos/${encodeURIComponent(intent.repoId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${intent.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ name }),
+          signal: controller.signal,
+        },
+      );
+      if (!own.current()) return stale();
+      if (response.status !== 200) {
+        if ([401, 403, 404].includes(response.status)) {
+          pendingRename = undefined;
+          update({
+            ...EMPTY,
+            error: "Repository access changed. Refresh the repository list.",
+          });
+          return { kind: "stale" };
+        }
+        throw new Error(
+          `Unable to rename repository (HTTP ${response.status})`,
+        );
+      }
+      const text = await response.text();
+      if (!own.current()) return stale();
+      if (text.length > 4096 || new TextEncoder().encode(text).length > 4096)
+        throw invalid();
+      const value: unknown = JSON.parse(text);
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        throw invalid();
+      const result = value as Record<string, unknown>;
+      if (
+        Object.keys(result).length !== 2 ||
+        typeof result.id !== "string" ||
+        result.id.toLowerCase() !== intent.repoId ||
+        typeof result.name !== "string" ||
+        !validRepositoryName(result.name) ||
+        result.name !== result.name.trim()
+      )
+        throw invalid();
+      if (!own.current()) return stale();
+      pendingRename = undefined;
+      replaceName(intent.repoId, result.name);
+      return { kind: "saved" };
+    } catch {
+      if (!own.current()) return stale();
+      return {
+        kind: "error",
+        error: "Could not confirm the name change. Try again.",
+      };
+    } finally {
+      if (pendingRename === own) cancelRename(intent.key);
+    }
+  };
   return {
     refresh,
     invalidate,
     reset,
+    rename,
+    cancelRename,
     isCurrentSession: () => session === getLiveToken(),
   };
 };

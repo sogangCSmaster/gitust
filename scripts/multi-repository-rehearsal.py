@@ -138,12 +138,14 @@ class Rehearsal:
                      "--repo", str(self.repos[1]), "--auth-db", str(self.auth),
                      "--admin-username", "operator", "--name", "repository-1",
                      "--owner-team-id", self.teams[1], "--private", "true", "--default-branch", "main"]
+        self.import_arguments = arguments
         self.helper.command(arguments, env={"GITUST_ADMIN_PASSWORD": self.password})
         target_identity = self.repos[1] / "gitust-repository/identity.json"
         target_receipt = self.repos[1] / "gitust-repository/registration.json"
         target_before = (target_identity.read_bytes(), target_receipt.read_bytes(),
                          self.git(self.repos[1], "show-ref"))
-        self.require(json.loads(target_before[0])["repo_id"] != json.loads(before[1])["repo_id"],
+        self.unhosted_registered_id = json.loads(before[1])["repo_id"]
+        self.require(json.loads(target_before[0])["repo_id"] != self.unhosted_registered_id,
                      "import adopted the source installation's repository identity")
         self.require(self.git(self.repos[1], "rev-parse", "HEAD") == self.git(upstream, "rev-parse", "main")
                      and self.git(self.repos[1], "symbolic-ref", "HEAD") == "refs/heads/main",
@@ -196,6 +198,39 @@ class Rehearsal:
                      any(row["content"] == f"repository-{index}-after" for row in diff["lines"]),
                      "UUID diff routing selected another repository's comparison")
 
+    def rename_repositories(self):
+        self.renamed_names = ["primary-renamed", "secondary-renamed"]
+        for index, repo_id in enumerate(self.ids):
+            repo, name = self.repos[index], self.renamed_names[index]
+            common = Path(self.git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+            route = f"/api/v1/repos/{repo_id}"
+            metadata = self.admin.request("GET", route)
+            before = (self.git(repo, "show-ref"), self.git(repo, "symbolic-ref", "HEAD"),
+                      (common / "gitust-repository/identity.json").read_bytes(),
+                      (common / "gitust-repository/registration.json").read_bytes())
+            changed = self.admin.request("PATCH", route, {"name": name})
+            self.require(changed == {"id": repo_id, "name": name}, "rename returned an unrelated target")
+            self.members[index][0].request("PATCH", route, {"name": "must-not-change"}, expected=403)
+            self.helper.Client(self.url).request("PATCH", route, {"name": "must-not-change"}, expected=401)
+            self.admin.request("PATCH", route, {"name": name, "is_private": False}, expected=400)
+            self.require(self.admin.request("GET", route) == {**metadata, "name": name},
+                         "rename changed repository identity, ownership, privacy or creation time")
+            after = (self.git(repo, "show-ref"), self.git(repo, "symbolic-ref", "HEAD"),
+                     (common / "gitust-repository/identity.json").read_bytes(),
+                     (common / "gitust-repository/registration.json").read_bytes())
+            self.require(before == after, "display rename changed Git refs or registration anchors")
+        rows = self.admin.request("GET", "/api/v1/repos")["repositories"]
+        self.require({row["id"]: row["name"] for row in rows} == dict(zip(self.ids, self.renamed_names))
+                     and all(row["can_rename"] is True for row in rows),
+                     "catalog did not reflect the current administrator's renamed repositories")
+        self.require(self.admin.request("GET", "/api/v1/repo")["name"] == self.renamed_names[0],
+                     "primary summary returned the old repository name")
+        for index in range(2):
+            rows = self.members[index][0].request("GET", "/api/v1/repos")["repositories"]
+            self.require(len(rows) == 1 and rows[0]["name"] == self.renamed_names[index]
+                         and rows[0]["can_rename"] is False,
+                         "catalog rename hint or name did not match the current member")
+
     def denial_boundaries(self):
         suffixes = ["/commits", "/tree", "/blob?path=marker.txt", "/diff"]
         for index in range(2):
@@ -205,9 +240,10 @@ class Rehearsal:
         metadata = self.admin.request("POST", "/api/v1/repos", {
             "name": "metadata-only", "owner_team_id": self.teams[1], "is_private": True},
             expected=201)
-        for repo_id in [metadata["id"], str(uuid.uuid4())]:
+        for repo_id in [metadata["id"], self.unhosted_registered_id, str(uuid.uuid4())]:
             for suffix in suffixes:
                 self.admin.request("GET", f"/api/v1/repos/{repo_id}" + suffix, expected=404)
+            self.admin.request("PATCH", f"/api/v1/repos/{repo_id}", {"name": "not-hosted"}, expected=404)
         self.require(len(self.admin.request("GET", "/api/v1/repos")["repositories"]) == 2,
                      "metadata-only records became configured Git engines")
         self.require(self.admin.request("GET", "/api/v1/repo")["id"] == self.ids[0],
@@ -233,6 +269,7 @@ class Rehearsal:
         revoked, _ = self.login(self.url, "operator", self.password)
         revoked.request("POST", "/api/v1/auth/logout", expected=204)
         revoked.request("GET", "/api/v1/repos", expected=401)
+        revoked.request("PATCH", f"/api/v1/repos/{self.ids[0]}", {"name": "revoked"}, expected=401)
         issued = self.members[1][0].request("POST", "/api/v1/auth/pats", {"name": "read-probe"},
                                             expected=201)
         pat = self.helper.Client(self.url, issued["raw_token"])
@@ -243,12 +280,15 @@ class Rehearsal:
 
     def restart_and_rollback(self):
         self.stop(self.process)
+        self.helper.command(self.import_arguments, env={"GITUST_ADMIN_PASSWORD": self.password}, expected=1)
         self.process, self.url = self.launch(self.repos[0], [self.repos[1]])
         self.healthy(self.process, self.url)
         self.admin, _ = self.login(self.url, "operator", self.password)
         rows = self.admin.request("GET", "/api/v1/repos")["repositories"]
         self.require({row["id"] for row in rows} == set(self.ids),
                      "repository UUIDs changed on multi-repository restart")
+        self.require({row["id"]: row["name"] for row in rows} == dict(zip(self.ids, self.renamed_names)),
+                     "restart or an obsolete import retry reverted renamed repository metadata")
         self.stop(self.process)
         blocker, url = self.launch(self.repos[1])
         self.healthy(blocker, url)
@@ -269,6 +309,7 @@ class Rehearsal:
         self.catalog_acl()
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(self.read_repository, [0, 1]))
+        self.rename_repositories()
         self.denial_boundaries()
         self.restart_and_rollback()
         for repo in self.repos:
@@ -281,6 +322,7 @@ class Rehearsal:
                 "operator_script_sha256": self.helper.sha256(Path(__file__)),
                 "actual_repositories": 2, "team_filtered_catalog": True,
                 "imported_registered_secondary": True,
+                "renamed_registered_repositories": True,
                 "independent_git_read_oracles": True, "primary_only_mutations": True,
                 "revoked_and_deactivated_denied": True, "restart_identity_preserved": True,
                 "partial_startup_locks_released": True, "duplicate_repository_rejected": True,

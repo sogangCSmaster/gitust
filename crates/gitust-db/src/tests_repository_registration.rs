@@ -284,7 +284,7 @@ fn catalog_batch_uses_current_stored_membership_and_rejects_a_broken_binding() {
         .authorized_repository_catalog(&stale, &expected)
         .unwrap();
     assert_eq!(
-        allowed.iter().map(|row| row.0).collect::<Vec<_>>(),
+        allowed.iter().map(|row| row.id).collect::<Vec<_>>(),
         vec![a.metadata.id]
     );
     store
@@ -300,7 +300,7 @@ fn catalog_batch_uses_current_stored_membership_and_rejects_a_broken_binding() {
             .authorized_repository_catalog(&stale, &expected)
             .unwrap()
             .iter()
-            .map(|row| row.0)
+            .map(|row| row.id)
             .collect::<Vec<_>>(),
         vec![b.metadata.id]
     );

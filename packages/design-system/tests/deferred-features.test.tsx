@@ -63,6 +63,8 @@ it("opens the modal immediately, blocks background shortcuts, then focuses comma
       new KeyboardEvent("keydown", { key: "s", bubbles: true }),
     );
     expect(backgroundAction).not.toHaveBeenCalled();
+    // Wait for the real cold module after asserting the pending modal; transform time is not DOM latency.
+    await vi.dynamicImportSettled();
     const search = await screen.findByRole("combobox", {
       name: "Search commands",
     });

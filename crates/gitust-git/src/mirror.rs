@@ -83,7 +83,19 @@ impl GitEngine {
         upstream_url: &str,
         start: Instant,
     ) -> Result<InboundMirrorSyncOutcome, GitEngineError> {
+        self.apply_inbound_mirror_refs_with_gate(upstream_url, start, || Ok(()))
+    }
+
+    /// Rechecks authority after slow inspection, before each actual publication phase.
+    /// Earlier authorized phases are not rolled back if a later gate rejects publication.
+    pub fn apply_inbound_mirror_refs_with_gate(
+        &self,
+        upstream_url: &str,
+        start: Instant,
+        mut publish_gate: impl FnMut() -> Result<(), GitEngineError>,
+    ) -> Result<InboundMirrorSyncOutcome, GitEngineError> {
         let _service_lock = self.lock_worktree_service()?;
+        publish_gate()?;
 
         let mut repo = gix::ThreadSafeRepository::open(&self.repo_path)
             .map_err(|e| GitEngineError::OpenRepo {
@@ -256,7 +268,8 @@ impl GitEngine {
                         branch,
                         *upstream_oid,
                         &mut skipped_branches,
-                    ) {
+                        &mut publish_gate,
+                    )? {
                         synced_branches_count = synced_branches_count.saturating_add(1);
                     }
                 } else {
@@ -320,6 +333,7 @@ impl GitEngine {
             }
         }
 
+        publish_gate()?;
         apply_batched_ref_edits(
             &repo,
             batched_edits,
@@ -344,6 +358,7 @@ impl GitEngine {
                     .is_some();
                 if !head_valid {
                     let target_ref = format!("refs/heads/{target_branch}");
+                    publish_gate()?;
                     // fail-open-ok: best-effort bare `HEAD` symbolic-ref update when `main` does not exist upstream.
                     let _ = run_git(
                         &self.repo_path,
@@ -427,43 +442,47 @@ fn try_fast_forward_main_worktree(
     branch: &str,
     upstream_oid: gix::ObjectId,
     skipped_branches: &mut Vec<(String, String)>,
-) -> bool {
+    publish_gate: &mut impl FnMut() -> Result<(), GitEngineError>,
+) -> Result<bool, GitEngineError> {
     if let Err(error) = crate::verification::inspect_index_flags(repo_path) {
         skipped_branches.push((branch.to_owned(), error.to_string()));
-        return false;
+        return Ok(false);
     }
-    // fail-open-ok: failing to inspect main worktree status skips fast-forwarding the checked-out branch (`return false`), which is fail-closed.
+    // fail-open-ok: failing to inspect main worktree status skips fast-forwarding the checked-out branch (`Ok(false)`), which is fail-closed.
     let Ok(status_out) = run_git(repo_path, ["status", "--porcelain", "--untracked-files=no"])
     else {
         skipped_branches.push((
             branch.to_owned(),
             "failed to inspect main working tree status".to_owned(),
         ));
-        return false;
+        return Ok(false);
     };
     if !status_out.iter().all(|b| b.is_ascii_whitespace()) {
         skipped_branches.push((
             branch.to_owned(),
             "checked-out main working tree has uncommitted changes".to_owned(),
         ));
-        return false;
+        return Ok(false);
     }
     let oid_hex = upstream_oid.to_string();
-    match run_git(
-        repo_path,
-        [
-            OsStr::new("merge"),
-            OsStr::new("--ff-only"),
-            OsStr::new("-q"),
-            OsStr::new(oid_hex.as_str()),
-        ],
-    ) {
-        Ok(_) => true,
-        Err(e) => {
-            skipped_branches.push((branch.to_owned(), e.to_string()));
-            false
-        }
-    }
+    publish_gate()?;
+    Ok(
+        match run_git(
+            repo_path,
+            [
+                OsStr::new("merge"),
+                OsStr::new("--ff-only"),
+                OsStr::new("-q"),
+                OsStr::new(oid_hex.as_str()),
+            ],
+        ) {
+            Ok(_) => true,
+            Err(e) => {
+                skipped_branches.push((branch.to_owned(), e.to_string()));
+                false
+            }
+        },
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

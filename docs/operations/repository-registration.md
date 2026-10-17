@@ -79,7 +79,7 @@ or starts its worktrees, automatic jobs or synchronization. Change this inventor
 
 `GET /api/v1/repos` lists only configured repositories the current account can access, using
 one auth snapshot for current memberships and pinned bindings. Metadata-only auth rows are
-excluded. Each item contains `id`, `name`, `branch`, `head_commit`, `capability` and `is_default`.
+excluded. Each item contains `id`, `name`, `branch`, `head_commit`, `capability`, `is_default` and `can_rename`.
 The primary advertises `workbench`; secondary items advertise `browse`. An account may have
 no visible default repository or an empty catalog. Reads use `/api/v1/repos/UUID/commits`,
 `tree`, `blob` and `diff`, retaining the existing object-read response formats and limits.
@@ -108,3 +108,42 @@ fixtures. The repository CI runs this rehearsal on Linux and macOS; its public e
 excludes credentials and does not represent GitHub publication or a catalog-wide backup.
 
 To prepare a new registered bare repository from an existing source without adopting or overwriting a destination, use [operator repository import](repository-import.md). It does not change the running catalog or enable a secondary workbench.
+
+
+
+The primary summary and legacy object-read routes retain their original session/PAT and
+recheck it after Git I/O, using the same object-read guard as UUID routes. HTTP inbound
+synchronization also rechecks the original credential, current role and repository ACL
+after fetch/lock waits and immediately before each publication phase: checked-out main
+merge, the batched heads/tags update, and any bare HEAD correction. A denied gate is an
+error rather than a skipped update. Fetch staging may already exist when publication is
+denied. If a later phase loses authority after an earlier phase was authorized, earlier
+changes are not reversed; synchronization is not an all-ref rollback transaction.
+
+## Renaming a registered repository
+
+An active SiteAdmin may change a configured registered repository's display name while
+it is served. This works for the primary and read-only secondary entries; it does not
+change the UUID, registration nonce, owner team, privacy, creation time, host path, Git
+refs or clone URLs. A secondary still has only its existing browse capability.
+
+`PATCH /api/v1/repos/UUID` accepts only `{"name":"project-name"}` (at most 4 KiB of
+JSON) and returns `200 {"id":"UUID","name":"project-name"}` with `no-store`.
+The existing registration name rules apply: trim surrounding whitespace, then require
+1–100 ASCII letters/digits, `-`, `_` or `.`, with no leading/trailing dot or `..`.
+The original session/PAT is authenticated again after the body; the DB transaction
+checks the current active SiteAdmin and exact pinned registration binding. Legacy,
+unhosted and metadata-only repositories cannot be renamed through this route.
+
+The catalog's `can_rename` flag is a current permission hint, computed with registration
+and membership in the same auth snapshot. It is not authorization for a future request.
+Catalog and primary summary reads use the current registered display name; a name-only
+change during a catalog read does not invalidate the unrelated Git read. Binding, ACL,
+account and credential changes still fail their existing checks.
+
+On a persistence error the request fails, but a rename followed by a failed directory
+synchronization can leave an uncertain disk outcome. Refresh or repeat the same desired
+name to confirm it; retries never skip persistence merely because the name already matches.
+Old `repository register` or completed `repository import` commands retain their original
+metadata checks. Repeating old arguments after an online rename fails rather than silently
+reverting the name; changing an import's immutable arguments is not a rename operation.

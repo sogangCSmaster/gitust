@@ -580,3 +580,6 @@ fn recover_worktrees_and_mirror_refs_fail_closed_on_corrupt_entries() {
 mod tests_browse_bench;
 #[path = "tests_mirror.rs"]
 mod tests_mirror;
+
+#[path = "tests_mirror_gate.rs"]
+mod tests_mirror_gate;

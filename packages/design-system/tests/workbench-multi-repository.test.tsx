@@ -113,7 +113,7 @@ it("opens a real browse-only repository without exposing primary worktree action
   expect(
     within(nav).queryByRole("button", { name: "Actions", exact: true }),
   ).toBeNull();
-  expect(screen.getByText("Browse only", { exact: true })).toBeTruthy();
+  expect(await screen.findByText("Browse only", { exact: true })).toBeTruthy();
   expect(
     screen.queryByRole("button", { name: "Rename repository" }),
   ).toBeNull();
@@ -233,7 +233,7 @@ it("preserves an explicit branch snapshot across a confirmed default change and 
     within(nav).getByRole("button", { name: "Overview", exact: true }),
   );
   await fireEvent.click(
-    screen.getByRole("button", { name: "Change default branch" }),
+    await screen.findByRole("button", { name: "Change default branch" }),
   );
   expect(screen.getByRole("dialog")).toBeTruthy();
   await vi.dynamicImportSettled();
@@ -292,7 +292,7 @@ it("opens unborn repositories with rename and HEAD guidance while preserving pri
     }),
   );
   expect(
-    screen.getByRole("button", { name: "Rename repository" }),
+    await screen.findByRole("button", { name: "Rename repository" }),
   ).toBeTruthy();
   expect(
     screen.getByRole("heading", { name: "No commits on the default branch" }),
@@ -316,7 +316,9 @@ it("opens unborn repositories with rename and HEAD guidance while preserving pri
       name: "Open repository agent-project",
     }),
   );
-  expect(screen.getByRole("button", { name: "Clone repository" })).toBeTruthy();
+  expect(
+    await screen.findByRole("button", { name: "Clone repository" }),
+  ).toBeTruthy();
   const primaryNav = screen.getByRole("navigation", {
     name: "Repository views",
   });

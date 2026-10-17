@@ -7,15 +7,14 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import {
+import { ActiveChordHUD } from "../patterns/ActiveChordHUD";
+import { CommandPalette } from "../patterns/CommandPalette";
+import { Button } from "../components/ui/button";
+import { Icon, IconSpriteSheet } from "../components/workspace/icon";
+import type {
   ActionJobStep,
-  ActiveChordHUD,
-  Button,
   AgentSandboxTask,
-  CommandPalette,
   EnterpriseUser,
-  Icon,
-  IconSpriteSheet,
   IssueItem,
   LiveAuthSessionInfo,
   LiveInviteItem,

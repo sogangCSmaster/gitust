@@ -578,3 +578,42 @@ This candidate preserves the prior ref fix and adds no secondary writes, branch
 creation/deletion or online service inventory. Its own hosted result remains separate
 from `6c67809`'s successful run. Product GitHub publication remains deferred; standalone
 installation, native IDE and deployment acceptance remain open.
+
+The [fixed-source default-branch checkpoint](evidence/alpha-ci-ada787a-2026-10-18.json)
+records [run 39052238635](https://github.com/sogangCSmaster/gitust/actions/runs/39052238635),
+attempt 1, for `ada787a8ab49b0b6493815b3088c7fa3a7f4498c`. Ubuntu 22.04 and macOS 15
+both passed required steps 1–17, including the actual default-branch operator and
+execution-crash recovery. This result covers that source revision, rather than the
+later JavaScript import changes.
+
+## Initial JavaScript import boundary candidate, 2026-10-18
+
+The [local bundle checkpoint](evidence/initial-js-local-2026-10-18.json) records a
+candidate based on `ada787a`. Direct runtime primitive imports and an independent
+sample-data module keep an optional viewer out of the initial graph. Repository
+Overview is now loaded on repository entry while its root controllers and session
+epochs retain their lifetime. The existing deferred boundary exposes loading and
+failure without taking away navigation or granting hidden mutation authority.
+
+The [complete emitted-closure measurement](../benchmarks/web-bundle.md) falls from
+73,656 to 70,031 gzip9 bytes (-4.92%); first Overview cumulative bytes instead rise
+by 232 to 73,888. CSS and public package exports are unchanged. The 50,000-byte target
+remains unmet. A repository command reproduces the measurement using private build
+output and cache directories. Static graphs are supplemented by a real authenticated
+fresh-page asset trace; Access-link startup remains a distinct optional cohort.
+
+The integrated mechanical gate passed frontend260 across 36 files, Python19,
+CLI33, core2, DB37, Git133 (two existing ignored benchmarks), sandbox30 and server152,
+plus formatting, Clippy, typechecks and bundle/line/fail-open checks. Two new route
+boundary regressions fail against the prior eager implementation and pass afterward.
+Native browser checks on the rebuilt binary cover 320/768/1440px, Clone, display-name
+and default-branch saves, actual file contents and a browse-only repository. Delayed
+module navigation A→catalog→B resolves B; an actual chunk 404 shows a visible error,
+permits catalog navigation and recovers through application reload. Native Git
+confirms the saved symbolic default and unchanged branch/task tips and original task
+base. Owned fixture processes, temporary repositories and browser tab were removed,
+and the viewport override was reset.
+
+This checkpoint claims no latency gain, final release acceptance, physical-device
+coverage, new IDE integration or deployment. Product GitHub publication is deferred
+at the user's request; local bare-remote evidence is not relabelled as GitHub proof.

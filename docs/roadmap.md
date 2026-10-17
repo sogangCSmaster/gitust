@@ -55,7 +55,7 @@ In progress. Implemented portions:
 Remaining work:
 
 - Non-managed branch triggers and workflow execution beyond managed-worktree automatic Checks. GitHub Actions-compatible workflows remain Phase 4 work.
-- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current initial static-import closure is approximately 73 kB gzip. Measure the complete initial static-import closure, not just an arbitrarily split entry file.
+- Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current initial static-import closure is approximately 70 kB gzip after the first import-boundary reduction. The [measurement](benchmarks/web-bundle.md) includes every static dependency and the first Overview's cumulative cost; the target remains unmet.
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Repository administration UI, lifecycle management and online inventory changes; additional repositories also need isolated worktree and write routing before gaining full workbench capabilities.

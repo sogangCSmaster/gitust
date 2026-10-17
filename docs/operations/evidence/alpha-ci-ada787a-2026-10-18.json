@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-10-17T17:15:14.872360+00:00",
+  "repository": "sogangCSmaster/gitust",
+  "expected_source_commit": "ada787a8ab49b0b6493815b3088c7fa3a7f4498c",
+  "run": {
+    "id": 39052238635,
+    "head_sha": "ada787a8ab49b0b6493815b3088c7fa3a7f4498c",
+    "status": "completed",
+    "conclusion": "success",
+    "created_at": "2026-10-17T17:05:37Z",
+    "updated_at": "2026-10-17T17:11:52Z",
+    "run_attempt": 1,
+    "html_url": "https://github.com/sogangCSmaster/gitust/actions/runs/39052238635"
+  },
+  "jobs": [
+    {
+      "id": 117452989078,
+      "name": "Verify and rehearse (ubuntu-22.04)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-17T17:05:40Z",
+      "completed_at": "2026-10-17T17:08:44Z",
+      "platform": "Linux",
+      "required_steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:41Z",
+          "completed_at": "2026-10-17T17:05:43Z"
+        },
+        {
+          "number": 2,
+          "name": "Check out the tested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:43Z",
+          "completed_at": "2026-10-17T17:05:44Z"
+        },
+        {
+          "number": 3,
+          "name": "Install Node.js",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:44Z",
+          "completed_at": "2026-10-17T17:05:44Z"
+        },
+        {
+          "number": 4,
+          "name": "Install pnpm from packageManager",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:44Z",
+          "completed_at": "2026-10-17T17:05:47Z"
+        },
+        {
+          "number": 5,
+          "name": "Install the tested Rust toolchain",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:47Z",
+          "completed_at": "2026-10-17T17:05:53Z"
+        },
+        {
+          "number": 6,
+          "name": "Install Linux sandbox prerequisites",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:53Z",
+          "completed_at": "2026-10-17T17:06:06Z"
+        },
+        {
+          "number": 7,
+          "name": "Require an executable OS sandbox",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:06:06Z",
+          "completed_at": "2026-10-17T17:06:06Z"
+        },
+        {
+          "number": 8,
+          "name": "Install locked dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:06:06Z",
+          "completed_at": "2026-10-17T17:06:09Z"
+        },
+        {
+          "number": 9,
+          "name": "Build and check the committed web bundle",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:06:09Z",
+          "completed_at": "2026-10-17T17:06:12Z"
+        },
+        {
+          "number": 10,
+          "name": "Run every mechanical gate",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:06:12Z",
+          "completed_at": "2026-10-17T17:08:22Z"
+        },
+        {
+          "number": 11,
+          "name": "Run the real ten-task operating rehearsal",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:08:22Z",
+          "completed_at": "2026-10-17T17:08:34Z"
+        },
+        {
+          "number": 12,
+          "name": "Record only public rehearsal evidence",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:08:34Z",
+          "completed_at": "2026-10-17T17:08:35Z"
+        },
+        {
+          "number": 13,
+          "name": "Verify two real repositories and startup rollback",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:08:35Z",
+          "completed_at": "2026-10-17T17:08:36Z"
+        },
+        {
+          "number": 14,
+          "name": "Verify empty repository creation and first push",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:08:36Z",
+          "completed_at": "2026-10-17T17:08:37Z"
+        },
+        {
+          "number": 15,
+          "name": "Restore all repositories from one stopped checkpoint",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:08:37Z",
+          "completed_at": "2026-10-17T17:08:39Z"
+        },
+        {
+          "number": 16,
+          "name": "Verify default branch management and clone behavior",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:08:39Z",
+          "completed_at": "2026-10-17T17:08:40Z"
+        },
+        {
+          "number": 17,
+          "name": "Reject unsafe service restart after an interrupted command",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:08:40Z",
+          "completed_at": "2026-10-17T17:08:41Z"
+        }
+      ],
+      "all_required_steps_observed": true,
+      "required_steps_success_with_documented_os_skip": true,
+      "default_branch_step_16_succeeded": true,
+      "crash_recovery_step_17_succeeded": true
+    },
+    {
+      "id": 117452988930,
+      "name": "Verify and rehearse (macos-15)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-17T17:05:47Z",
+      "completed_at": "2026-10-17T17:11:51Z",
+      "platform": "macOS",
+      "required_steps": [
+        {
+          "number": 1,
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:48Z",
+          "completed_at": "2026-10-17T17:05:50Z"
+        },
+        {
+          "number": 2,
+          "name": "Check out the tested revision",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:50Z",
+          "completed_at": "2026-10-17T17:05:53Z"
+        },
+        {
+          "number": 3,
+          "name": "Install Node.js",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:53Z",
+          "completed_at": "2026-10-17T17:05:54Z"
+        },
+        {
+          "number": 4,
+          "name": "Install pnpm from packageManager",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:05:54Z",
+          "completed_at": "2026-10-17T17:06:00Z"
+        },
+        {
+          "number": 5,
+          "name": "Install the tested Rust toolchain",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:06:00Z",
+          "completed_at": "2026-10-17T17:06:09Z"
+        },
+        {
+          "number": 6,
+          "name": "Install Linux sandbox prerequisites",
+          "status": "completed",
+          "conclusion": "skipped",
+          "started_at": "2026-10-17T17:06:09Z",
+          "completed_at": "2026-10-17T17:06:09Z"
+        },
+        {
+          "number": 7,
+          "name": "Require an executable OS sandbox",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:06:09Z",
+          "completed_at": "2026-10-17T17:06:09Z"
+        },
+        {
+          "number": 8,
+          "name": "Install locked dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:06:09Z",
+          "completed_at": "2026-10-17T17:06:15Z"
+        },
+        {
+          "number": 9,
+          "name": "Build and check the committed web bundle",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:06:15Z",
+          "completed_at": "2026-10-17T17:06:22Z"
+        },
+        {
+          "number": 10,
+          "name": "Run every mechanical gate",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:06:22Z",
+          "completed_at": "2026-10-17T17:10:51Z"
+        },
+        {
+          "number": 11,
+          "name": "Run the real ten-task operating rehearsal",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:10:51Z",
+          "completed_at": "2026-10-17T17:11:27Z"
+        },
+        {
+          "number": 12,
+          "name": "Record only public rehearsal evidence",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:11:27Z",
+          "completed_at": "2026-10-17T17:11:27Z"
+        },
+        {
+          "number": 13,
+          "name": "Verify two real repositories and startup rollback",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:11:27Z",
+          "completed_at": "2026-10-17T17:11:31Z"
+        },
+        {
+          "number": 14,
+          "name": "Verify empty repository creation and first push",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:11:31Z",
+          "completed_at": "2026-10-17T17:11:33Z"
+        },
+        {
+          "number": 15,
+          "name": "Restore all repositories from one stopped checkpoint",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:11:33Z",
+          "completed_at": "2026-10-17T17:11:40Z"
+        },
+        {
+          "number": 16,
+          "name": "Verify default branch management and clone behavior",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:11:40Z",
+          "completed_at": "2026-10-17T17:11:45Z"
+        },
+        {
+          "number": 17,
+          "name": "Reject unsafe service restart after an interrupted command",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T17:11:45Z",
+          "completed_at": "2026-10-17T17:11:47Z"
+        }
+      ],
+      "all_required_steps_observed": true,
+      "required_steps_success_with_documented_os_skip": true,
+      "default_branch_step_16_succeeded": true,
+      "crash_recovery_step_17_succeeded": true
+    }
+  ],
+  "both_expected_os_jobs_observed": true,
+  "completed_successfully": true,
+  "completion_recorded_only_after_success_observed": true,
+  "scope": "Read-only GitHub run/job/required-step metadata, not raw logs, artifact contents or external product publication.",
+  "limitations": [
+    "This hosted run tests ada787a, not the subsequent isolated initial-JavaScript candidate.",
+    "GitHub step1 is Set up job; macOS step6 is the intentional Linux-prerequisite skip. All other required1..17 steps succeeded.",
+    "GitHub product outbound publication remains deferred."
+  ],
+  "validation_note": "Initial local validator incorrectly numbered the conditional skip as5; corrected against actual job step names. This was observation-code bookkeeping, not a hosted product/CI failure."
+}

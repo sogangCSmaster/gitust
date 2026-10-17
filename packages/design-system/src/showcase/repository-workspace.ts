@@ -5,7 +5,7 @@ import {
   type ConnectedRepository,
   type ConnectedRepositoryState,
 } from "./connected-repository-client";
-import { DEMO_REPOSITORY } from "./RepositoryViews";
+import { DEMO_REPOSITORY } from "./repository-demo";
 import { getLiveToken } from "./live-repo-client";
 import type { RepositoryRenameActions } from "./repository-rename-types";
 import type {

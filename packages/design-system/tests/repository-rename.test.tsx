@@ -10,10 +10,8 @@ import {
 } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
 import { createRepositoryWorkspace } from "../src/showcase/repository-workspace";
-import {
-  RepositoryLanding,
-  RepositoryOverview,
-} from "../src/showcase/RepositoryViews";
+import { RepositoryLanding } from "../src/showcase/RepositoryViews";
+import { RepositoryOverview } from "../src/showcase/RepositoryOverview";
 
 const primary = {
   id: "11111111-1111-4111-8111-111111111111",

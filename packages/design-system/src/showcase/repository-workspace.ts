@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal, untrack } from "solid-js";
 import type { WorkbenchTab } from "./WorkbenchApp";
 import {
   createConnectedRepositoryClient,
@@ -44,6 +44,20 @@ export const createRepositoryWorkspace = (options: {
       return null;
     return rows.find((repo) => repo.id === id) ?? null;
   };
+  let observedHead: { id: string; head: string | null } | undefined;
+  createEffect(() => {
+    const repository = selected();
+    const previous = observedHead;
+    observedHead = repository
+      ? { id: repository.id, head: repository.headCommit }
+      : undefined;
+    if (
+      repository &&
+      previous?.id === repository.id &&
+      previous.head !== repository.headCommit
+    )
+      untrack(() => options.hydrate(repository));
+  });
   const canWorkbench = () => {
     const repository = selected();
     return repository?.capability === "workbench" && repository.isDefault;
@@ -92,6 +106,20 @@ export const createRepositoryWorkspace = (options: {
     clearSelection();
     client.reset();
     void client.refresh();
+  };
+  const refreshViews = async () => {
+    const origin = selected();
+    const epoch = selectionEpoch();
+    const token = getLiveToken();
+    if (!origin || !options.liveMode() || !token) return;
+    const current = () =>
+      epoch === selectionEpoch() &&
+      token === getLiveToken() &&
+      selected()?.id === origin.id;
+    await client.refreshIfCurrent(current);
+    const repository = selected();
+    if (current() && repository && repository.headCommit === origin.headCommit)
+      options.hydrate(repository);
   };
   const rename: RepositoryRenameActions = {
     begin: () => {
@@ -145,5 +173,6 @@ export const createRepositoryWorkspace = (options: {
     unavailable,
     rename,
     refresh: client.refresh,
+    refreshViews,
   };
 };

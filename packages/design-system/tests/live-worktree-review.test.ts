@@ -53,6 +53,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 let token: string | null;
+let defaultHead: string | null;
 let lines: DiffLine[] | null;
 let blobLines: DiffLine[] | null;
 let review: LiveWorktreeReview | null;
@@ -62,6 +63,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let client: ReturnType<typeof createLiveRepoClient>;
 beforeEach(() => {
   token = "review-session";
+  defaultHead = head;
   lines = null;
   blobLines = null;
   review = null;
@@ -72,6 +74,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   client = createLiveRepoClient({
     getRepositoryId: () => "11111111-1111-4111-8111-111111111111",
+    getRepositoryHead: () => defaultHead,
     canWorkbench: () => true,
     setLiveBlobLines: (value) => {
       blobLines = value;
@@ -330,4 +333,35 @@ it("refuses repository hydration that changes the tree SHA without providing a p
   const requests = fetchMock.mock.calls.length;
   await client.selectFileFromTree({ path: "old.txt", kind: "file" });
   expect(fetchMock).toHaveBeenCalledTimes(requests);
+});
+
+it("retains an explicit worktree comparison while default HEAD becomes unborn", async () => {
+  const pending = deferred<unknown>();
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: () => pending.promise,
+  });
+  const request = client.loadLiveWorktreeDiff(task());
+  await Promise.resolve();
+  defaultHead = null;
+  await client.hydrateFromLiveBackend();
+  pending.resolve(diff(["one.txt"], "EXPLICIT WORKTREE"));
+  await request;
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(review?.state).toBe("ready");
+  expect(review?.headSha).toBe(head);
+  expect(lines?.[0]?.content).toBe("EXPLICIT WORKTREE");
+  await client.hydrateFromLiveBackend();
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(lines?.[0]?.content).toBe("EXPLICIT WORKTREE");
+  defaultHead = "c".repeat(40);
+  fetchMock
+    .mockResolvedValueOnce(response({ commits: [] }))
+    .mockResolvedValueOnce(response({ commit_sha: defaultHead, entries: [] }));
+  await client.hydrateFromLiveBackend();
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(review?.headSha).toBe(head);
+  expect(review?.baseSha).toBe(base);
+  expect(lines?.[0]?.content).toBe("EXPLICIT WORKTREE");
 });

@@ -35,6 +35,8 @@ mod tests_oauth;
 mod tests_outbound;
 #[path = "tests_repository_summary.rs"]
 mod tests_repository_summary;
+#[path = "tests_repository_unborn.rs"]
+mod tests_repository_unborn;
 #[path = "tests_required_checks.rs"]
 mod tests_required_checks;
 #[path = "tests_run_history.rs"]

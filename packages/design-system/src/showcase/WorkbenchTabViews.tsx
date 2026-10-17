@@ -57,10 +57,13 @@ const PrimitivesTab = lazy(() =>
   })),
 );
 
+import type { ConnectedRepository } from "./connected-repository-client";
+import { RepositoryInitialCommit } from "./RepositoryInitialCommit";
+
 export interface WorkbenchTabViewsProps {
   activeTab: WorkbenchTab;
   liveMode: boolean;
-  repositoryId?: string;
+  repository?: ConnectedRepository | null;
   canWorkbench?: boolean;
   swarmTasks: AgentSandboxTask[];
   focusedSwarmIdx: number;
@@ -166,7 +169,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
     </Show>
     <Show
       when={
-        props.activeTab === "diff" && (!props.liveMode || props.repositoryId)
+        props.activeTab === "diff" && (!props.liveMode || props.repository?.id)
       }
     >
       <PageHeading
@@ -177,21 +180,35 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
             : "Explore sample commits and a virtualized diff."
         }
       />
-      <DeferredView label="Changes">
-        <RepositoryChangesView
-          liveMode={props.liveMode}
-          commits={props.liveCommits}
-          activeCommitRev={props.activeCommitRev}
-          onSelectCommit={props.onSelectCommitDiff}
-          lookupMicros={props.lookupMicros}
-          review={props.worktreeReview}
-          selectedFilePath={props.selectedFilePath}
-          lines={props.diffLines}
-          files={props.liveDiffFiles}
-          truncated={props.diffTruncated}
-          onSelectFile={props.onSelectCommitDiffFile}
-        />
-      </DeferredView>
+      <Show
+        when={
+          !props.liveMode ||
+          props.repository?.headCommit !== null ||
+          props.worktreeReview
+        }
+        fallback={
+          <RepositoryInitialCommit
+            branch={props.repository?.branch ?? ""}
+            onRefresh={props.onRefreshSwarmTasks}
+          />
+        }
+      >
+        <DeferredView label="Changes">
+          <RepositoryChangesView
+            liveMode={props.liveMode}
+            commits={props.liveCommits}
+            activeCommitRev={props.activeCommitRev}
+            onSelectCommit={props.onSelectCommitDiff}
+            lookupMicros={props.lookupMicros}
+            review={props.worktreeReview}
+            selectedFilePath={props.selectedFilePath}
+            lines={props.diffLines}
+            files={props.liveDiffFiles}
+            truncated={props.diffTruncated}
+            onSelectFile={props.onSelectCommitDiffFile}
+          />
+        </DeferredView>
+      </Show>
     </Show>
     <Show when={props.activeTab === "actions" && props.canWorkbench !== false}>
       <PageHeading
@@ -222,7 +239,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
       >
         <DeferredView label="Automatic Actions">
           <LiveActionsView
-            repositoryId={props.repositoryId}
+            repositoryId={props.repository?.id}
             role={props.adminAuthProps?.liveSession?.role}
           />
         </DeferredView>
@@ -245,7 +262,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
     </Show>
     <Show
       when={
-        props.activeTab === "tree" && (!props.liveMode || props.repositoryId)
+        props.activeTab === "tree" && (!props.liveMode || props.repository?.id)
       }
     >
       <PageHeading
@@ -264,14 +281,24 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
           </AlertDescription>
         </Alert>
       </Show>
-      <DeferredView label="Repository files">
-        <RepositoryFilesView
-          files={props.fileTreeNodes}
-          selectedFilePath={props.selectedTreePath}
-          lines={props.blobLines}
-          onSelect={props.onSelectFileFromTree}
-        />
-      </DeferredView>
+      <Show
+        when={!props.liveMode || props.repository?.headCommit !== null}
+        fallback={
+          <RepositoryInitialCommit
+            branch={props.repository?.branch ?? ""}
+            onRefresh={props.onRefreshSwarmTasks}
+          />
+        }
+      >
+        <DeferredView label="Repository files">
+          <RepositoryFilesView
+            files={props.fileTreeNodes}
+            selectedFilePath={props.selectedTreePath}
+            lines={props.blobLines}
+            onSelect={props.onSelectFileFromTree}
+          />
+        </DeferredView>
+      </Show>
     </Show>
     <Show when={props.activeTab === "primitives"}>
       <DeferredView label="Components">

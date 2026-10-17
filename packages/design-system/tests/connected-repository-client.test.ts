@@ -36,6 +36,36 @@ afterEach(() => {
   token = "session-a";
 });
 
+it("accepts only explicit null for an unborn default while retaining committed identities", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        response([{ ...repo, head_commit: null, can_rename: true }, secondary]),
+      )
+      .mockResolvedValueOnce(
+        response([{ ...repo, head_commit: "0".repeat(40) }]),
+      )
+      .mockResolvedValueOnce(response([{ ...repo, head_commit: undefined }])),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toHaveLength(2);
+  expect(states.at(-1)?.repositories[0]).toMatchObject({
+    branch: "main",
+    headCommit: null,
+    canRename: true,
+  });
+  expect(states.at(-1)?.repositories[1]?.headCommit).toBe(
+    secondary.head_commit,
+  );
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+});
+
 it("uses the server rename hint and defaults old catalogs to read-only metadata", async () => {
   vi.stubGlobal(
     "fetch",

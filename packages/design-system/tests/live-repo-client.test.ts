@@ -5,6 +5,8 @@ import type { DiffLine } from "../src/patterns/VirtualDiffViewer";
 let token: string | null;
 let repositoryId = "11111111-1111-4111-8111-111111111111";
 let workbench = true;
+let repositoryHead: string | null = "a".repeat(40);
+let repositoryChanged: ReturnType<typeof vi.fn>;
 let unavailable: ReturnType<typeof vi.fn>;
 let lines: DiffLine[] | null;
 let blobLines: DiffLine[] | null;
@@ -38,6 +40,8 @@ beforeEach(async () => {
   token = "session-a";
   repositoryId = "11111111-1111-4111-8111-111111111111";
   workbench = true;
+  repositoryHead = "a".repeat(40);
+  repositoryChanged = vi.fn(async () => {});
   unavailable = vi.fn();
   lines = null;
   blobLines = null;
@@ -51,6 +55,8 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", fetchMock);
   client = createLiveRepoClient({
     getRepositoryId: () => repositoryId,
+    getRepositoryHead: () => repositoryHead,
+    onRepositoryChanged: () => repositoryChanged(),
     canWorkbench: () => workbench,
     onRepositoryUnavailable: (id) => unavailable(id),
     setLiveBlobLines: (value) => {
@@ -373,4 +379,49 @@ it("loads each root-commit file without sending its empty tree as an explicit ba
     expect(query.get("head")).toBe(head);
     expect(query.has("base")).toBe(false);
   }
+});
+
+it("skips unborn HEAD requests and invalidates slow HEAD and blob bodies without treating them as authorization errors", async () => {
+  const pendingDiff = deferred<unknown>();
+  const pendingBlob = deferred<unknown>();
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: () => pendingDiff.promise,
+  });
+  const diffRequest = client.loadLiveCommitDiff("HEAD");
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: () => pendingBlob.promise,
+  });
+  const blobRequest = client.selectFileFromTree({
+    path: "old.txt",
+    kind: "file",
+  });
+  await Promise.resolve();
+  repositoryHead = null;
+  await client.hydrateFromLiveBackend();
+  pendingDiff.resolve(diff("old.txt", "OLD HEAD"));
+  pendingBlob.resolve({ commit_sha: head, content: "OLD FILE" });
+  await Promise.all([diffRequest, blobRequest]);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(lines).toEqual([]);
+  expect(blobLines?.[0]?.content).toContain("Select a file");
+  expect(unavailable).not.toHaveBeenCalled();
+  expect(feedback).not.toHaveBeenCalled();
+  await client.loadLiveCommitDiff("HEAD");
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  repositoryHead = head;
+  await hydrateTree(client);
+  expect(diffFiles).toEqual([]);
+});
+
+it("refreshes catalog metadata after sync instead of hydrating a stale unborn HEAD", async () => {
+  repositoryHead = null;
+  fetchMock.mockResolvedValueOnce(response({ last_synced_commit: head }));
+  client.triggerGithubSync();
+  await vi.waitFor(() => expect(repositoryChanged).toHaveBeenCalledOnce());
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/sync/github");
 });

@@ -64,6 +64,8 @@ export interface LiveRepoClientCallbacks {
   setWorktreeReview?: (review: LiveWorktreeReview | null) => void;
   getActiveCommitRev: () => string;
   getRepositoryId: () => string | null | undefined;
+  getRepositoryHead?: () => string | null | undefined;
+  onRepositoryChanged?: () => Promise<void>;
   canWorkbench: () => boolean;
   onRepositoryUnavailable?: (id: string) => void;
   showQuickFeedback: (msg: string) => void;

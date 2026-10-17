@@ -165,6 +165,8 @@ export const WorkbenchApp: Component = () => {
 
   const liveClient = createLiveRepoClient({
     getRepositoryId: () => connectedRepository.selected()?.id,
+    getRepositoryHead: () => connectedRepository.selected()?.headCommit,
+    onRepositoryChanged: () => connectedRepository.refreshViews(),
     canWorkbench: () => connectedRepository.canWorkbench(),
     onRepositoryUnavailable: (id) => connectedRepository.unavailable(id),
     setActiveCommitRev,
@@ -188,7 +190,6 @@ export const WorkbenchApp: Component = () => {
     setSwarmTasks,
     onRepoMutated: () => {
       if (!connectedRepository.canWorkbench()) return;
-      void liveClient.hydrateFromLiveBackend();
       void connectedRepository.refresh();
     },
     showQuickFeedback,
@@ -436,7 +437,7 @@ export const WorkbenchApp: Component = () => {
                 liveMode={liveMode()}
                 worktrees={swarmTasks().length}
                 onNavigate={navigate}
-                rename={connectedRepository.rename}
+                actions={connectedRepository}
               />
             )}
           </Show>
@@ -449,7 +450,7 @@ export const WorkbenchApp: Component = () => {
           </Show>
 
           <WorkbenchTabViews
-            repositoryId={selectedRepository()?.id}
+            repository={selectedRepository()}
             canWorkbench={connectedRepository.canWorkbench()}
             activeTab={activeTab()}
             liveMode={liveMode()}
@@ -465,6 +466,7 @@ export const WorkbenchApp: Component = () => {
                 void liveSwarmClient.verifyLiveWorktree(id, command);
             }}
             onRefreshSwarmTasks={() => {
+              void connectedRepository.refreshViews();
               if (connectedRepository.canWorkbench())
                 void liveSwarmClient.hydrateSwarmWorktrees();
             }}

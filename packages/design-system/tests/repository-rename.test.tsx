@@ -94,7 +94,7 @@ const setup = async (
               liveMode
               worktrees={0}
               onNavigate={workspace.navigate}
-              rename={workspace.rename}
+              actions={workspace}
             />
           )}
         </Show>

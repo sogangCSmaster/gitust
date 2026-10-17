@@ -8,6 +8,7 @@ import type {
   ConnectedRepositoryState,
 } from "./connected-repository-client";
 import type { RepositoryRenameActions } from "./repository-rename-types";
+import { RepositoryInitialCommit } from "./RepositoryInitialCommit";
 import { RepositoryRename } from "./RepositoryRename";
 
 export const DEMO_REPOSITORY: ConnectedRepository = {
@@ -119,8 +120,15 @@ export const RepositoryLanding: Component<{
                   <Icon name="repo" size={20} />
                 </span>
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-semibold">
-                    {repo.name}
+                  <span class="flex min-w-0 items-center gap-2">
+                    <span class="truncate text-sm font-semibold">
+                      {repo.name}
+                    </span>
+                    <Show when={props.liveMode && repo.headCommit === null}>
+                      <span class="shrink-0 text-[10px] font-normal text-muted-foreground">
+                        No commit
+                      </span>
+                    </Show>
                   </span>
                   <span class="mt-1 flex min-w-0 items-center gap-2 text-xs font-normal text-muted-foreground">
                     <Icon name="git-branch" size={12} />
@@ -173,7 +181,7 @@ export const RepositoryOverview: Component<{
   liveMode: boolean;
   worktrees: number;
   onNavigate: (tab: "swarm" | "tree" | "diff" | "actions") => void;
-  rename?: RepositoryRenameActions;
+  actions?: { rename: RepositoryRenameActions; refreshViews: () => unknown };
 }> = (props) => {
   const destinations: Array<{
     id: "swarm" | "tree" | "diff" | "actions";
@@ -228,7 +236,7 @@ export const RepositoryOverview: Component<{
           <RepositoryRename
             repository={props.repository}
             liveMode={props.liveMode}
-            actions={props.rename}
+            actions={props.actions?.rename}
           />
           <Show when={!props.liveMode}>
             <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -250,14 +258,22 @@ export const RepositoryOverview: Component<{
               {props.repository.branch}
             </span>
           </span>
-          <span class="inline-flex items-center gap-1.5">
-            <Icon name="git-commit" size={12} />
-            <code title={props.repository.headCommit}>
-              {props.repository.headCommit.slice(0, 7)}
-            </code>
-          </span>
+          <Show when={props.repository.headCommit}>
+            {(sha) => (
+              <span class="inline-flex items-center gap-1.5">
+                <Icon name="git-commit" size={12} />
+                <code title={sha()}>{sha().slice(0, 7)}</code>
+              </span>
+            )}
+          </Show>
         </div>
       </div>
+      <Show when={props.repository.headCommit === null}>
+        <RepositoryInitialCommit
+          branch={props.repository.branch}
+          onRefresh={() => props.actions?.refreshViews()}
+        />
+      </Show>
       <div class="overflow-hidden rounded-xl border bg-card">
         <For
           each={destinations.filter(

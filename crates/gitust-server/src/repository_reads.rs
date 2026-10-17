@@ -123,7 +123,7 @@ struct CatalogEntry {
     id: RepoId,
     name: String,
     branch: String,
-    head_commit: gitust_core::CommitSha,
+    head_commit: Option<gitust_core::CommitSha>,
     capability: &'static str,
     is_default: bool,
     can_rename: bool,
@@ -167,16 +167,20 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 .engine
                 .lock_worktree_service()
                 .map_err(unavailable)?;
-            let head = context.engine.inspect_head_identity().map_err(read_error)?;
+            let (branch_name, head_commit) = context
+                .engine
+                .inspect_repository_head()
+                .map_err(read_error)?
+                .into_parts();
             let name = display_name(&context.engine, authorization.metadata.as_ref());
-            if head.branch_name.len() > 32 * 1024 || name.len() > 1024 {
+            if branch_name.len() > 32 * 1024 || name.len() > 1024 {
                 return Err(unavailable("repository metadata exceeds its limit"));
             }
             repositories.push(CatalogEntry {
                 id: context.access.repo_id,
                 name,
-                branch: head.branch_name,
-                head_commit: head.head_sha,
+                branch: branch_name,
+                head_commit,
                 capability: if context.is_default {
                     "workbench"
                 } else {

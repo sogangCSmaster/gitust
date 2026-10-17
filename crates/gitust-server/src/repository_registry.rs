@@ -70,8 +70,8 @@ impl RepositoryRegistry {
                 repo_id: id,
                 registration: Some(receipt),
             };
-            // Validate a usable HEAD before publishing any registry or starting primary workers.
-            engine.inspect_head_identity()?;
+            // An explicit unborn default ref is valid; malformed or broken HEADs still fail startup.
+            engine.inspect_repository_head()?;
             entries.insert(
                 id,
                 ReadRepository {

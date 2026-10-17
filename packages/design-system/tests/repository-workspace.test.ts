@@ -160,3 +160,121 @@ it("rejects old-row and eventless replacement-session intents before making repo
     dispose();
   }
 });
+
+it("refreshes HEAD views across unborn transitions while preserving selection and name-only views", async () => {
+  localStorage.setItem("gitust_token", "remembered-session");
+  let row = {
+    ...primary,
+    head_commit: null as string | null,
+    can_rename: true,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ repositories: [row] }))),
+  );
+  const hydrate = vi.fn();
+  const clear = vi.fn();
+  let dispose!: () => void;
+  const workspace = createRoot((stop) => {
+    dispose = stop;
+    return createRepositoryWorkspace({
+      liveMode: () => true,
+      setActiveTab: vi.fn(),
+      clearView: clear,
+      hydrate,
+    });
+  });
+  try {
+    await workspace.refresh();
+    workspace.open(workspace.state().repositories[0]!);
+    expect(workspace.canWorkbench()).toBe(true);
+    expect(hydrate).toHaveBeenCalledTimes(1);
+    row = { ...row, name: "new-name" };
+    await workspace.refresh();
+    expect(workspace.selected()?.name).toBe("new-name");
+    expect(hydrate).toHaveBeenCalledTimes(1);
+    row = { ...row, head_commit: "b".repeat(40) };
+    await workspace.refresh();
+    expect(workspace.selected()?.headCommit).toBe(row.head_commit);
+    expect(hydrate).toHaveBeenCalledTimes(2);
+    row = { ...row, head_commit: "c".repeat(40) };
+    await workspace.refresh();
+    expect(hydrate).toHaveBeenCalledTimes(3);
+    row = { ...row, head_commit: null };
+    await workspace.refresh();
+    expect(workspace.selected()?.headCommit).toBeNull();
+    expect(hydrate).toHaveBeenCalledTimes(4);
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(workspace.canWorkbench()).toBe(true);
+  } finally {
+    dispose();
+  }
+});
+
+it("does not hydrate a late explicit refresh after leaving and reopening a UUID or replacing its token", async () => {
+  localStorage.setItem("gitust_token", "session-a");
+  const payload = JSON.stringify({ repositories: [primary, secondary] });
+  const fetcher = vi.fn(
+    async (_url: string, _options?: RequestInit) => new Response(payload),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const hydrate = vi.fn();
+  let dispose!: () => void;
+  const workspace = createRoot((stop) => {
+    dispose = stop;
+    return createRepositoryWorkspace({
+      liveMode: () => true,
+      setActiveTab: vi.fn(),
+      clearView: vi.fn(),
+      hydrate,
+    });
+  });
+  try {
+    await workspace.refresh();
+    const [a, b] = workspace.state().repositories;
+    workspace.open(a!);
+    let finish!: (text: string) => void;
+    fetcher.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    } as Response);
+    const pending = workspace.refreshViews();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    workspace.open(b!);
+    workspace.open(a!);
+    const calls = hydrate.mock.calls.length;
+    finish(
+      JSON.stringify({
+        repositories: [{ ...primary, head_commit: "c".repeat(40) }, secondary],
+      }),
+    );
+    await pending;
+    expect(hydrate).toHaveBeenCalledTimes(calls);
+    expect(workspace.selected()?.headCommit).toBe(primary.head_commit);
+    expect(workspace.state().loading).toBe(false);
+    let finishReplaced!: (text: string) => void;
+    fetcher.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () =>
+        new Promise<string>((resolve) => {
+          finishReplaced = resolve;
+        }),
+    } as Response);
+    const replaced = workspace.refreshViews();
+    await vi.waitFor(() => expect(finishReplaced).toBeTypeOf("function"));
+    localStorage.setItem("gitust_token", "session-b");
+    finishReplaced(payload);
+    await replaced;
+    expect(hydrate).toHaveBeenCalledTimes(calls);
+    expect(fetcher.mock.calls.at(-1)?.[1]).toMatchObject({
+      headers: { Authorization: "Bearer session-a" },
+    });
+  } finally {
+    dispose();
+  }
+});

@@ -181,6 +181,22 @@ pub struct RepoHeadIdentity {
     pub branch_name: String,
 }
 
+/// The current default ref can be unborn even when other branches contain commits.
+#[derive(Debug, Clone)]
+pub enum RepositoryHead {
+    Commit(RepoHeadIdentity),
+    Unborn { branch_name: String },
+}
+
+impl RepositoryHead {
+    pub fn into_parts(self) -> (String, Option<CommitSha>) {
+        match self {
+            Self::Commit(head) => (head.branch_name, Some(head.head_sha)),
+            Self::Unborn { branch_name } => (branch_name, None),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoHeadSnapshot {
     pub head_sha: CommitSha,
@@ -319,7 +335,34 @@ impl GitEngine {
         }
     }
 
-    /// Resolves `HEAD` without loading or traversing its root tree.
+    /// Inspect display identity without treating a valid unborn default ref as corruption.
+    pub fn inspect_repository_head(&self) -> Result<RepositoryHead, GitEngineError> {
+        let repo = self.acquire_repo()?;
+        let head = repo
+            .head()
+            .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?;
+        if head.is_unborn() {
+            let invalid = || GitEngineError::HeadResolution("invalid unborn default branch".into());
+            let target = std::str::from_utf8(head.referent_name().ok_or_else(invalid)?.as_bstr())
+                .map_err(|_| invalid())?;
+            let branch = target.strip_prefix("refs/heads/").ok_or_else(invalid)?;
+            if branch.len() > 32 * 1024
+                || Self::validate_branch_name(branch).map_err(|_| invalid())? != branch
+            {
+                return Err(invalid());
+            }
+            return Ok(RepositoryHead::Unborn {
+                branch_name: branch.to_owned(),
+            });
+        }
+        let (branch_name, commit) = Self::peel_head_commit(head)?;
+        Ok(RepositoryHead::Commit(RepoHeadIdentity {
+            head_sha: CommitSha(commit.id().to_string()),
+            branch_name,
+        }))
+    }
+
+    /// Resolves `HEAD` without loading or traversing its root tree; unborn refs remain errors.
     pub fn inspect_head_identity(&self) -> Result<RepoHeadIdentity, GitEngineError> {
         let repo = self.acquire_repo()?;
         let (branch_name, commit) = Self::resolve_head_commit(&repo)?;
@@ -332,9 +375,15 @@ impl GitEngine {
     fn resolve_head_commit(
         repo: &gix::Repository,
     ) -> Result<(String, gix::Commit<'_>), GitEngineError> {
-        let mut head = repo
+        let head = repo
             .head()
             .map_err(|e| GitEngineError::HeadResolution(e.to_string()))?;
+        Self::peel_head_commit(head)
+    }
+
+    fn peel_head_commit(
+        mut head: gix::Head<'_>,
+    ) -> Result<(String, gix::Commit<'_>), GitEngineError> {
         let branch_name = head
             .referent_name()
             .map(|r| r.shorten().to_string())

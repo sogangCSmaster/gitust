@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@solidjs/testing-library";
 import { WorkbenchApp } from "../src/showcase/WorkbenchApp";
@@ -149,4 +150,105 @@ it("preserves sample worktrees while opening an explicitly labelled demo reposit
   );
   const nav = screen.getByRole("navigation", { name: "Repository views" });
   expect(within(nav).getByText("6")).toBeTruthy();
+});
+
+it("opens unborn repositories with rename and HEAD guidance while preserving primary worktree commands", async () => {
+  catalog = [
+    { ...primary, head_commit: null, can_rename: true },
+    { ...secondary, head_commit: null, can_rename: true },
+  ];
+  render(() => <WorkbenchApp />);
+  await fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Open repository reference-library",
+    }),
+  );
+  expect(
+    screen.getByRole("button", { name: "Rename repository" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("heading", { name: "No commits on the default branch" }),
+  ).toBeTruthy();
+  const nav = screen.getByRole("navigation", { name: "Repository views" });
+  await fireEvent.click(
+    within(nav).getByRole("button", { name: "Files", exact: true }),
+  );
+  expect(
+    screen.getByRole("button", { name: "Refresh repository" }),
+  ).toBeTruthy();
+  await fireEvent.click(
+    within(nav).getByRole("button", { name: "Changes", exact: true }),
+  );
+  expect(screen.queryByRole("combobox", { name: "Select commit" })).toBeNull();
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Gitust repositories" }),
+  );
+  await fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Open repository agent-project",
+    }),
+  );
+  const primaryNav = screen.getByRole("navigation", {
+    name: "Repository views",
+  });
+  expect(
+    within(primaryNav).getByRole("button", { name: "Actions", exact: true }),
+  ).toBeTruthy();
+  await fireEvent.click(
+    within(primaryNav).getByRole("button", { name: "Worktrees", exact: true }),
+  );
+  await vi.dynamicImportSettled();
+  expect(shortcutManager.executeById("swarm.spawn")).toBe(true);
+  await vi.dynamicImportSettled();
+  const base = (await screen.findByRole("textbox", {
+    name: "Base branch",
+  })) as HTMLInputElement;
+  expect(base.value).toBe("");
+  expect(
+    fetcher.mock.calls.some(([url]) =>
+      /\/(commits|tree|diff|blob)\?/.test(url),
+    ),
+  ).toBe(false);
+  expect(
+    fetcher.mock.calls.some(
+      ([, options]) =>
+        options?.method === "POST" && options?.body?.includes("base_branch"),
+    ),
+  ).toBe(false);
+});
+
+it("retries a failed HEAD view on explicit Refresh when the catalog commit has not changed", async () => {
+  const previous = fetcher.getMockImplementation()!;
+  let fail = true;
+  fetcher.mockImplementation(async (url: string) => {
+    if (url.includes("/tree?") && fail) {
+      fail = false;
+      return new Response("Temporary repository read failure", { status: 503 });
+    }
+    return previous(url);
+  });
+  render(() => <WorkbenchApp />);
+  await fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Open repository agent-project",
+    }),
+  );
+  await screen.findByText(/Live repository hydration failed/);
+  const nav = screen.getByRole("navigation", { name: "Repository views" });
+  await fireEvent.click(
+    within(nav).getByRole("button", { name: "Worktrees", exact: true }),
+  );
+  await vi.dynamicImportSettled();
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Refresh worktrees" }),
+  );
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.filter(([url]) => url.includes("/tree?")),
+    ).toHaveLength(2),
+  );
+  await fireEvent.click(
+    within(nav).getByRole("button", { name: "Files", exact: true }),
+  );
+  await screen.findByText("README.md");
 });

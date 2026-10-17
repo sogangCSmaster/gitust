@@ -9,6 +9,7 @@ import {
 } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { NewWorktreeDialog } from "../src/showcase/NewWorktreeDialog";
+import type { ConnectedRepository } from "../src/showcase/connected-repository-client";
 import { createNewWorktreeController } from "../src/showcase/new-worktree-controller";
 const repo = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -37,8 +38,13 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-const setup = (create: ReturnType<typeof vi.fn> = vi.fn()) => {
-  const [repository, setRepository] = createSignal<typeof repo | null>(repo);
+const setup = (
+  create: ReturnType<typeof vi.fn> = vi.fn(),
+  initialRepository: ConnectedRepository = repo,
+) => {
+  const [repository, setRepository] = createSignal<ConnectedRepository | null>(
+    initialRepository,
+  );
   const onCreated = vi.fn();
   let controller!: ReturnType<typeof createNewWorktreeController>;
   render(() => {
@@ -234,4 +240,34 @@ it("opens on HTTP browsers that do not expose crypto.randomUUID", async () => {
   expect(screen.getByTestId("new-worktree-branch").textContent).toMatch(
     /^agent\/task-[0-9a-f]+$/,
   );
+});
+
+it("allows an explicit alternate base when the default branch has no commit", async () => {
+  const create = vi
+    .fn()
+    .mockResolvedValue({ kind: "error", error: "Server rejected this base" });
+  setup(create, { ...repo, headCommit: null });
+  await fireEvent.click(screen.getByRole("button", { name: "Open form" }));
+  const name = await screen.findByRole("textbox", { name: "Task name" });
+  const base = screen.getByRole("textbox", {
+    name: "Base branch",
+  }) as HTMLInputElement;
+  expect(base.value).toBe("");
+  expect(screen.getByText(/default branch.*has no commit yet/i)).toBeTruthy();
+  await fireEvent.input(name, { target: { value: "Existing branch task" } });
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Create worktree", exact: true }),
+  );
+  expect(create).not.toHaveBeenCalled();
+  await fireEvent.input(base, { target: { value: "release" } });
+  await fireEvent.click(
+    screen.getByRole("button", { name: "Create worktree", exact: true }),
+  );
+  await screen.findByText("Server rejected this base");
+  expect(create.mock.calls[0][0]).toMatchObject({
+    repoId: repo.id,
+    baseBranch: "release",
+  });
+  expect(base.value).toBe("release");
+  expect((name as HTMLInputElement).value).toBe("Existing branch task");
 });

@@ -18,7 +18,7 @@ struct ConnectedRepository {
     id: RepoId,
     name: String,
     branch: String,
-    head_commit: CommitSha,
+    head_commit: Option<CommitSha>,
 }
 
 pub(crate) async fn handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -43,10 +43,11 @@ pub(crate) async fn handler(State(state): State<AppState>, headers: HeaderMap) -
             .map(|name| name.to_string_lossy().trim_end_matches(".git").to_owned())
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| "Repository".into());
-        let head = state
+        let (branch_name, head_commit) = state
             .git_engine
-            .inspect_head_identity()
-            .map_err(map_git_err)?;
+            .inspect_repository_head()
+            .map_err(map_git_err)?
+            .into_parts();
         #[cfg(test)]
         crate::repository_reads::after_read(&state);
         let current = extract_principal(&headers, &state.auth_store)?;
@@ -67,8 +68,8 @@ pub(crate) async fn handler(State(state): State<AppState>, headers: HeaderMap) -
         Ok::<_, (StatusCode, String)>(ConnectedRepository {
             id: state.repo_id,
             name,
-            branch: head.branch_name,
-            head_commit: head.head_sha,
+            branch: branch_name,
+            head_commit,
         })
     })
     .await;

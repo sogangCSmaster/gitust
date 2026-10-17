@@ -9,7 +9,7 @@ export interface ConnectedRepository {
   id: string;
   name: string;
   branch: string;
-  headCommit: string;
+  headCommit: string | null;
   capability: "workbench" | "browse";
   isDefault: boolean;
   canRename?: boolean;
@@ -66,9 +66,10 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       !raw.branch.trim() ||
       raw.branch.length > 32768 ||
       new TextEncoder().encode(raw.branch).length > 32768 ||
-      typeof raw.head_commit !== "string" ||
-      !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(raw.head_commit) ||
-      /^0+$/.test(raw.head_commit) ||
+      (raw.head_commit !== null &&
+        (typeof raw.head_commit !== "string" ||
+          !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(raw.head_commit) ||
+          /^0+$/.test(raw.head_commit))) ||
       (raw.capability !== "workbench" && raw.capability !== "browse") ||
       typeof raw.is_default !== "boolean" ||
       (raw.capability === "workbench") !== raw.is_default
@@ -81,7 +82,8 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       id,
       name: raw.name,
       branch: raw.branch,
-      headCommit: raw.head_commit.toLowerCase(),
+      headCommit:
+        raw.head_commit === null ? null : raw.head_commit.toLowerCase(),
       capability: raw.capability,
       isDefault: raw.is_default,
       canRename: raw.can_rename === true,
@@ -130,7 +132,8 @@ export const createConnectedRepositoryClient = (
     session = null;
     update({ ...EMPTY });
   };
-  const refresh = async () => {
+  const refreshIfCurrent = async (accept: () => boolean) => {
+    if (!accept()) return;
     const token = getLiveToken();
     if (!token) {
       reset();
@@ -145,10 +148,11 @@ export const createConnectedRepositoryClient = (
     abort = controller;
     const ownEpoch = epoch;
     const ownRequest = ++requestId;
-    const current = () =>
+    const ownsResponse = () =>
       ownEpoch === epoch &&
       ownRequest === requestId &&
       token === getLiveToken();
+    const current = () => ownsResponse() && accept();
     update({ ...state, loading: true, error: null });
     try {
       const response = await fetch("/api/v1/repos", {
@@ -180,6 +184,9 @@ export const createConnectedRepositoryClient = (
     } catch (error) {
       if (current())
         update({ repositories: [], loading: false, error: formatErr(error) });
+    } finally {
+      // An expired view intent still releases its loading state, without touching a newer request.
+      if (ownsResponse() && !accept()) update({ ...state, loading: false });
     }
   };
   const rename = async (
@@ -291,7 +298,8 @@ export const createConnectedRepositoryClient = (
     }
   };
   return {
-    refresh,
+    refresh: () => refreshIfCurrent(() => true),
+    refreshIfCurrent,
     invalidate,
     reset,
     rename,

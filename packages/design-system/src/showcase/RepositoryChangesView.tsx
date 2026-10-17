@@ -43,44 +43,48 @@ export const RepositoryChangesView: Component<{
   );
   return (
     <div class="min-w-0 space-y-3">
-      <div class="flex min-w-0 flex-wrap items-center gap-2">
-        <Select<LiveCommitSummary>
-          class="w-full min-w-0"
-          sameWidth
-          options={props.commits}
-          optionValue="sha"
-          optionTextValue="summary"
-          value={selected() ?? null}
-          onChange={(commit) => {
-            if (commit) props.onSelectCommit(commit.sha);
-          }}
-          placeholder={props.review ? "Choose another commit" : "Select commit"}
-          itemComponent={(item) => (
-            <SelectItem item={item.item} class="max-w-[min(32rem,85vw)]">
-              <span class="flex min-w-0 items-center gap-2">
-                <code class="shrink-0 text-xs">
-                  {item.item.rawValue.short_sha}
-                </code>
-                <span class="truncate" title={item.item.rawValue.summary}>
-                  {item.item.rawValue.summary}
+      <Show when={!props.review || props.commits.length > 0}>
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <Select<LiveCommitSummary>
+            class="w-full min-w-0"
+            sameWidth
+            options={props.commits}
+            optionValue="sha"
+            optionTextValue="summary"
+            value={selected() ?? null}
+            onChange={(commit) => {
+              if (commit) props.onSelectCommit(commit.sha);
+            }}
+            placeholder={
+              props.review ? "Choose another commit" : "Select commit"
+            }
+            itemComponent={(item) => (
+              <SelectItem item={item.item} class="max-w-[min(32rem,85vw)]">
+                <span class="flex min-w-0 items-center gap-2">
+                  <code class="shrink-0 text-xs">
+                    {item.item.rawValue.short_sha}
+                  </code>
+                  <span class="truncate" title={item.item.rawValue.summary}>
+                    {item.item.rawValue.summary}
+                  </span>
                 </span>
-              </span>
-            </SelectItem>
-          )}
-        >
-          <SelectTrigger aria-label="Select commit" class="min-w-0">
-            <SelectValue<LiveCommitSummary> class="min-w-0 truncate">
-              {(state) => {
-                const commit = state.selectedOption();
-                return commit
-                  ? `${commit.short_sha} · ${commit.summary}`
-                  : "Select commit";
-              }}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent class="max-h-80 max-w-[calc(100vw-2rem)] overflow-y-auto" />
-        </Select>
-      </div>
+              </SelectItem>
+            )}
+          >
+            <SelectTrigger aria-label="Select commit" class="min-w-0">
+              <SelectValue<LiveCommitSummary> class="min-w-0 truncate">
+                {(state) => {
+                  const commit = state.selectedOption();
+                  return commit
+                    ? `${commit.short_sha} · ${commit.summary}`
+                    : "Select commit";
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent class="max-h-80 max-w-[calc(100vw-2rem)] overflow-y-auto" />
+          </Select>
+        </div>
+      </Show>
       <Show when={props.review}>
         {(review) => (
           <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">

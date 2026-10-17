@@ -316,3 +316,11 @@ The import claim is released after its stage and repository-service handles. No
 lock file is unlinked and no sleep/retry is added to conceal the failing test.
 Hosted verification of the fixed revision must be recorded separately; this failed
 run does not establish macOS crash-recovery coverage for `ecf79b5`.
+
+The separate [fixed-revision CI record](evidence/alpha-ci-9de8a33-2026-10-17.json)
+records [run 39038225699](https://github.com/sogangCSmaster/gitust/actions/runs/39038225699),
+attempt 1, for `9de8a33483954db9dcd3fe96061bb829a34547df`. Both Ubuntu 22.04
+and macOS 15 passed all mechanical gates, ten operating tasks, the two-repository
+and startup-rollback rehearsal, and execution-crash recovery. These results cover
+the lock-release fix at that exact source revision; later unborn-HEAD changes
+require their own validation. Product GitHub publication remains deferred.

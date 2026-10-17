@@ -1,3 +1,4 @@
+import { readHeadSnapshot } from "./live-repo-head";
 import type { AgentSandboxTask } from "../patterns/AgentSwarmView";
 import {
   formatErr,
@@ -44,15 +45,21 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     epoch === repoEpoch &&
     token === getLiveToken() &&
     repositoryId === cb.getRepositoryId();
-  const resetRepoEpoch = () => {
-    repoEpoch += 1;
-    latestViewReqId += 1;
-    latestBlobReqId += 1;
-    latestHydrationReqId += 1;
-    commitDiff = undefined;
+  let viewingWorktree = false;
+  let observedHead: string | null | undefined;
+  const resetHeadSnapshot = () => {
+    latestBlobReqId++;
+    latestHydrationReqId++;
     treeRev = null;
     treeRepository = null;
     cb.setLiveCommits([]);
+    cb.setTreeTruncated(false);
+    cb.setSelectedTreePath("");
+    cb.setLiveBlobLines(statusDiffLine("[Select a file to preview.]"));
+    cb.setLiveFileTreeNodes([]);
+    if (viewingWorktree) return;
+    latestViewReqId++;
+    commitDiff = undefined;
     cb.setActiveCommitRev("HEAD");
     cb.setSelectedFilePath("Repository preview");
     cb.setWorktreeReview?.(null);
@@ -60,10 +67,12 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     cb.setLookupMicros(null);
     cb.setLiveDiffFiles([]);
     cb.setDiffTruncated(false);
-    cb.setTreeTruncated(false);
-    cb.setSelectedTreePath("");
-    cb.setLiveBlobLines(statusDiffLine("[Select a file to preview.]"));
-    cb.setLiveFileTreeNodes([]);
+  };
+  const resetRepoEpoch = () => {
+    repoEpoch++;
+    observedHead = undefined;
+    viewingWorktree = false;
+    resetHeadSnapshot();
   };
   const filePaths = (data: { files?: Array<{ path: string }> }): string[] =>
     Array.isArray(data.files)
@@ -167,6 +176,11 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     base?: string,
     reviewTarget?: LiveWorktreeReview,
   ) => {
+    viewingWorktree = Boolean(reviewTarget);
+    if (!reviewTarget && rev === "HEAD" && cb.getRepositoryHead?.() === null) {
+      resetHeadSnapshot();
+      return;
+    }
     const reqId = ++latestViewReqId;
     const epoch = repoEpoch;
     const repositoryId = cb.getRepositoryId();
@@ -448,6 +462,12 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     const token = getLiveToken();
     const repositoryId = cb.getRepositoryId();
     if (!token || !repositoryId) return;
+    const head = cb.getRepositoryHead?.();
+    if (head !== observedHead) {
+      observedHead = head;
+      resetHeadSnapshot();
+    }
+    if (head === null) return;
     const reqId = ++latestHydrationReqId;
     const diffRequestAtStart = latestViewReqId;
     const epoch = repoEpoch;
@@ -455,28 +475,10 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       reqId === latestHydrationReqId &&
       sessionCurrent(epoch, token, repositoryId);
     try {
-      const [cData, tData] = await Promise.all([
-        fetchRepository(
-          "commits?rev=HEAD&limit=8",
-          token,
-          repositoryId,
-          current,
-        ),
-        fetchRepository(
-          "tree?rev=HEAD&recursive=true",
-          token,
-          repositoryId,
-          current,
-        ),
-      ]);
+      const [cData, tData] = await readHeadSnapshot((path) =>
+        fetchRepository(path, token, repositoryId, current),
+      );
       if (!current()) return;
-      if (
-        typeof tData.commit_sha !== "string" ||
-        !/^[0-9a-f]{40}$/i.test(tData.commit_sha)
-      )
-        throw new Error("Server did not identify the repository tree revision");
-      if (!Array.isArray(tData.entries))
-        throw new Error("Server did not provide repository tree entries");
       if (treeRev !== tData.commit_sha) {
         latestBlobReqId++;
         cb.setSelectedTreePath("");
@@ -496,7 +498,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
           })),
         );
       }
-      if (diffRequestAtStart === latestViewReqId)
+      if (diffRequestAtStart === latestViewReqId && !viewingWorktree)
         await loadLiveCommitDiff("HEAD");
     } catch (err) {
       if (!current()) return;
@@ -556,7 +558,8 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
           cb.showQuickFeedback(
             `GitHub Mirror Synced @ ${sha} in ${dt}ms (${priv} private agent branches isolated, ${skippedCount} skipped)`,
           );
-          await hydrateFromLiveBackend();
+          if (cb.onRepositoryChanged) await cb.onRepositoryChanged();
+          else await hydrateFromLiveBackend();
         } else {
           const errText = (await res.text().catch(() => "")).trim();
           if (!sessionCurrent(epoch, token, repositoryId)) return;

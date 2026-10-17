@@ -27,7 +27,10 @@ const agents = [...WORKTREE_AGENTS];
 export const NewWorktreeForm: Component<NewWorktreeDialogProps> = (props) => {
   const [name, setName] = createSignal("");
   const [base, setBase] = createSignal(
-    props.repository.branch === "detached" ? "" : props.repository.branch,
+    props.repository.headCommit === null ||
+      props.repository.branch === "detached"
+      ? ""
+      : props.repository.branch,
   );
   const [branch, setBranch] = createSignal(createWorktreeBranch());
   const [agent, setAgent] = createSignal<WorktreeAgentKind>("CodexSwarm");
@@ -82,6 +85,13 @@ export const NewWorktreeForm: Component<NewWorktreeDialogProps> = (props) => {
         placeholder="Existing repository branch"
         disabled={props.submitting}
       />
+      <Show when={props.repository.headCommit === null}>
+        <p class="text-xs text-muted-foreground">
+          The default branch{" "}
+          <span class="break-all">{props.repository.branch}</span> has no commit
+          yet. Enter an existing base branch.
+        </p>
+      </Show>
       <div class="min-w-0 space-y-1 text-xs">
         <span class="text-muted-foreground">New branch</span>
         <code

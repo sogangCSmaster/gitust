@@ -87,6 +87,27 @@ Credentials and current ACLs are checked before and after Git I/O. Responses dis
 host paths are neither routing inputs nor response fields. An unavailable or inconsistent
 configured binding fails instead of silently disappearing from the catalog.
 
+A valid unborn default branch is supported in either a primary or a secondary
+repository. The catalog and primary summary return the actual symbolic branch name
+with `head_commit: null`; they never substitute a zero OID or a different branch's
+commit. This means the default ref has no commit, not that every branch is empty.
+Malformed HEADs, broken objects and invalid symbolic targets remain errors.
+
+The workbench shows this state in Overview, Files and Changes without sending
+automatic reads for a nonexistent HEAD. Refresh after the first normal Git push to
+load the new default commit. Existing tasks, explicit worktree comparisons, Actions
+and synchronization remain available. A new worktree can use another existing base
+branch; the form leaves its initial base blank while the default has no commit,
+and the server always checks the requested base. No source commit or verification
+authority is created by viewing the screen.
+
+Authorized primary-repository Git clients can clone an empty repository and make
+its first ordinary push through the existing Smart HTTP transport. A push to another
+branch does not retarget HEAD. Object reads of the missing HEAD still return 404;
+explicit reads of another existing branch work normally. Secondary Git transport
+remains unavailable. Import still requires an existing commit on its explicit
+default branch; this support does not add an empty-repository creation command.
+
 Secondary browsing does not enable writes, managed worktrees, Actions, MCP/OAuth or Git
 transport for those UUIDs. Existing `/api/v1/repo/*`, worktree and Git endpoints continue to
 use the primary. Capability labels describe these supported operations; authorization always

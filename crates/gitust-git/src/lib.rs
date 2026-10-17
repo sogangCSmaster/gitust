@@ -22,6 +22,8 @@ mod mirror_init;
 mod outbound;
 mod process;
 mod repository_identity;
+mod repository_import;
+pub use repository_import::PreparedImport;
 mod repository_registration;
 pub use repository_registration::RegistrationReceipt;
 mod service_lock;

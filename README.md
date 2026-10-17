@@ -85,6 +85,8 @@ To enable server-side command execution, add `--trusted-single-user-sandbox` on 
 
 Add repeated `--read-only-repo /absolute/path/to/another/repository` arguments to browse other existing repositories registered against the same auth database. The server supports up to 32 configured repositories in total; secondary repositories expose Files and Changes through UUID-scoped reads. Worktrees, execution, MCP, synchronization and Git transport remain on the primary `--repo`. See [registration and read-only repositories](docs/operations/repository-registration.md).
 
+To prepare a new registered bare repository from an existing Git source, use the offline [`repository import`](docs/operations/repository-import.md) command. It preserves a fixed import identity through retries and never overwrites an existing destination; serving it still requires explicit configuration.
+
 The upstream URL configures synchronization and publication. Starting the server does not automatically mirror or publish commits. Private outbound GitHub authentication currently uses SSH keys/agent and a preconfigured `known_hosts`, rather than HTTPS credential helpers.
 
 For frontend development, keep the Rust server running on `127.0.0.1:3000` and start Vite in another terminal:

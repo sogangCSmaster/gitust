@@ -1,5 +1,21 @@
 # Alpha acceptance progress — 2026-10-17
 
+The subsequent [offline repository-import slice](repository-import.md) passed local
+mechanical gates and the actual two-repository rehearsal, including a requested
+default branch distinct from upstream HEAD, annotated tags, fresh identity, exact
+retry and source preservation. Independent local probes also passed interruption
+during both Git initialization and fetch, refusal while an orphan child could
+remain, explicit stopped-process recovery and administrator deactivation during
+fetch. These are process-interruption checks, not Git-payload power-loss evidence.
+This later change has not yet accumulated exact-source hosted CI evidence here.
+
+The multiple-repository browsing checkpoint `689cdb58ac5067987af0a25efd3af2195c6c442f`
+passed [exact-source Linux/macOS CI](evidence/alpha-ci-689cdb5-2026-10-17.json).
+Both platforms completed all mechanical gates, the ten operating tasks, crash recovery
+and the new actual two-repository routing/ACL/startup-rollback rehearsal. This fixed
+checkpoint does not include the subsequent repository-import work. Intended IDE-agent
+sessions and the user-deferred GitHub product-publication evidence remain open.
+
 The explicit repository-registration checkpoint `d92b8fe0b6bf30ad8c4965a8ea39421f43052b16`
 passed [exact-source Linux/macOS CI](evidence/alpha-ci-d92b8fe-2026-10-17.json).
 Both platforms completed the mechanical gates, all ten operating tasks and crash

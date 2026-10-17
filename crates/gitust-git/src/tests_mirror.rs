@@ -546,3 +546,37 @@ fn ancestry_handles_clock_skew_and_distinguishes_indeterminate_from_diverged() {
         BranchRelation::Diverged
     );
 }
+
+#[test]
+fn existing_local_bare_sources_with_spaces_are_safe_argv_not_remote_url_syntax() {
+    let tmp = TempDir::new().unwrap();
+    let source = tmp.path().join("External SSD");
+    init_repo(&source);
+    let bare = tmp.path().join("upstream bare.git");
+    let mut command = Command::new("git");
+    crate::process::sanitize_git_environment(&mut command);
+    let output = command
+        .args(["clone", "--bare", "--no-local"])
+        .arg(&source)
+        .arg(&bare)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let mirror = GitEngine::new(tmp.path().join("mirror"));
+    let outcome = mirror
+        .sync_inbound_read_only(bare.to_str().unwrap())
+        .unwrap();
+    assert_eq!(
+        outcome.last_synced_commit.unwrap().0,
+        git(&source, &["rev-parse", "HEAD"])
+    );
+    for unsafe_url in [
+        "https://example.invalid/a b",
+        "ssh://host/a b",
+        "ext::a b",
+        "--upload-pack=anything",
+        "https://user:secret@example.invalid/a",
+    ] {
+        assert!(GitEngine::validate_mirror_remote_url(unsafe_url).is_err());
+    }
+}

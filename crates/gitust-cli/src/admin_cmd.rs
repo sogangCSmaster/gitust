@@ -208,6 +208,18 @@ pub(crate) fn with_admin_session<T>(
     admin_password: &str,
     op: impl FnOnce(&AuthenticatedPrincipal) -> Result<T>,
 ) -> Result<T> {
+    with_admin_session_token(store, admin_username, admin_password, |caller, _| {
+        op(caller)
+    })
+}
+
+/// The originating credential is borrowed in memory only, so slow operator workflows can recheck it.
+pub(crate) fn with_admin_session_token<T>(
+    store: &AuthStore,
+    admin_username: &str,
+    admin_password: &str,
+    op: impl FnOnce(&AuthenticatedPrincipal, &str) -> Result<T>,
+) -> Result<T> {
     let session = store.login(admin_username, admin_password)?;
     let fallback_caller = AuthenticatedPrincipal {
         user_id: session.user.id,
@@ -218,7 +230,7 @@ pub(crate) fn with_admin_session<T>(
     let result = store
         .authenticate_session(&session.raw_session_token)
         .map_err(anyhow::Error::from)
-        .and_then(|caller| op(&caller));
+        .and_then(|caller| op(&caller, &session.raw_session_token));
     let revoked = store.revoke_session(&fallback_caller, &session.raw_session_token);
     match (result, revoked) {
         (Ok(value), Ok(())) => Ok(value),

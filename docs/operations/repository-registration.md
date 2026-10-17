@@ -106,3 +106,5 @@ checks team filtering, UUID-routed reads against independent Git objects, reject
 worktree creation, credential denial, restart and startup rollback, then removes its private
 fixtures. The repository CI runs this rehearsal on Linux and macOS; its public evidence
 excludes credentials and does not represent GitHub publication or a catalog-wide backup.
+
+To prepare a new registered bare repository from an existing source without adopting or overwriting a destination, use [operator repository import](repository-import.md). It does not change the running catalog or enable a secondary workbench.

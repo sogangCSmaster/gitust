@@ -1,6 +1,6 @@
 # Current architecture
 
-Gitust is a Rust Cargo workspace with a SolidJS frontend embedded in the CLI/server binary. Each server currently serves one configured Git repository; the auth store also models repository and team access.
+Gitust is a Rust Cargo workspace with a SolidJS frontend embedded in the CLI/server binary. Each server has one primary repository for workbench operations and can open additional registered repositories for read-only browsing. The auth store binds configured repository IDs to current team access.
 
 ## Modules
 
@@ -24,6 +24,8 @@ A task receives a managed `agent/*` branch and linked worktree. Ordinary executi
 Approval requires current evidence and performs a fast-forward merge. Publication separately sends the approved SHA upstream. Worktree/repository locks coordinate mutations; a repository service lock prevents competing Gitust services from independently managing the same repository.
 
 Inbound mirroring acquires service ownership before repository initialization or shared staging fetches. HTTP synchronization keeps its fetch guard until apply finishes while taking the repository mutation lock only for local application. A failed competing sync must not replace the first operation's upstream refs.
+
+Offline [repository import](../operations/repository-import.md) prepares a fresh registered bare repository under a private destination claim and journal. A sealed snapshot is not fetched again on retry. Registration and final directory publication are separate operations; uncertain results preserve the same intent and anchors for inspection or an identical retry. Import does not update a running server's inventory or establish Git-payload power-loss durability.
 
 See [MCP commits and recovery](mcp-commits.md), [verification and Checks](worktree-verification.md) and [approval/publication](outbound-sync.md) for exact contracts and failure behavior.
 
@@ -53,6 +55,8 @@ HTTP MCP commits require trusted execution, a live SiteAdmin credential and the 
 MCP worktree discard never removes a merged task or its human approval evidence, even for a SiteAdmin. Merged-task cleanup requires an authorized Maintainer/SiteAdmin through the general HTTP operation or an explicit local CLI command. Unmerged owner cleanup remains available through MCP.
 
 ## Repository browsing
+
+The operator-configured catalog is bounded to 32 repositories. UUID-routed commit, tree, blob and diff reads select the actual opened repository and check its current binding, team access and original credential again after Git work. Additional repositories retain independent service ownership; MCP, Git transport, execution, approval and synchronization still target the primary repository. Metadata-only records do not create a Git service. See [registration and read-only repositories](../operations/repository-registration.md).
 
 Git file paths retain valid leading/trailing spaces. The workbench shows a changed-file selector and loads each diff with immutable head/base SHAs and a literal path. Binary and metadata-only changes are distinguished from an unchanged commit. Partial diff/tree results retain a visible truncation notice. Cross-tab session changes clear live identity/data/request epochs; live worktrees can never fall back to simulated demo mutations.
 

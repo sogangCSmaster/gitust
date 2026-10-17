@@ -185,6 +185,13 @@ pub(crate) mod storage {
     }
 
     pub(super) fn load_or_create(common: &Path) -> Result<RepoId, GitEngineError> {
+        load_or_create_for_import(common, None)
+    }
+
+    pub(super) fn load_or_create_for_import(
+        common: &Path,
+        expected: Option<RepoId>,
+    ) -> Result<RepoId, GitEngineError> {
         let parent = File::options()
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -196,6 +203,11 @@ pub(crate) mod storage {
         {
             private_directory(&directory)?;
             let id = read(&directory)?;
+            if expected.is_some_and(|expected| expected != id) {
+                return Err(invalid(
+                    "repository identity does not match the import intent",
+                ));
+            }
             sync(&directory)?;
             sync(&parent)?;
             return Ok(id);
@@ -212,7 +224,10 @@ pub(crate) mod storage {
         let directory = open_at(&parent, &directory_name, libc::O_RDONLY | libc::O_DIRECTORY)?
             .ok_or_else(|| invalid("new identity directory disappeared"))?;
         private_directory(&directory)?;
-        let id = RepoId::new();
+        let id = match expected {
+            Some(id) => id,
+            None => RepoId::new(),
+        };
         let bytes = serde_json::to_vec(&Identity {
             version: 1,
             repo_id: id,
@@ -264,6 +279,35 @@ pub(crate) mod storage {
 }
 
 impl GitEngine {
+    /// Initializes only an import stage with its preallocated intent identity.
+    pub fn initialize_import_repository_id(
+        &self,
+        expected: RepoId,
+    ) -> Result<RepoId, GitEngineError> {
+        if expected.0.is_nil() {
+            return Err(invalid("import repository ID must be nonnil"));
+        }
+        let service = self.lock_worktree_service()?;
+        let _initialization = self
+            .repository_identity_init
+            .lock()
+            .map_err(|_| invalid("repository identity initialization lock is poisoned"))?;
+        service.ensure_available()?;
+        #[cfg(unix)]
+        {
+            let id = storage::load_or_create_for_import(
+                &self.repository_common_directory()?,
+                Some(expected),
+            )?;
+            service.ensure_available()?;
+            Ok(id)
+        }
+        #[cfg(not(unix))]
+        {
+            Err(invalid("repository import requires Unix file semantics"))
+        }
+    }
+
     /// Reads existing identity without initializing an unregistered secondary repository.
     pub fn load_existing_repository_id(&self) -> Result<RepoId, GitEngineError> {
         let service = self.lock_worktree_service()?;

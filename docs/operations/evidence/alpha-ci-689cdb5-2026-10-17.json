@@ -1,0 +1,319 @@
+{
+  "id": 39022824033,
+  "html_url": "https://github.com/sogangCSmaster/gitust/actions/runs/39022824033",
+  "head_sha": "689cdb58ac5067987af0a25efd3af2195c6c442f",
+  "run_attempt": 1,
+  "status": "completed",
+  "conclusion": "success",
+  "created_at": "2026-10-17T09:53:26Z",
+  "updated_at": "2026-10-17T09:59:20Z",
+  "jobs": [
+    {
+      "id": 117367873201,
+      "name": "Verify and rehearse (ubuntu-22.04)",
+      "started_at": "2026-10-17T09:53:29Z",
+      "completed_at": "2026-10-17T09:57:38Z",
+      "status": "completed",
+      "conclusion": "success",
+      "required_steps": {
+        "Require an executable OS sandbox": "success",
+        "Build and check the committed web bundle": "success",
+        "Run every mechanical gate": "success",
+        "Run the real ten-task operating rehearsal": "success",
+        "Record only public rehearsal evidence": "success",
+        "Verify two real repositories and startup rollback": "success",
+        "Reject unsafe service restart after an interrupted command": "success"
+      },
+      "platform": "Linux",
+      "sandbox_backend": "linux_bubblewrap",
+      "observed_rust_test_summaries": [
+        {
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 33,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 107,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 30,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 119,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "observed_frontend_test_summaries": [
+        {
+          "kind": "Test Files",
+          "passed": 31,
+          "total": 31
+        },
+        {
+          "kind": "Tests",
+          "passed": 222,
+          "total": 222
+        }
+      ],
+      "python_suite_test_counts": [
+        14
+      ],
+      "repository_catalog_tests_passed": [
+        "tests::tests_repository_catalog::cancelled_secondary_read_holds_service_ownership_until_blocking_work_finishes",
+        "tests::tests_repository_catalog::catalog_exposes_the_actual_default_repository_and_rejects_anonymous_access",
+        "tests::tests_repository_catalog::completed_reads_reauthenticate_the_exact_session_and_pat_before_returning_data",
+        "tests::tests_repository_catalog::registry_rejects_aliases_duplicate_identity_and_partial_startup_releases_all_new_guards",
+        "tests::tests_repository_catalog::secondary_only_member_has_no_default_and_private_metadata_failures_are_sanitized",
+        "tests::tests_repository_catalog::secondary_routes_use_its_engine_and_never_accept_a_metadata_only_repository"
+      ],
+      "completed_task_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "mechanical_gate_passed": true,
+      "two_repository_rehearsal_passed": true,
+      "crash_rehearsal_passed": true,
+      "alpha_assertions": {
+        "registered_repository_acl_and_restore": true,
+        "registered_task_ids": [
+          9,
+          10
+        ],
+        "repository_identity_preserved_after_restart_and_restore": true,
+        "mcp_clients": 2,
+        "external_github_publication": false,
+        "git_fsck": "server, local upstream and HTTP client passed --full --strict"
+      },
+      "two_repository_assertions": {
+        "actual_repositories": 2,
+        "team_filtered_catalog": true,
+        "independent_git_read_oracles": true,
+        "primary_only_mutations": true,
+        "revoked_and_deactivated_denied": true,
+        "restart_identity_preserved": true,
+        "partial_startup_locks_released": true,
+        "duplicate_repository_rejected": true,
+        "git_fsck": true,
+        "external_github_publication": false,
+        "source_commit_matches_head": true,
+        "runtime_worktree_dirty": false,
+        "platform_matches_job": true
+      },
+      "lifecycle_assertions": {
+        "automatic_attempt_retained_as_interrupted": true,
+        "repository_actions_running_and_interrupted": true,
+        "same_attempt_id_binding_checked": true,
+        "interrupted_automatic_attempt_replayed": false,
+        "verification_restored": false,
+        "git_fsck": "passed"
+      },
+      "log_sha256_ansi_normalized": "65d012fca77b8b07f5cfa8d4dcffa8401c5823c1a7cb5efaf8cb1ab1fc5d8c0e",
+      "observed_gate_and_isolation_test_names_passed": [
+        "tests::gate_7_4_git_integrity_clone_commit_push_fetch_roundtrip_and_fsck",
+        "tests::gate_7_4_sandbox_isolation",
+        "tests::tests_git_http::smart_http_gate_7_4_clone_commit_push_fetch_roundtrip_rbac_and_fsck",
+        "tests::tests_mcp::http_gate_7_4_inbound_mirror_sync_and_repo_code_commit_diff_browsing",
+        "tests::tests_mirror::gate_7_4_inbound_mirror_sync_matches_upstream_refs_and_preserves_private_agent_branches",
+        "tests_late_hidden::late_host_metadata_and_symlink_aliases_stay_hidden_while_git_and_writes_work"
+      ]
+    },
+    {
+      "id": 117367873410,
+      "name": "Verify and rehearse (macos-15)",
+      "started_at": "2026-10-17T09:53:35Z",
+      "completed_at": "2026-10-17T09:59:19Z",
+      "status": "completed",
+      "conclusion": "success",
+      "required_steps": {
+        "Require an executable OS sandbox": "success",
+        "Build and check the committed web bundle": "success",
+        "Run every mechanical gate": "success",
+        "Run the real ten-task operating rehearsal": "success",
+        "Record only public rehearsal evidence": "success",
+        "Verify two real repositories and startup rollback": "success",
+        "Reject unsafe service restart after an interrupted command": "success"
+      },
+      "platform": "Darwin",
+      "sandbox_backend": "macos_seatbelt",
+      "observed_rust_test_summaries": [
+        {
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 33,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 107,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 30,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 119,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "observed_frontend_test_summaries": [
+        {
+          "kind": "Test Files",
+          "passed": 31,
+          "total": 31
+        },
+        {
+          "kind": "Tests",
+          "passed": 222,
+          "total": 222
+        }
+      ],
+      "python_suite_test_counts": [
+        14
+      ],
+      "repository_catalog_tests_passed": [
+        "tests::tests_repository_catalog::cancelled_secondary_read_holds_service_ownership_until_blocking_work_finishes",
+        "tests::tests_repository_catalog::catalog_exposes_the_actual_default_repository_and_rejects_anonymous_access",
+        "tests::tests_repository_catalog::completed_reads_reauthenticate_the_exact_session_and_pat_before_returning_data",
+        "tests::tests_repository_catalog::registry_rejects_aliases_duplicate_identity_and_partial_startup_releases_all_new_guards",
+        "tests::tests_repository_catalog::secondary_only_member_has_no_default_and_private_metadata_failures_are_sanitized",
+        "tests::tests_repository_catalog::secondary_routes_use_its_engine_and_never_accept_a_metadata_only_repository"
+      ],
+      "completed_task_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "mechanical_gate_passed": true,
+      "two_repository_rehearsal_passed": true,
+      "crash_rehearsal_passed": true,
+      "alpha_assertions": {
+        "registered_repository_acl_and_restore": true,
+        "registered_task_ids": [
+          9,
+          10
+        ],
+        "repository_identity_preserved_after_restart_and_restore": true,
+        "mcp_clients": 2,
+        "external_github_publication": false,
+        "git_fsck": "server, local upstream and HTTP client passed --full --strict"
+      },
+      "two_repository_assertions": {
+        "actual_repositories": 2,
+        "team_filtered_catalog": true,
+        "independent_git_read_oracles": true,
+        "primary_only_mutations": true,
+        "revoked_and_deactivated_denied": true,
+        "restart_identity_preserved": true,
+        "partial_startup_locks_released": true,
+        "duplicate_repository_rejected": true,
+        "git_fsck": true,
+        "external_github_publication": false,
+        "source_commit_matches_head": true,
+        "runtime_worktree_dirty": false,
+        "platform_matches_job": true
+      },
+      "lifecycle_assertions": {
+        "automatic_attempt_retained_as_interrupted": true,
+        "repository_actions_running_and_interrupted": true,
+        "same_attempt_id_binding_checked": true,
+        "interrupted_automatic_attempt_replayed": false,
+        "verification_restored": false,
+        "git_fsck": "passed"
+      },
+      "log_sha256_ansi_normalized": "9d6ebe7de003a41ea2fe85646f1ac798ee536842d7be4e9774264e646cc9338f",
+      "observed_gate_and_isolation_test_names_passed": [
+        "tests::gate_7_4_git_integrity_clone_commit_push_fetch_roundtrip_and_fsck",
+        "tests::gate_7_4_sandbox_isolation",
+        "tests::tests_git_http::smart_http_gate_7_4_clone_commit_push_fetch_roundtrip_rbac_and_fsck",
+        "tests::tests_mcp::http_gate_7_4_inbound_mirror_sync_and_repo_code_commit_diff_browsing",
+        "tests::tests_mirror::gate_7_4_inbound_mirror_sync_matches_upstream_refs_and_preserves_private_agent_branches",
+        "tests_late_hidden::late_host_metadata_and_symlink_aliases_stay_hidden_while_git_and_writes_work"
+      ]
+    }
+  ],
+  "proof_source": "Exact git-show source require -> private runtime report -> successful CI literal-True/OS/source/clean-tree validator path, alongside observed operating completion markers and test summaries. No raw private runtime JSON collected.",
+  "source_files": {
+    "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+    "scripts/multi-repository-rehearsal.py": "c74a0a3af109589a94b2dea2788ad6bc2e59bd89059f05cbd403202661e49e0f",
+    "scripts/execution-crash-rehearsal.py": "a59581087b2936af7e3305e8fbdd69d8cab4f41ee47954ab64e60f9133ea92ea",
+    ".github/workflows/ci.yml": "1f2ee7371424237da604cb0c6d463b1f85c603adf100d88c102bcc63a755b5ec"
+  },
+  "limitations": [
+    "This evidence covers 689cdb58 only; later repository-import development is excluded.",
+    "Tasks 1 through 8 retain legacy scope; tasks 9 and 10 execute after explicit registration.",
+    "Secondary repositories are browse-only; product GitHub publication and native IDE-agent proof remain out of scope.",
+    "No Gate B review, deployment, or standalone installation claim."
+  ]
+}

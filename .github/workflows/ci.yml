@@ -155,6 +155,7 @@ jobs:
               or report["external_github_publication"] is not False):
               raise SystemExit("The multi-repository rehearsal has invalid source or scope evidence")
           checks = ["passed", "team_filtered_catalog", "independent_git_read_oracles",
+                    "imported_registered_secondary",
                     "primary_only_mutations", "revoked_and_deactivated_denied",
                     "restart_identity_preserved", "partial_startup_locks_released",
                     "duplicate_repository_rejected", "git_fsck"]

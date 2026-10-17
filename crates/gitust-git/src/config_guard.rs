@@ -32,13 +32,32 @@ impl GitEngine {
     ///   characters, `::` remote helper syntax (`ext::`), and embedded HTTP credentials.
     /// - Allows `https://`, `ssh://`, `git@`, `file://`, or an existing local directory.
     pub fn validate_mirror_remote_url(raw: &str) -> Result<String, GitEngineError> {
-        let trimmed = raw.trim();
+        let trimmed = raw;
         if trimmed.is_empty()
             || trimmed.len() > 2048
             || trimmed.starts_with('-')
             || trimmed.contains("::")
-            || trimmed.chars().any(|c| c.is_control() || c.is_whitespace())
+            || trimmed.chars().any(char::is_control)
         {
+            return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
+        }
+        // Existing local paths are passed as one absolute argv value, never remote helper syntax.
+        // Spaces in volume/directory names are valid; network URL whitespace remains forbidden.
+        let local = trimmed.strip_prefix("file://").or_else(|| {
+            (!trimmed.contains("://") && !trimmed.starts_with("git@")).then_some(trimmed)
+        });
+        if let Some(local) = local {
+            let canon = fs::canonicalize(local)
+                .map_err(|_| GitEngineError::InvalidRemoteUrl(raw.to_owned()))?;
+            if !canon.is_dir() {
+                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
+            }
+            return canon
+                .to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| GitEngineError::InvalidRemoteUrl(raw.to_owned()));
+        }
+        if trimmed.chars().any(char::is_whitespace) {
             return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
         }
 
@@ -64,23 +83,7 @@ impl GitEngine {
             }
             return Ok(trimmed.to_owned());
         }
-        if let Some(file_path) = trimmed.strip_prefix("file://") {
-            let p = Path::new(file_path);
-            let canon = fs::canonicalize(p)
-                .map_err(|_| GitEngineError::InvalidRemoteUrl(raw.to_owned()))?;
-            if !canon.is_dir() {
-                return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
-            }
-            return Ok(canon.display().to_string());
-        }
-
-        let local_path = Path::new(trimmed);
-        let canon = fs::canonicalize(local_path)
-            .map_err(|_| GitEngineError::InvalidRemoteUrl(raw.to_owned()))?;
-        if !canon.is_dir() {
-            return Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()));
-        }
-        Ok(canon.display().to_string())
+        Err(GitEngineError::InvalidRemoteUrl(raw.to_owned()))
     }
 }
 

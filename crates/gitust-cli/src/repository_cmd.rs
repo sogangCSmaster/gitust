@@ -8,6 +8,9 @@ use std::path::PathBuf;
 
 #[derive(Debug, Subcommand)]
 pub enum RepositoryCommands {
+    /// Import into a new registered bare repository; never overwrites an existing destination.
+    #[cfg(unix)]
+    Import(crate::repository_import_cmd::ImportArgs),
     /// Offline explicit ACL registration; stop the service first. No Git refs or upstreams change.
     Register {
         #[arg(long)]
@@ -30,15 +33,42 @@ pub enum RepositoryCommands {
 }
 
 pub fn handle(action: RepositoryCommands) -> Result<()> {
-    let RepositoryCommands::Register {
-        repo,
-        auth_db,
-        admin_username,
-        admin_password,
-        name,
-        owner_team_id,
-        private,
-    } = action;
+    match action {
+        #[cfg(unix)]
+        RepositoryCommands::Import(args) => {
+            let id = crate::repository_import_cmd::run(&args)?;
+            println!("Imported registered repository [{}]; configure --read-only-repo explicitly and restart to serve it.", id.0);
+            Ok(())
+        }
+        RepositoryCommands::Register {
+            repo,
+            auth_db,
+            admin_username,
+            admin_password,
+            name,
+            owner_team_id,
+            private,
+        } => register(
+            repo,
+            auth_db,
+            admin_username,
+            admin_password,
+            name,
+            owner_team_id,
+            private,
+        ),
+    }
+}
+
+fn register(
+    repo: PathBuf,
+    auth_db: PathBuf,
+    admin_username: String,
+    admin_password: String,
+    name: String,
+    owner_team_id: TeamId,
+    private: bool,
+) -> Result<()> {
     if owner_team_id.0.is_nil() {
         bail!("owner team must be a nonnil group UUID");
     }

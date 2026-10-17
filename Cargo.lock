@@ -607,6 +607,8 @@ dependencies = [
  "gitust-sandbox",
  "gitust-server",
  "gitust-sync",
+ "libc",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
@@ -653,6 +655,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
 ]

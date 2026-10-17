@@ -38,7 +38,9 @@ use crate::config_guard::config_contains_credentials;
 use crate::{GitEngine, GitEngineError, MaterializedWorktree};
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
+    let mut command = Command::new("git");
+    crate::process::sanitize_git_environment(&mut command);
+    let out = command
         .arg("-C")
         .arg(dir)
         .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])

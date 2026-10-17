@@ -44,6 +44,8 @@ pub struct ManagedWorktreeEntry {
     pub worktree_dir: PathBuf,
     pub branch: String,
     pub head: CommitSha,
+    #[serde(default)]
+    pub detached: bool,
 }
 
 impl GitEngine {
@@ -65,11 +67,13 @@ impl GitEngine {
         prompt_summary: impl Into<String>,
     ) -> Result<MaterializedWorktree, GitEngineError> {
         let start = Instant::now();
+        let _service = self.lock_worktree_service()?;
         let clean_branch = Self::validate_agent_branch_name(branch)?;
         let clean_base = Self::validate_branch_name(base_branch)?;
 
         let mut repo = self.acquire_repo()?;
         let common_git_dir = Self::common_git_dir(&repo);
+        crate::config_guard::reject_replacement_refs(&repo)?;
         reject_credentials_in_config(&common_git_dir)?;
         ensure_reflog_identity(&mut repo)?;
 
@@ -117,7 +121,17 @@ impl GitEngine {
                     ],
                 )
             })
-            .and_then(|_| read_worktree_admin_dir(&worktree_dir, &common_git_dir));
+            .and_then(|_| read_worktree_admin_dir(&worktree_dir, &common_git_dir))
+            .and_then(|admin| {
+                crate::worktree_origin::persist(
+                    &admin,
+                    worktree_id,
+                    &clean_branch,
+                    &clean_base,
+                    &CommitSha(base_id.to_string()),
+                )?;
+                Ok(admin)
+            });
         let worktree_admin_dir = match checkout {
             Ok(dir) => dir,
             Err(e) => {
@@ -191,10 +205,11 @@ impl GitEngine {
         })
     }
 
-    /// Fails closed if the shared repository config currently holds credentials. Call before
-    /// every sandbox run: the config can change after a worktree was created.
+    /// Rejects credentials/executable config and replacement refs before managed Git execution.
+    /// Call before each run because config and references can change after worktree creation.
     pub fn ensure_config_has_no_credentials(&self) -> Result<(), GitEngineError> {
         let repo = self.acquire_repo()?;
+        crate::config_guard::reject_replacement_refs(&repo)?;
         reject_credentials_in_config(&Self::common_git_dir(&repo))
     }
 

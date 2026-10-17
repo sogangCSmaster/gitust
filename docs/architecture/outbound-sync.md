@@ -26,7 +26,9 @@ gitust triage publish --repo /srv/gitust/repo --base main \
 
 승인 전에 웹 `Verify command` 또는 `verify: true`인 sandbox 요청으로 해당 커밋을 검증해야 한다. 일반 명령 실행 성공만으로는 승인할 수 없다. 자세한 계약은 [작업 검증과 승인](worktree-verification.md)을 참고한다.
 
-기존 `POST /api/v1/swarm/worktrees/{id}/approve`로 검증된 작업을 병합한 뒤, 별도로 `POST /api/v1/swarm/worktrees/{id}/publish`를 호출한다. 본문은 비어 있거나 `{}`여야 한다. URL·SHA·브랜치를 본문으로 덮어쓸 수 없다. 전송 대상은 서버의 `--sync-github` 설정이다.
+`POST /api/v1/swarm/worktrees/{id}/approve`에는 사람이 확인한 전체 SHA를 `{"expected_commit":"<40자리-SHA>"}`로 전달한다. 서버는 작업 잠금 아래 현재 검증된 SHA와 비교한다. 다른 클라이언트가 새 커밋을 검증했으면 이전 화면의 승인은 409로 거부하며, 새 검증 증거는 보존한다. 누락·잘못된 본문은 거부한다.
+
+병합 후 별도로 `POST /api/v1/swarm/worktrees/{id}/publish`를 호출한다. 발행 본문은 비어 있거나 `{}`여야 한다. 발행 URL·SHA·브랜치를 본문으로 덮어쓸 수 없다. 전송 대상은 서버의 `--sync-github` 설정이다.
 
 - 로그인 세션 또는 PAT를 가진 Maintainer/SiteAdmin과 해당 저장소 접근 권한이 필요하다. MCP 전용 OAuth 토큰은 승인·전송을 포함한 일반 API와 Git HTTP 인증에 사용할 수 없다.
 - `Merged` 상태의 작업만 허용하며, 승인 때 기록한 SHA를 전송한다. 승인 뒤 로컬 `main`에 추가된 커밋은 전송하지 않는다.

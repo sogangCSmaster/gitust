@@ -31,10 +31,12 @@ export interface AgentVerificationStep {
   required: boolean;
   exitCode: number | null;
   durationMs: number | null;
+  output?: { stdout: string; stderr: string; truncated: boolean };
 }
 
 export interface AgentVerificationResult {
   requestedCommand?: string;
+  checkedCommit?: string | null;
   command: string;
   exitCode: number;
   durationMs: number;

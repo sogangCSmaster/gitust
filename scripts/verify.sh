@@ -27,6 +27,9 @@ if ((now_count != 0)); then
 fi
 scripts/audit-fail-open.sh --self-test
 
+step "offline backup/restore regression tests (Python 3)"
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+
 step "cargo fmt --check"
 cargo fmt --all -- --check
 

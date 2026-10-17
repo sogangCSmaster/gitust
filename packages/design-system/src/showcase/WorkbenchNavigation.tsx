@@ -22,6 +22,48 @@ export interface WorkbenchNavItem {
   icon?: JSX.Element;
   count?: number;
 }
+
+export const workbenchNavItems = (
+  liveMode: boolean,
+  count: number,
+): WorkbenchNavItem[] => [
+  {
+    id: "swarm",
+    label: "Worktrees",
+    count,
+    icon: <Icon name="bot" size={14} />,
+  },
+  {
+    id: "issues",
+    label: "Issues · Demo",
+    icon: <Icon name="git-pull-request" size={14} />,
+  },
+  {
+    id: "diff",
+    label: liveMode ? "Diff" : "Diff · Demo",
+    icon: <Icon name="diff" size={14} />,
+  },
+  {
+    id: "actions",
+    label: "Actions · Demo",
+    icon: <Icon name="play" size={14} />,
+  },
+  {
+    id: "admin",
+    label: "Access",
+    icon: <Icon name="shield-check" size={14} />,
+  },
+  {
+    id: "tree",
+    label: liveMode ? "Files" : "Files · Demo",
+    icon: <Icon name="folder" size={14} />,
+  },
+  {
+    id: "primitives",
+    label: "Components",
+    icon: <Icon name="sliders" size={14} />,
+  },
+];
 export const WorkbenchNavigation: Component<{
   items: WorkbenchNavItem[];
   active: WorkbenchTab;

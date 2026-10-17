@@ -6,7 +6,6 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
-use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
@@ -19,9 +18,7 @@ use crate::ancestry::{
     classify_branch_relation, is_agent_branch_short, list_checked_out_branches, BranchRelation,
 };
 use crate::config_guard::{reject_credentials_in_config, run_git_fetch_with_timeout};
-use crate::{
-    ensure_reflog_identity, io_err, run_git, GitEngine, GitEngineError, INITIAL_FETCH_TIMEOUT,
-};
+use crate::{ensure_reflog_identity, run_git, GitEngine, GitEngineError, INITIAL_FETCH_TIMEOUT};
 
 const UPSTREAM_REMOTE_PREFIX: &str = "refs/remotes/upstream/";
 const UPSTREAM_TAGS_PREFIX: &str = "refs/remotes/upstream-tags/";
@@ -47,37 +44,14 @@ impl GitEngine {
     /// if `self.repo_path` does not exist or is an empty directory, and fetches upstream heads/tags
     /// into staging namespaces (`refs/remotes/upstream/*` and `refs/remotes/upstream-tags/*`)
     /// while excluding `^refs/heads/agent/*` at the protocol level and enforcing stall detection.
+    /// Split-phase callers retain service ownership and serialize fetches through the matching
+    /// apply operation; `sync_inbound_read_only` retains service ownership for the full operation.
     pub fn fetch_inbound_mirror_staging(
         &self,
         upstream_url: &str,
     ) -> Result<String, GitEngineError> {
         let clean_url = Self::validate_mirror_remote_url(upstream_url)?;
-
-        let should_init_bare = if !self.repo_path.exists() {
-            fs::create_dir_all(&self.repo_path).map_err(|e| io_err(&self.repo_path, &e))?;
-            true
-        } else if self.repo_path.is_dir() {
-            fs::read_dir(&self.repo_path)
-                .map_err(|e| io_err(&self.repo_path, &e))?
-                .next()
-                .is_none()
-        } else {
-            false
-        };
-
-        if should_init_bare {
-            run_git(
-                &self.repo_path,
-                [
-                    OsStr::new("init"),
-                    OsStr::new("--bare"),
-                    OsStr::new("-q"),
-                    OsStr::new("-b"),
-                    OsStr::new("main"),
-                ],
-            )?;
-        }
-
+        let _service_lock = self.lock_inbound_mirror_repository()?;
         let repo = self.acquire_repo()?;
         let common_git_dir = Self::common_git_dir(&repo);
         reject_credentials_in_config(&common_git_dir)?;
@@ -409,6 +383,8 @@ impl GitEngine {
         &self,
         upstream_url: &str,
     ) -> Result<InboundMirrorSyncOutcome, GitEngineError> {
+        Self::validate_mirror_remote_url(upstream_url)?;
+        let _service_lock = self.lock_inbound_mirror_repository()?;
         let start = Instant::now();
         let _clean_url = self.fetch_inbound_mirror_staging(upstream_url)?;
         self.apply_inbound_mirror_refs(upstream_url, start)

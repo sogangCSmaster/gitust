@@ -4,6 +4,7 @@ import type {
   RunHistoryState,
 } from "../patterns/run-history-types";
 import { getLiveToken } from "./live-repo-client";
+import { parseCommandOutput } from "./live-command-output";
 export type {
   RunHistoryEntry,
   RunHistoryState,
@@ -89,11 +90,13 @@ export function parseRunHistory(
           return invalid();
         if (step.exit_code !== 0) failed = step.exit_code;
       }
+      const output = parseCommandOutput(step.output, step.exit_code === null, 1024);
       return {
         command: step.command,
         required: step.required,
         exitCode: step.exit_code as number | null,
         durationMs: step.duration_ms as number | null,
+        ...(output === undefined ? {} : { output }),
       };
     });
     if (result.exit_code !== (failed ?? 0)) return invalid();

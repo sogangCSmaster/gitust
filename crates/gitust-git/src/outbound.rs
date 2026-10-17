@@ -65,6 +65,7 @@ impl GitEngine {
             ));
         }
         let repo = self.acquire_repo()?;
+        crate::config_guard::reject_replacement_refs(&repo)?;
         let id = gix::ObjectId::from_hex(approved.0.as_bytes())
             .map_err(|e| GitEngineError::InvalidRevision(e.to_string()))?;
         let header = repo

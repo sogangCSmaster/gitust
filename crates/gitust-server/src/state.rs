@@ -107,12 +107,12 @@ impl OAuthMcpStore {
 /// Server-only runtime state of a materialized worktree (never serialized to clients).
 #[derive(Clone)]
 pub struct WorktreeRuntime {
-    /// Owner who spawned this worktree over HTTP (`None` for worktrees recovered on startup).
+    /// Persisted creator; legacy worktrees with unknown ownership use `None`.
     pub created_by: Option<UserId>,
     pub worktree_dir: PathBuf,
     pub common_git_dir: PathBuf,
     pub sandbox_spec: SandboxSpec,
-    /// Serializes sandbox runs and removal for one worktree.
+    /// Serializes sandbox runs, commits, approval and removal for one worktree.
     pub exec_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -246,6 +246,39 @@ impl AppState {
     /// Returns a cloned `WorktreeRuntime` for `wt_id` if present.
     pub(crate) fn get_worktree_runtime(&self, wt_id: WorktreeId) -> Option<WorktreeRuntime> {
         self.worktree_runtime.read().get(&wt_id).cloned()
+    }
+
+    /// Begins an owner commit, or a local stdio operator's explicit action, under its operation guard.
+    pub(crate) fn begin_worktree_commit(
+        &self,
+        id: WorktreeId,
+        owner: UserId,
+        local_operator: bool,
+    ) -> Result<AgentWorktree, (StatusCode, String)> {
+        let runtime = self
+            .get_worktree_runtime(id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "worktree not found".into()))?;
+        if !local_operator && runtime.created_by != Some(owner) {
+            return Err(map_auth_err(AuthError::ForbiddenResourceOwnership));
+        }
+        let mut worktrees = self.worktrees.write();
+        let task = worktrees
+            .iter_mut()
+            .find(|task| task.id == id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "worktree not found".into()))?;
+        if matches!(
+            task.status,
+            WorktreeStatus::Merged | WorktreeStatus::Discarded
+        ) {
+            return Err((
+                StatusCode::CONFLICT,
+                "terminal worktree cannot be committed".into(),
+            ));
+        }
+        task.status = WorktreeStatus::Pending;
+        task.verified_commit = None;
+        task.verified_checks_oid = None;
+        Ok(task.clone())
     }
 
     /// Verifies that `wt_id` still has an active runtime checkout and transitions its status to

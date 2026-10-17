@@ -85,7 +85,7 @@ async fn outbound_requires_approval_privilege_and_preserves_exact_merge() {
         .unwrap();
     set_worktree_status(&state, wt.id, |w| {
         w.status = WorktreeStatus::Verified;
-        w.verified_commit = Some(verified);
+        w.verified_commit = Some(verified.clone());
     });
     let approved_uri = format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0);
     assert_eq!(
@@ -100,7 +100,14 @@ async fn outbound_requires_approval_privilege_and_preserves_exact_merge() {
         .0,
         StatusCode::UNAUTHORIZED
     );
-    let (s, body) = call(&app, "POST", approved_uri, &login.raw_session_token, None).await;
+    let (s, body) = call(
+        &app,
+        "POST",
+        approved_uri,
+        &login.raw_session_token,
+        Some(serde_json::json!({"expected_commit": verified.0})),
+    )
+    .await;
     assert_eq!(s, StatusCode::OK, "{body}");
     let approved: AgentWorktree = serde_json::from_str(&body).unwrap();
     assert_eq!(

@@ -55,7 +55,7 @@ async fn mcp_jsonrpc_stdio_lifecycle_and_adversarial_bounds() {
     let tools = list_json["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert_eq!(tools.len(), 4);
+    assert_eq!(tools.len(), 5);
     assert!(tools.iter().all(|t| t["inputSchema"]["type"] == "object"));
 
     let bad_spawn = handle_mcp_json_line(

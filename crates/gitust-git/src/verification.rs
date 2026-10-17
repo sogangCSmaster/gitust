@@ -28,10 +28,11 @@ impl GitEngine {
             ));
         }
         let repo = self.acquire_repo()?;
-        crate::worktree_metadata::read_worktree_admin_dir(
+        let admin = crate::worktree_metadata::read_worktree_admin_dir(
             &entry.worktree_dir,
             &Self::common_git_dir(&repo),
         )?;
+        crate::config_guard::reject_linked_worktree_config(&admin)?;
         inspect_local_ignore_files(&entry.worktree_dir)?;
         // Index flags may hide actual tracked modifications from status. Reject those flags
         // before checking status, without collecting filenames.

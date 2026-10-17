@@ -54,6 +54,17 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
   let authEpoch = 0;
   let hydrationId = 0;
 
+  const clearIdentityState = (users: EnterpriseUser[]) => {
+    cb.setLiveSession(null);
+    cb.setLiveInvites([]);
+    cb.setLastIssuedInviteUrl(null);
+    cb.setLivePats([]);
+    cb.setLastIssuedPatToken(null);
+    cb.setLiveSshKeys([]);
+    cb.setRedeemToken("");
+    cb.setEnterpriseUsers(users);
+  };
+
   const clearLocalAuthState = () => {
     authEpoch++;
     try {
@@ -63,14 +74,18 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
     } catch {
       // Ignore storage error in restricted environments
     }
-    cb.setLiveSession(null);
-    cb.setLiveInvites([]);
-    cb.setLastIssuedInviteUrl(null);
-    cb.setLivePats([]);
-    cb.setLastIssuedPatToken(null);
-    cb.setLiveSshKeys([]);
-    cb.setEnterpriseUsers(cb.fallbackUsers);
+    clearIdentityState(cb.fallbackUsers);
     cb.onTokenCleared();
+  };
+
+  const syncStoredSession = async () => {
+    authEpoch++;
+    const token = getLiveToken();
+    clearIdentityState(token ? [] : cb.fallbackUsers);
+    if (token) {
+      cb.onTokenAuthenticated();
+      await hydrateAuthData();
+    } else cb.onTokenCleared();
   };
 
   const hydrateAuthData = async () => {
@@ -176,12 +191,11 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
       if (typeof data.raw_session_token === "string") {
         window.localStorage.setItem("gitust_token", data.raw_session_token);
       }
-      cb.setLastIssuedInviteUrl(null);
-      cb.setLastIssuedPatToken(null);
+      clearIdentityState([]);
+      cb.onTokenAuthenticated();
       cb.showQuickFeedback(
         `Signed in as @${data.user?.username ?? identifier} (${data.user?.role ?? "User"})`
       );
-      cb.onTokenAuthenticated();
       await hydrateAuthData();
     } catch (err) {
       if (epoch !== authEpoch) return;
@@ -554,6 +568,7 @@ export function createLiveAuthClient(cb: LiveAuthClientCallbacks) {
 
   return {
     hydrateAuthData,
+    syncStoredSession,
     signIn,
     signOut,
     redeemInvite,

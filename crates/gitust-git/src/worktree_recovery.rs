@@ -62,11 +62,23 @@ impl GitEngine {
                 continue;
             };
             let worktree_admin_dir = read_worktree_admin_dir(&entry.worktree_dir, &common_git_dir)?;
-            let (mut base_branch, mut base_commit) =
-                read_branch_creation_reflog(&common_git_dir, &entry.branch);
+            let origin = crate::worktree_origin::read_or_migrate(
+                &worktree_admin_dir,
+                &common_git_dir,
+                worktree_id,
+                if entry.detached {
+                    None
+                } else {
+                    Some(&entry.branch)
+                },
+            )?;
+            let (branch, mut base_branch, mut base_commit) = match origin {
+                Some(origin) => (origin.branch, origin.base_branch, origin.base_commit),
+                None => (entry.branch, String::new(), CommitSha(String::new())),
+            };
             let approval = self.load_worktree_approval(worktree_id)?;
             if let Some(ref record) = approval {
-                if record.branch != entry.branch {
+                if record.branch != branch {
                     return Err(GitEngineError::ApprovalState(
                         "approval branch does not match managed worktree".into(),
                     ));
@@ -74,14 +86,14 @@ impl GitEngine {
                 base_branch = record.base_branch.clone();
                 base_commit = record.approved_commit.clone();
             }
-            let agent = infer_agent_kind(&entry.branch);
+            let agent = infer_agent_kind(&branch);
 
             recovered.push(MaterializedWorktree {
                 worktree: AgentWorktree {
                     id: worktree_id,
                     repo_id,
                     agent,
-                    branch: entry.branch,
+                    branch,
                     base_branch,
                     base_commit,
                     prompt_summary: "recovered from disk".to_owned(),
@@ -115,55 +127,6 @@ impl GitEngine {
     }
 }
 
-/// Reads the initial reflog line of `refs/heads/<branch>` to recover `base_branch` and
-/// `base_commit` across restarts. If the reflog is absent, returns an empty `base_commit` so
-/// [`GitEngine::remove_agent_worktree`] preserves the branch on discard.
-fn read_branch_creation_reflog(common_git_dir: &Path, branch: &str) -> (String, CommitSha) {
-    use std::io::{BufRead, BufReader, Read};
-    let default = || ("main".to_owned(), CommitSha(String::new()));
-    // fail-open-ok: returning empty `base_commit` is fail-safe (causes `remove_agent_worktree` to preserve the branch rather than deleting it).
-    let Ok(clean) = GitEngine::validate_agent_branch_name(branch) else {
-        return default();
-    };
-    let log_path = common_git_dir.join("logs/refs/heads").join(&clean);
-    // fail-open-ok: missing reflog falls back to empty `base_commit`, which safely preserves the branch on discard.
-    let Ok(file) = fs::File::open(log_path) else {
-        return default();
-    };
-    let mut first_line = String::new();
-    if BufReader::new(file.take(8193))
-        .read_line(&mut first_line)
-        .is_err()
-        || first_line.is_empty()
-        || first_line.len() > 8192
-    {
-        return default();
-    };
-    let first_line = first_line.trim_end_matches(['\r', '\n']);
-    // fail-open-ok: recovery display/parser default only; malformed reflog identity/OIDs fail to an empty base commit that preserves the branch.
-    let (meta, msg) = first_line.split_once('\t').unwrap_or((first_line, ""));
-    let mut parts = meta.split_whitespace();
-    let (Some(old_oid), Some(new_oid)) = (parts.next(), parts.next()) else {
-        return default();
-    };
-    if old_oid.len() != 40
-        || !old_oid.chars().all(|c| c == '0')
-        || new_oid.len() != 40
-        || !new_oid.chars().all(|c| c.is_ascii_hexdigit())
-    {
-        return default();
-    }
-    let base_branch = match msg.trim().strip_prefix("gitust: create agent branch from ") {
-        Some(branch) => match GitEngine::validate_outbound_branch(branch) {
-            Ok(branch) => branch,
-            // fail-open-ok: an invalid base name discards reflog evidence; empty base commit preserves the branch on removal.
-            Err(_) => return default(),
-        },
-        None => return default(),
-    };
-    (base_branch, CommitSha(new_oid.to_owned()))
-}
-
 fn infer_agent_kind(branch: &str) -> AgentKind {
     match branch
         .strip_prefix(AGENT_BRANCH_PREFIX)
@@ -193,6 +156,7 @@ fn parse_worktree_list(stdout: &[u8], managed_base: Option<&Path>) -> Vec<Manage
         |path: &mut Option<PathBuf>, head: &mut Option<String>, branch: &mut Option<String>| {
             if let (Some(p), Some(h)) = (path.take(), head.take()) {
                 let canon_p = canonicalize_existing_ancestors(&p);
+                let detached = branch.is_none();
                 let resolved_branch = match branch.take() {
                     Some(b) => b
                         .strip_prefix("refs/heads/")
@@ -215,6 +179,7 @@ fn parse_worktree_list(stdout: &[u8], managed_base: Option<&Path>) -> Vec<Manage
                         worktree_dir: canon_p,
                         branch: short,
                         head: CommitSha(h),
+                        detached,
                     });
                 }
             }

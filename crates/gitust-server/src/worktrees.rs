@@ -5,7 +5,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use gitust_core::{
-    AgentWorktree, AuthError, AuthenticatedPrincipal, EnterpriseRole, WorktreeStatus,
+    AgentWorktree, AuthError, AuthenticatedPrincipal, CommitSha, EnterpriseRole, WorktreeStatus,
 };
 use gitust_git::{GitEngineError, RepoHeadSnapshot};
 use gitust_sandbox::SandboxExecutionResult;
@@ -22,6 +22,10 @@ use crate::state::{
 mod spawn;
 pub use spawn::SpawnWorktreeRequest;
 pub(crate) use spawn::{spawn_worktree_core, spawn_worktree_handler};
+
+#[path = "worktree_approval.rs"]
+mod approval;
+pub(crate) use approval::approve_worktree_handler;
 
 #[derive(Serialize, Deserialize)]
 pub struct SandboxExecRequest {
@@ -63,7 +67,7 @@ pub(crate) async fn exec_worktree_sandbox_core(
     command: String,
     timeout_secs: Option<u64>,
     verify: bool,
-) -> Result<(SandboxExecutionResult, WorktreeStatus), (StatusCode, String)> {
+) -> Result<(SandboxExecutionResult, WorktreeStatus, Option<CommitSha>), (StatusCode, String)> {
     if !state.trusted_sandbox_exec {
         return Err((
             StatusCode::FORBIDDEN,
@@ -104,6 +108,10 @@ pub(crate) async fn exec_worktree_sandbox_core(
     ) {
         return Err((StatusCode::CONFLICT, format!("worktree is {:?}", wt.status)));
     }
+    if verify && wt.base_branch.is_empty() {
+        return Err((StatusCode::CONFLICT,
+            "worktree creation target is unknown; restore trusted metadata or recreate the worktree before verification".into()));
+    }
     let runtime = state.get_worktree_runtime(wt.id).ok_or_else(|| {
         (
             StatusCode::CONFLICT,
@@ -131,13 +139,14 @@ pub(crate) async fn exec_worktree_sandbox_core(
     let engine = state.git_engine.clone();
     let branch = wt.branch.clone();
     let base = wt.base_branch.clone();
+    let checkout = runtime.worktree_dir.clone();
     let (checked_commit, checks) = tokio::task::spawn_blocking(move || {
         if verify {
             let commit = engine.clean_worktree_commit(wt.id, &branch)?;
             Ok((Some(commit), engine.required_checks(&base)?))
         } else {
             engine
-                .ensure_config_has_no_credentials()
+                .ensure_worktree_config_has_no_credentials(&checkout)
                 .map(|_| (None, None))
         }
     })
@@ -221,6 +230,7 @@ pub(crate) async fn exec_worktree_sandbox_core(
             } else {
                 WorktreeStatus::Pending
             };
+            let result_commit = checked_commit.clone();
             set_worktree_status(state, wt.id, |w| {
                 w.last_sandbox_duration_ms = res.duration_ms;
                 w.status = final_status;
@@ -228,7 +238,7 @@ pub(crate) async fn exec_worktree_sandbox_core(
                 w.verified_checks_oid = checks_oid;
             });
             status_guard.armed = false;
-            Ok((res, final_status))
+            Ok((res, final_status, result_commit))
         }
         Err(e) => {
             set_worktree_status(state, wt.id, |w| w.status = WorktreeStatus::Failed);
@@ -244,17 +254,26 @@ pub(crate) async fn exec_worktree_sandbox_handler(
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
     Json(req): Json<SandboxExecRequest>,
-) -> Result<Json<SandboxExecutionResult>, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let caller = crate::auth::extract_principal_async(&headers, &state.auth_store).await?;
-    let (res, _status) =
+    let (res, _status, checked_commit) =
         exec_worktree_sandbox_core(&state, &caller, id, req.command, None, req.verify).await?;
-    Ok(Json(res))
+    let mut response = serde_json::to_value(res).map_err(internal_err)?;
+    response["checked_commit"] = serde_json::json!(checked_commit);
+    Ok(Json(response))
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum DiscardAuthority {
+    Operator,
+    Agent,
 }
 
 pub(crate) async fn discard_worktree_core(
     state: &AppState,
     caller: &AuthenticatedPrincipal,
     id: Uuid,
+    authority: DiscardAuthority,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let wt = find_authorized_worktree(state, caller, id).await?;
     let runtime = state.get_worktree_runtime(wt.id);
@@ -262,7 +281,8 @@ pub(crate) async fn discard_worktree_core(
         caller.role,
         EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
     );
-    if wt.status == WorktreeStatus::Merged && !is_privileged {
+    let may_remove_approval = is_privileged && matches!(authority, DiscardAuthority::Operator);
+    if wt.status == WorktreeStatus::Merged && !may_remove_approval {
         return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
     }
     let is_owner = runtime
@@ -280,7 +300,7 @@ pub(crate) async fn discard_worktree_core(
             )
         })?;
         let current = find_authorized_worktree(state, caller, id).await?;
-        if current.status == WorktreeStatus::Merged && !is_privileged {
+        if current.status == WorktreeStatus::Merged && !may_remove_approval {
             return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
         }
         let engine = state.git_engine.clone();
@@ -314,108 +334,5 @@ pub(crate) async fn discard_worktree_handler(
     caller: AuthenticatedPrincipal,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    discard_worktree_core(&state, &caller, id).await
-}
-
-pub(crate) async fn approve_worktree_handler(
-    State(state): State<AppState>,
-    caller: AuthenticatedPrincipal,
-    Path(id): Path<Uuid>,
-) -> Result<Json<AgentWorktree>, (StatusCode, String)> {
-    if !matches!(
-        caller.role,
-        EnterpriseRole::SiteAdmin | EnterpriseRole::Maintainer
-    ) {
-        return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
-    }
-
-    let wt_initial = find_authorized_worktree(&state, &caller, id).await?;
-    let runtime = state.get_worktree_runtime(wt_initial.id).ok_or_else(|| {
-        (
-            StatusCode::CONFLICT,
-            "worktree has no checkout on this server".to_owned(),
-        )
-    })?;
-    let run_guard = runtime.exec_lock.try_lock_owned().map_err(|_| {
-        (
-            StatusCode::CONFLICT,
-            "a sandbox run is in progress for this worktree".to_owned(),
-        )
-    })?;
-
-    if state.get_worktree_runtime(wt_initial.id).is_none() {
-        return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
-    }
-    let wt = find_authorized_worktree(&state, &caller, id).await?;
-    if wt.status != WorktreeStatus::Verified || wt.verified_commit.is_none() {
-        return Err((
-            StatusCode::CONFLICT,
-            format!(
-                "cannot approve worktree in {:?} state; sandbox verification required first",
-                wt.status
-            ),
-        ));
-    }
-
-    let repo_guard = state
-        .repo_mutation_lock
-        .clone()
-        .try_lock_owned()
-        .map_err(|_| {
-            (
-                StatusCode::CONFLICT,
-                "another repository merge or mirror sync is currently in progress".to_owned(),
-            )
-        })?;
-
-    let engine = state.git_engine.clone();
-    let state_for_merge = state.clone();
-    let wt_id = wt.id;
-    let branch = wt.branch.clone();
-    let base_branch = wt.base_branch.clone();
-    let verified_checks_oid = wt.verified_checks_oid.clone();
-    let verified_commit = wt.verified_commit.ok_or_else(|| {
-        (
-            StatusCode::CONFLICT,
-            "verification commit is missing; run verification again".into(),
-        )
-    })?;
-    let merged_wt = tokio::task::spawn_blocking(move || {
-        let _held_wt = run_guard;
-        let _held_repo = repo_guard;
-        let policy_matches = engine
-            .required_checks(&base_branch)
-            .map(|checks| checks.map(|c| c.blob_oid) == verified_checks_oid);
-        if !matches!(policy_matches, Ok(true)) {
-            set_worktree_status(&state_for_merge, wt_id, |w| {
-                w.status = WorktreeStatus::Pending
-            });
-            policy_matches.map_err(map_git_err)?;
-            return Err((
-                StatusCode::CONFLICT,
-                "required Checks changed since verification; run verification again".into(),
-            ));
-        }
-        let merged_sha = match engine.approve_verified_worktree(
-            wt_id,
-            &branch,
-            &base_branch,
-            &verified_commit,
-        ) {
-            Ok(sha) => sha,
-            Err(err) => {
-                if matches!(err, GitEngineError::VerificationInvalid(_)) {
-                    set_worktree_status(&state_for_merge, wt_id, |w| {
-                        w.status = WorktreeStatus::Pending
-                    });
-                }
-                return Err(map_git_err(err));
-            }
-        };
-        state_for_merge.complete_worktree_merge(wt_id, merged_sha)
-    })
-    .await
-    .map_err(internal_err)??;
-
-    Ok(Json(merged_wt))
+    discard_worktree_core(&state, &caller, id, DiscardAuthority::Operator).await
 }

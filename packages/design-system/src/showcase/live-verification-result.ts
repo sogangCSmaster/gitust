@@ -1,4 +1,5 @@
 import type { AgentVerificationResult, AgentVerificationStep } from "../patterns/AgentSwarmView";
+import { parseCommandOutput } from "./live-command-output";
 
 const invalid = (): never => { throw new Error("Invalid verification result from server"); };
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -25,8 +26,9 @@ function parseSteps(value: unknown, requestedCommand: string, overallExitCode: n
       if (!exitCode(step.exit_code) || !duration(step.duration_ms)) return invalid();
       if (step.exit_code !== 0) failedExitCode = step.exit_code;
     }
+    const output = parseCommandOutput(step.output, step.exit_code === null, 3 * 1024 * 1024);
     steps.push({ command: step.command, required: step.required, exitCode: step.exit_code as number | null,
-      durationMs: step.duration_ms as number | null });
+      durationMs: step.duration_ms as number | null, ...(output === undefined ? {} : { output }) });
   }
   if (steps.length && overallExitCode !== (failedExitCode ?? 0)) return invalid();
   return steps;
@@ -36,8 +38,11 @@ export function parseVerificationResult(value: unknown, worktreeId: string, requ
   if (!record(value) || value.worktree_id !== worktreeId || typeof value.command !== "string" ||
       !exitCode(value.exit_code) || !duration(value.duration_ms) ||
       typeof value.stdout !== "string" || typeof value.stderr !== "string") return invalid();
+  if (value.checked_commit !== undefined && value.checked_commit !== null &&
+      (typeof value.checked_commit !== "string" || !/^[0-9a-f]{40}$/i.test(value.checked_commit))) return invalid();
   return {
     requestedCommand, command: value.command, exitCode: value.exit_code, durationMs: value.duration_ms,
+    checkedCommit: value.checked_commit as string | null | undefined,
     stdout: value.stdout, stderr: value.stderr, outputTruncated: value.output_truncated === true,
     steps: parseSteps(value.steps, requestedCommand, value.exit_code),
   };

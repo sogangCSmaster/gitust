@@ -5,6 +5,8 @@ use axum::http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
+#[path = "tests_approval_target.rs"]
+mod tests_approval_target;
 #[path = "tests_auth.rs"]
 mod tests_auth;
 #[path = "tests_check_steps.rs"]
@@ -15,6 +17,14 @@ mod tests_external_review;
 mod tests_git_http;
 #[path = "tests_mcp.rs"]
 mod tests_mcp;
+#[path = "tests_mcp_commit.rs"]
+mod tests_mcp_commit;
+#[path = "tests_mcp_commit_protected.rs"]
+mod tests_mcp_commit_protected;
+#[path = "tests_mcp_commit_stdio.rs"]
+mod tests_mcp_commit_stdio;
+#[path = "tests_mcp_discard.rs"]
+mod tests_mcp_discard;
 #[path = "tests_oauth.rs"]
 mod tests_oauth;
 #[path = "tests_outbound.rs"]
@@ -373,7 +383,14 @@ async fn http_worktree_lifecycle_spawn_exec_approve_discard() {
 
     // Pending worktrees cannot be approved.
     let approve = format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0);
-    let (s, _) = call(&app, "POST", approve.clone(), &token, None).await;
+    let (s, _) = call(
+        &app,
+        "POST",
+        approve.clone(),
+        &token,
+        Some(serde_json::json!({"expected_commit": wt.base_commit.0})),
+    )
+    .await;
     assert_eq!(s, StatusCode::CONFLICT);
 
     // Simulate an agent commit in the worktree checkout, then verify inside the sandbox.
@@ -419,8 +436,19 @@ async fn http_worktree_lifecycle_spawn_exec_approve_discard() {
     assert_eq!(s, StatusCode::OK, "{body}");
     let res: SandboxExecutionResult = serde_json::from_str(&body).expect("parse");
     assert_eq!(res.exit_code, 0, "{}", res.stderr);
+    let verification: serde_json::Value = serde_json::from_str(&body).expect("verification");
+    let checked = verification["checked_commit"]
+        .as_str()
+        .expect("checked SHA");
 
-    let (s, body) = call(&app, "POST", approve, &token, None).await;
+    let (s, body) = call(
+        &app,
+        "POST",
+        approve,
+        &token,
+        Some(serde_json::json!({"expected_commit": checked})),
+    )
+    .await;
     assert_eq!(s, StatusCode::OK, "{body}");
     assert!(
         std::fs::read_to_string(repo.join("README.md"))

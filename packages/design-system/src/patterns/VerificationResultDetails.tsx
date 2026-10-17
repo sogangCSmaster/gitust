@@ -2,6 +2,13 @@ import { For, Show, type Component } from "solid-js";
 import { Card, CardContent } from "../components/ui/card";
 import { StatusBadge } from "../components/workspace/presentation";
 import type { AgentVerificationResult } from "./AgentSwarmView";
+import { Button } from "../components/ui/button";
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "../components/ui/collapsible";
+import { Icon } from "../components/workspace/icon";
 
 export const VerificationResultDetails: Component<{
   result: AgentVerificationResult;
@@ -42,6 +49,43 @@ export const VerificationResultDetails: Component<{
                       ? "Not run because an earlier command failed."
                       : `Exit code: ${step.exitCode} · Duration: ${step.durationMs}ms`}
                   </p>
+                  <Show when={step.output} keyed>
+                    {(output) => (
+                      <Collapsible>
+                        <CollapsibleTrigger
+                          as={Button}
+                          size="sm"
+                          variant="ghost"
+                        >
+                          <Icon name="terminal" /> Command output
+                        </CollapsibleTrigger>
+                        <CollapsibleContent class="space-y-3 pt-2">
+                          <Show when={output.truncated}>
+                            <StatusBadge tone="warning">
+                              Command output truncated by server
+                            </StatusBadge>
+                          </Show>
+                          <For
+                            each={[
+                              { label: "stdout", value: output.stdout },
+                              { label: "stderr", value: output.stderr },
+                            ]}
+                          >
+                            {(stream) => (
+                              <div class="space-y-2">
+                                <h4 class="text-xs text-muted-foreground">
+                                  {stream.label}
+                                </h4>
+                                <pre class="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs">
+                                  {stream.value || `No ${stream.label}`}
+                                </pre>
+                              </div>
+                            )}
+                          </For>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )}
+                  </Show>
                 </CardContent>
               </Card>
             </li>

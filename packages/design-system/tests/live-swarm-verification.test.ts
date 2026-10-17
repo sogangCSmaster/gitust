@@ -6,7 +6,7 @@ import type { AgentSandboxTask } from "../src/patterns/AgentSwarmView";
 
 const worktree = (status = "Pending"): LiveWorktreeRecord => ({
   id: "verification-worktree", repo_id: "repository", agent: "CodexSwarm",
-  branch: "agent/test/verification", base_branch: "main", base_commit: "baseline-sha",
+  branch: "agent/test/verification", base_branch: "main", base_commit: status === "Merged" ? "a".repeat(40) : "baseline-sha",
   prompt_summary: "Manual verification", materialize_micros: 50, status,
   verified_commit: status === "Verified" ? "a".repeat(40) : null,
   last_sandbox_duration_ms: 0, tests_passed: 0, tests_total: 0,
@@ -15,6 +15,7 @@ const worktree = (status = "Pending"): LiveWorktreeRecord => ({
 });
 const runResult = (exitCode = 0) => ({
   run_id: "run-one", worktree_id: "verification-worktree", command: "cargo test",
+  checked_commit: "a".repeat(40),
   exit_code: exitCode, duration_ms: 27, stdout: "fixture stdout", stderr: exitCode ? "fixture stderr" : "",
   output_truncated: false, backend: "OsSandbox", network_isolated: true,
 });

@@ -1,6 +1,8 @@
 import type { DiffLine } from "../patterns/VirtualDiffViewer";
 import type { FileTreeNode } from "../patterns/VirtualFileTree";
 
+const EMPTY_TREE_SHA1 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 export interface LiveCommitSummary {
   sha: string;
   short_sha: string;
@@ -45,6 +47,9 @@ export interface LiveRepoClientCallbacks {
   setLiveDiffLines: (lines: DiffLine[] | null) => void;
   setLiveFileTreeNodes: (nodes: FileTreeNode[] | null) => void;
   setLiveCommits: (commits: LiveCommitSummary[]) => void;
+  setLiveDiffFiles: (paths: string[]) => void;
+  setDiffTruncated: (value: boolean) => void;
+  setTreeTruncated: (value: boolean) => void;
   getActiveCommitRev: () => string;
   showQuickFeedback: (msg: string) => void;
 }
@@ -56,63 +61,149 @@ export interface LiveRepoClientCallbacks {
  */
 export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   let latestViewReqId = 0;
-
+  let repoEpoch = 0;
+  let commitDiff:
+    | { head: string; base?: string; files: string[]; truncated: boolean }
+    | undefined;
+  const sessionCurrent = (epoch: number, token: string) =>
+    epoch === repoEpoch && token === getLiveToken();
+  const resetRepoEpoch = () => {
+    repoEpoch += 1;
+    latestViewReqId += 1;
+    commitDiff = undefined;
+    cb.setLiveDiffFiles([]);
+    cb.setDiffTruncated(false);
+    cb.setTreeTruncated(false);
+  };
+  const filePaths = (data: { files?: Array<{ path: string }> }): string[] =>
+    Array.isArray(data.files)
+      ? data.files
+          .map((file) => file.path)
+          .filter((path) => typeof path === "string")
+      : [];
+  const showDiff = (
+    data: {
+      lookup_micros?: number;
+      truncated?: boolean;
+      files_changed?: number;
+      files?: Array<{ path: string }>;
+      lines?: Array<{
+        old_line: number | null;
+        new_line: number | null;
+        kind: "context" | "add" | "del" | "hunk";
+        content: string;
+      }>;
+    },
+    path: string,
+  ) => {
+    cb.setSelectedFilePath(path);
+    cb.setLookupMicros(Number(data.lookup_micros ?? 0));
+    cb.setDiffTruncated(Boolean(data.truncated || commitDiff?.truncated));
+    cb.setLiveDiffLines(
+      Array.isArray(data.lines) && data.lines.length > 0
+        ? data.lines.map((line, index) => ({
+            index,
+            oldLineNumber: line.old_line ?? null,
+            newLineNumber: line.new_line ?? null,
+            type: line.kind,
+            content: line.content,
+          }))
+        : statusDiffLine(
+            (data.files_changed ?? filePaths(data).length) > 0
+              ? "[Changed file with no textual hunks — binary content, an empty file, or file metadata changed.]"
+              : `[No file changes in commit ${cb.getActiveCommitRev()}]`,
+          ),
+    );
+  };
+  const fetchDiff = async (
+    head: string,
+    token: string,
+    path?: string,
+    base?: string,
+  ) => {
+    const query = new URLSearchParams({ head });
+    // The API resolves explicit bases as commits. A fixed root head derives its empty tree implicitly.
+    if (base && base !== EMPTY_TREE_SHA1) query.set("base", base);
+    if (path !== undefined) query.set("path", path);
+    const response = await fetch(`/api/v1/repo/diff?${query}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok)
+      throw new Error(
+        `HTTP ${response.status}: ${(await response.text()).trim()}`,
+      );
+    return response.json();
+  };
   const loadLiveCommitDiff = async (rev: string) => {
     const reqId = ++latestViewReqId;
-    cb.setActiveCommitRev(rev);
+    const epoch = repoEpoch;
     const token = getLiveToken();
+    cb.setActiveCommitRev(rev);
+    cb.setLiveDiffFiles([]);
+    cb.setDiffTruncated(false);
+    cb.setLookupMicros(null);
+    commitDiff = undefined;
     if (!token) return;
+    const current = () =>
+      reqId === latestViewReqId && sessionCurrent(epoch, token);
     cb.setLiveDiffLines([]);
     try {
-      const res = await fetch(
-        `/api/v1/repo/diff?head=${encodeURIComponent(rev)}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
-      if (!res.ok) {
-        const errText = (await res.text().catch(() => "")).trim();
-        if (reqId !== latestViewReqId || token !== getLiveToken()) return;
-        const msg = `Diff lookup failed for ${rev} (HTTP ${res.status}${errText ? `: ${errText}` : ""})`;
-        cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
-        cb.showQuickFeedback(msg);
-        return;
-      }
-      const data = await res.json();
-      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
-      cb.setLookupMicros(Number(data.lookup_micros ?? 0));
-      if (Array.isArray(data.files) && data.files[0]?.path) {
-        cb.setSelectedFilePath(String(data.files[0].path));
-      } else {
-        cb.setSelectedFilePath(`commit:${rev}`);
-      }
-      if (Array.isArray(data.lines) && data.lines.length > 0) {
-        cb.setLiveDiffLines(
-          data.lines.map(
-            (
-              ln: {
-                old_line: number | null;
-                new_line: number | null;
-                kind: "context" | "add" | "del" | "hunk";
-                content: string;
-              },
-              idx: number,
-            ) => ({
-              index: idx,
-              oldLineNumber: ln.old_line ?? null,
-              newLineNumber: ln.new_line ?? null,
-              type: ln.kind,
-              content: ln.content,
-            }),
-          ),
+      const data = await fetchDiff(rev, token);
+      if (!current()) return;
+      const paths = filePaths(data);
+      const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+      if (
+        paths.length > 1 &&
+        (!oid.test(data.head_sha) || !oid.test(data.base_sha))
+      )
+        throw new Error(
+          "Server did not provide immutable commit IDs for this multi-file diff",
         );
-      } else {
-        cb.setLiveDiffLines(
-          statusDiffLine(`[No file changes in commit ${rev}]`, "hunk"),
+      commitDiff = {
+        head: data.head_sha ?? rev,
+        base: data.base_sha,
+        files: paths,
+        truncated: data.truncated === true,
+      };
+      cb.setLiveDiffFiles(paths);
+      cb.setDiffTruncated(commitDiff.truncated);
+      cb.setSelectedFilePath(paths[0] ?? `commit:${rev}`);
+      const firstPath = paths[0];
+      if (paths.length > 1 && firstPath !== undefined) {
+        // Aggregate lines have no file boundaries. Fetch only the selected path at fixed commits.
+        const first = await fetchDiff(
+          commitDiff.head,
+          token,
+          firstPath,
+          commitDiff.base,
         );
-      }
+        if (current()) showDiff(first, firstPath);
+      } else showDiff(data, paths[0] ?? `commit:${rev}`);
     } catch (err) {
-      if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      if (!current()) return;
       const msg = `Diff lookup failed for ${rev}: ${formatErr(err)}`;
+      cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
+      cb.showQuickFeedback(msg);
+    }
+  };
+  const selectCommitDiffFile = async (path: string) => {
+    const snapshot = commitDiff;
+    const token = getLiveToken();
+    if (!token || !snapshot?.files.includes(path)) return;
+    const reqId = ++latestViewReqId;
+    const epoch = repoEpoch;
+    const current = () =>
+      reqId === latestViewReqId && sessionCurrent(epoch, token);
+    cb.setSelectedFilePath(path);
+    cb.setLiveDiffLines([]);
+    cb.setLookupMicros(null);
+    cb.setDiffTruncated(snapshot.truncated);
+    try {
+      const data = await fetchDiff(snapshot.head, token, path, snapshot.base);
+      if (current()) showDiff(data, path);
+    } catch (err) {
+      if (!current()) return;
+      const msg = `Diff lookup failed for ${path}: ${formatErr(err)}`;
       cb.setLiveDiffLines(statusDiffLine(`[${msg}]`, "del"));
       cb.showQuickFeedback(msg);
     }
@@ -123,6 +214,9 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
     kind: "file" | "dir";
   }) => {
     const reqId = ++latestViewReqId;
+    commitDiff = undefined;
+    cb.setLiveDiffFiles([]);
+    cb.setDiffTruncated(false);
     cb.setSelectedFilePath(node.path);
     cb.setLookupMicros(null);
     cb.setLiveDiffLines([]);
@@ -214,6 +308,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       ]);
       if (reqId !== latestViewReqId || token !== getLiveToken()) return;
       if (!commitsRes.ok || !treeRes.ok) {
+        cb.setTreeTruncated(false);
         cb.setLiveCommits([]);
         cb.setLiveFileTreeNodes([]);
         cb.setLiveDiffLines([]);
@@ -231,6 +326,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
         cb.setLiveCommits(cData.commits);
         cb.setLookupMicros(Number(cData.lookup_micros ?? 0));
       }
+      cb.setTreeTruncated(tData.truncated === true);
       if (Array.isArray(tData.entries)) {
         cb.setLiveFileTreeNodes(
           tData.entries.map((e: { path: string; is_dir: boolean }) => ({
@@ -242,6 +338,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       await loadLiveCommitDiff("HEAD");
     } catch (err) {
       if (reqId !== latestViewReqId || token !== getLiveToken()) return;
+      cb.setTreeTruncated(false);
       cb.setLiveCommits([]);
       cb.setLiveFileTreeNodes([]);
       cb.setLiveDiffLines([]);
@@ -259,6 +356,7 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
       );
       return;
     }
+    const epoch = repoEpoch;
     const t0 = performance.now();
     cb.showQuickFeedback(
       "GitHub Read-Only Mirror Sync: Synchronizing upstream refs (Agent branches kept private)...",
@@ -273,11 +371,11 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
           },
           body: "{}",
         });
-        if (token !== getLiveToken()) return;
+        if (!sessionCurrent(epoch, token)) return;
         const dt = (performance.now() - t0).toFixed(1);
         if (res.ok) {
           const report = await res.json();
-          if (token !== getLiveToken()) return;
+          if (!sessionCurrent(epoch, token)) return;
           const sha = String(report.last_synced_commit ?? "").slice(0, 7);
           const priv = Number(report.private_agent_branches_filtered ?? 0);
           const skippedCount = Array.isArray(report.skipped_branches)
@@ -289,13 +387,13 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
           await hydrateFromLiveBackend();
         } else {
           const errText = (await res.text().catch(() => "")).trim();
-          if (token !== getLiveToken()) return;
+          if (!sessionCurrent(epoch, token)) return;
           cb.showQuickFeedback(
             `GitHub Mirror Sync rejected (HTTP ${res.status} in ${dt}ms${errText ? `: ${errText}` : ""})`,
           );
         }
       } catch (err) {
-        if (token !== getLiveToken()) return;
+        if (!sessionCurrent(epoch, token)) return;
         cb.showQuickFeedback(`GitHub Mirror Sync failed: ${formatErr(err)}`);
       }
     })();
@@ -304,6 +402,8 @@ export function createLiveRepoClient(cb: LiveRepoClientCallbacks) {
   return {
     loadLiveCommitDiff,
     selectFileFromTree,
+    selectCommitDiffFile,
+    resetRepoEpoch,
     hydrateFromLiveBackend,
     triggerGithubSync,
   };

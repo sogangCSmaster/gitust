@@ -117,6 +117,14 @@ pub(crate) async fn extract_mcp_principal_async(
     extract_principal_async_for(headers, auth_store, true).await
 }
 
+/// Blocking MCP credential recheck for mutations immediately before their Git ref update.
+pub(crate) fn extract_mcp_principal(
+    headers: &HeaderMap,
+    auth_store: &AuthStore,
+) -> Result<AuthenticatedPrincipal, (StatusCode, String)> {
+    extract_principal_for(headers, auth_store, true)
+}
+
 async fn extract_principal_async_for(
     headers: &HeaderMap,
     auth_store: &AuthStore,

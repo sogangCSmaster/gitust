@@ -46,7 +46,14 @@ impl RunRecord {
             && result.stdout.len() <= 16 * 1024
             && result.stderr.len() <= 16 * 1024
             && (1..=9).contains(&result.steps.len())
-            && result.steps.iter().all(|step| step.command.len() <= 4096)
+            && result.steps.iter().all(|step| {
+                step.command.len() <= 4096
+                    && step.output.as_ref().is_none_or(|output| {
+                        step.exit_code.is_some()
+                            && output.stdout.len() <= 1024
+                            && output.stderr.len() <= 1024
+                    })
+            })
             && self.verification_requested == self.checked_commit.is_some()
             && self
                 .checked_commit
@@ -70,6 +77,11 @@ impl RunRecord {
         truncated |= truncate(&mut result.stderr, 16 * 1024);
         for step in &mut result.steps {
             truncated |= truncate(&mut step.command, 4096);
+            // Nine steps plus aggregate output and JSON escaping must still fit the 3MiB file cap.
+            if let Some(output) = &mut step.output {
+                truncated |= truncate(&mut output.stdout, 1024);
+                truncated |= truncate(&mut output.stderr, 1024);
+            }
         }
         Self {
             completed_at: Utc::now(),

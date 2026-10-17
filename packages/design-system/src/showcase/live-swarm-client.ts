@@ -135,7 +135,11 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
           if (old && inFlightWorktrees.has(wt.id)) return old;
           const mapped = mapLiveWorktreeToTask(wt, old?.id ?? newId++);
           if (!mapped.githubSynced) mapped.publicationError = old?.publicationError;
-          mapped.verificationResult = old?.verificationResult;
+          const resultCommit = old?.verificationResult?.checkedCommit ?? old?.verifiedCommit;
+          const sameVerification = mapped.verifiedCommit
+            ? mapped.verifiedCommit === resultCommit
+            : !old?.verifiedCommit;
+          mapped.verificationResult = sameVerification ? old?.verificationResult : undefined;
           return mapped;
         });
         // A list snapshot may predate a pending spawn or temporarily omit a mutating row.
@@ -198,18 +202,24 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       const endpoint = `/api/v1/swarm/worktrees/${encodeURIComponent(liveId)}`;
       const res = await fetch(action === "discard" ? endpoint : `${endpoint}/${action}`, {
         method: action === "discard" ? "DELETE" : "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(action === "approve" ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(action === "approve" ? { body: JSON.stringify({ expected_commit: target.verifiedCommit }) } : {}),
       });
       if (!isCurrent(epoch, token)) return;
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).trim()}`);
       if (action === "discard") {
         cb.setSwarmTasks((tasks) => tasks.filter((task) => task.liveId !== liveId));
-        cb.showQuickFeedback(`Discarded worktree ${target.branch} & removed branch`);
+        cb.showQuickFeedback(`Discarded worktree ${target.branch}`);
         return;
       }
       const result = (await res.json()) as LiveWorktreeRecord;
       if (!isCurrent(epoch, token)) return;
-      if (result.id !== liveId || result.status.toLowerCase() !== "merged" || (action === "publish" && result.github_synced !== true)) {
+      if (result.id !== liveId || result.status.toLowerCase() !== "merged" ||
+          (action === "approve" && result.base_commit !== target.verifiedCommit) ||
+          (action === "publish" && result.github_synced !== true)) {
         throw new Error("Server did not confirm the requested worktree operation");
       }
       updateTarget((task) => ({ ...mapLiveWorktreeToTask(result, task.id), verificationResult: task.verificationResult }));
@@ -292,6 +302,12 @@ export function createLiveSwarmClient(cb: LiveSwarmClientCallbacks) {
       const mapped = mapLiveWorktreeToTask(authoritative, id);
       if (mapped.sandboxStatus === "verified" && result.exitCode !== 0) {
         throw new Error("Failed command conflicts with server verification state; refresh worktrees");
+      }
+      if (!result.checkedCommit) {
+        throw new Error("Server did not identify the checked commit; refresh worktrees before approval");
+      }
+      if (result.exitCode === 0 && mapped.verifiedCommit !== result.checkedCommit) {
+        throw new Error("Server verification changed since this command completed; refresh worktrees before approval");
       }
       const verified = mapped.sandboxStatus === "verified" && result.exitCode === 0;
       updateTarget((task) => ({

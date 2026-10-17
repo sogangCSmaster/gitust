@@ -11,6 +11,22 @@ mod tests_approvals;
 mod tests_checks;
 #[path = "tests_review_security.rs"]
 mod tests_review_security;
+#[path = "tests_worktree_commit.rs"]
+mod tests_worktree_commit;
+#[path = "tests_worktree_commit_aliases.rs"]
+mod tests_worktree_commit_aliases;
+#[path = "tests_worktree_commit_guards.rs"]
+mod tests_worktree_commit_guards;
+#[path = "tests_worktree_commit_modes.rs"]
+mod tests_worktree_commit_modes;
+#[path = "tests_worktree_commit_normalize.rs"]
+mod tests_worktree_commit_normalize;
+#[path = "tests_worktree_commit_normalize_index.rs"]
+mod tests_worktree_commit_normalize_index;
+#[path = "tests_worktree_origin.rs"]
+mod tests_worktree_origin;
+#[path = "tests_worktree_replacements.rs"]
+mod tests_worktree_replacements;
 
 use crate::config_guard::config_contains_credentials;
 use crate::{GitEngine, GitEngineError, MaterializedWorktree};

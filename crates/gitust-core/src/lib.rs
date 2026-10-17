@@ -165,6 +165,8 @@ pub struct CommitSha(pub String);
 
 /// Default expiration window for single-use invite links (72 hours per `AGENTS.md`).
 pub const DEFAULT_INVITE_EXPIRY_HOURS: i64 = 72;
+/// Maximum byte length of an account email address.
+pub const MAX_EMAIL_BYTES: usize = 254;
 
 // ============================================================================
 // Core Domain & Authorization Errors
@@ -180,6 +182,9 @@ pub enum DomainError {
 
     #[error("malformed email address: '{0}'")]
     MalformedEmail(String),
+
+    #[error("email address must not exceed 254 bytes")]
+    EmailTooLong,
 
     #[error(
         "registration rejected by enterprise policy: email '{0}' is outside allowed domain '@{1}'"
@@ -464,6 +469,9 @@ impl EnterpriseSecurityPolicy {
         }
 
         let trimmed = email.trim();
+        if trimmed.len() > MAX_EMAIL_BYTES {
+            return Err(DomainError::EmailTooLong);
+        }
         let Some((local, domain)) = trimmed.rsplit_once('@') else {
             return Err(DomainError::MalformedEmail(email.to_owned()));
         };
@@ -525,5 +533,19 @@ mod tests {
         assert!(policy
             .validate_registration("Dev@Company.Internal", true)
             .is_ok());
+    }
+
+    #[test]
+    fn registration_email_limit_counts_utf8_bytes() {
+        let policy = EnterpriseSecurityPolicy::default();
+        let at_limit = format!("{}a@company.internal", "é".repeat(118));
+        assert_eq!(at_limit.len(), MAX_EMAIL_BYTES);
+        assert!(policy.validate_registration(&at_limit, true).is_ok());
+        let over_limit = format!("{}é@company.internal", "é".repeat(118));
+        assert_eq!(over_limit.len(), MAX_EMAIL_BYTES + 1);
+        assert_eq!(
+            policy.validate_registration(&over_limit, true),
+            Err(DomainError::EmailTooLong)
+        );
     }
 }

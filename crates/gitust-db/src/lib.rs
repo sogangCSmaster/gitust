@@ -25,6 +25,8 @@ mod tests_persistence;
 mod tests_review_regressions;
 #[cfg(test)]
 mod tests_session_scope;
+#[cfg(test)]
+mod tests_snapshot_limits;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

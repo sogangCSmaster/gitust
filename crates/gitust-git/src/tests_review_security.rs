@@ -9,6 +9,7 @@ fn managed_checkout_pointer_cannot_redirect_to_another_repository_or_checkout() 
     let engine = GitEngine::new(&path);
     let m = materialize(&engine, "agent/test/pointer").unwrap();
     let other = materialize(&engine, "agent/test/other").unwrap();
+    let original_other_head = fs::read(other.worktree_admin_dir.join("HEAD")).unwrap();
     // Forge identical HEAD/commit metadata; branch-name/SHA checks alone cannot catch this.
     fs::write(
         other.worktree_admin_dir.join("HEAD"),
@@ -31,6 +32,11 @@ fn managed_checkout_pointer_cannot_redirect_to_another_repository_or_checkout() 
     assert!(engine
         .clean_worktree_commit(m.worktree.id, &m.worktree.branch)
         .is_ok());
+    assert!(
+        engine.recover_agent_worktrees(RepoId::new()).is_err(),
+        "the second checkout still disagrees with its immutable creation branch"
+    );
+    fs::write(other.worktree_admin_dir.join("HEAD"), original_other_head).unwrap();
     assert!(engine.recover_agent_worktrees(RepoId::new()).is_ok());
 }
 
@@ -256,7 +262,14 @@ fn recovery_bounds_untrusted_reflog_and_skips_unmanaged_directory_names() {
         .join(&m.worktree.branch);
     fs::write(&log, vec![b'x'; 100_000]).unwrap();
     let recovered = engine.recover_agent_worktrees(RepoId::new()).unwrap();
+    assert_eq!(
+        recovered[0].worktree.base_commit, m.worktree.base_commit,
+        "trusted creation metadata takes precedence over an expired or invalid reflog"
+    );
+    fs::remove_file(m.worktree_admin_dir.join("gitust-origin.json")).unwrap();
+    let recovered = engine.recover_agent_worktrees(RepoId::new()).unwrap();
     assert!(recovered[0].worktree.base_commit.0.is_empty());
+    assert!(recovered[0].worktree.base_branch.is_empty());
     let other = m.worktrees_base.join("not-a-uuid");
     git(
         &path,

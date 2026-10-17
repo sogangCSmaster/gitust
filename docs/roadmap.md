@@ -2,6 +2,8 @@
 
 This document separates planned capabilities from implemented behavior. It is a sequence of work, not a release commitment. A UI prototype or passing test suite alone does not establish deployment readiness.
 
+The immediate milestone is the [trusted single-user self-hosted alpha](operations/alpha-acceptance.md). Its acceptance conditions bound the current work; the full Phase 3 and Phase 4 lists are broader future scope.
+
 ## Phase 1 — Interface foundations
 
 Implemented: SolidJS components, CSS tokens, SVG icons, keyboard navigation, and workbench views. Repository browsing and the agent workflow have live server connections. Other views, including broader Actions and enterprise administration concepts, still include demonstrations.
@@ -13,6 +15,7 @@ Implemented foundations:
 - Rust CLI/server and `gix`-based object reads.
 - Managed agent branches and linked worktrees with ownership, operation coordination, and recovery.
 - Local OS sandbox execution through CLI and MCP.
+- Host-side MCP commits of explicit managed-worktree paths against an expected HEAD, retaining read-only Git metadata inside execution sandboxes. See the [commit contract and recovery limits](architecture/mcp-commits.md).
 - Explicit inbound synchronization and tree/commit/diff browsing.
 - Administrator-issued invitations, CLI-only first-admin creation, persistent credentials, and revocation.
 
@@ -27,9 +30,10 @@ In progress. Implemented portions:
 - Clean-commit verification, fast-forward approval, and separate exact-SHA publication.
 - Durable approval/publication records and explicit remote-failure retry.
 - Required Checks from committed merge-target configuration during explicit verification.
-- Per-command verification outcomes, measured durations, and skipped checks in HTTP/MCP and the workbench.
+- Per-command verification outcomes, measured durations, skipped checks and expandable command-specific stdout/stderr in HTTP/MCP and the workbench; stored output is bounded separately for history.
 - Bounded durable history of completed HTTP/MCP runs, with a SiteAdmin-only read API and no restoration of approval authority.
 - A live workbench history viewer for the latest five completed runs, including per-command outcomes, captured output and execution metadata, separate from current verification authority.
+- A stopped-installation backup/relocated-restore utility, regression tests and recorded local macOS rehearsals, including MCP commits after relocation. Linux and release acceptance remain open.
 
 Remaining work:
 
@@ -37,8 +41,10 @@ Remaining work:
 - Full pull-request collaboration.
 - SSH Git transport; existing SSH key registration is not an SSH Git server.
 - Broader administration UI and repository lifecycle management.
-- Documented backups and tested restoration of auth state, Git data, worktrees, and approval records.
+- Final-candidate restoration evidence for auth state, Git data, worktrees and approval records on the intended platforms.
 - Deployment validation, platform coverage, and remaining independent security review.
+
+The MCP commit implementation passed current full checks, an independent architecture review and the local ten-task rehearsal after index-aware normalization fixes. The independent HTTP review has partial executed evidence but no final verdict because further checks were interrupted by tool policy. Actual intended IDE-agent sessions, authorized GitHub publication, Linux execution and a separately provisioned installation remain open. Track those boundaries in the [alpha progress report](operations/alpha-progress-2026-10-17.md); all nine acceptance conditions remain in force.
 
 GitHub remains the initial source of truth. Local merge and upstream publication are separate operations. Publication failure must not erase approval or silently select a different commit.
 

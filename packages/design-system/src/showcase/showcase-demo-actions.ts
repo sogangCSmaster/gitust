@@ -38,7 +38,7 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
     cb.setSwarmTasks((prev) =>
       prev.map((t) => {
         if (
-          t.id !== id ||
+          t.id !== id || t.liveId ||
           t.sandboxStatus === "merged" ||
           t.sandboxStatus === "discarded"
         ) {
@@ -62,7 +62,7 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
     cb.setSwarmTasks((prev) =>
       prev.map((t) => {
         if (
-          t.id !== id ||
+          t.id !== id || t.liveId ||
           t.sandboxStatus === "merged" ||
           t.sandboxStatus === "discarded"
         ) {

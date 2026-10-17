@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "started_at": "2026-10-16T18:00:07.599029+00:00",
+  "completed_at": "2026-10-16T18:00:22.784721+00:00",
+  "source_commit": "adb4b6e2e09b99ff8bb3ebf268dad11199c6f718",
+  "binary_sha256": "21659f7e7f248b476c4670cc9c67c4357f934ec9abab996540b56378f70af5f5",
+  "operator_script_sha256": {
+    "alpha-rehearsal.py": "7e08dbf5e15fb21d3bd97a6edecc95695fd48463daa595c8fffa223cacc6ae5c",
+    "backup.py": "75e371b8ae9b8b3bb073e9422f906fba251622755ba1e9dc7d67f6cbdf74dd3e"
+  },
+  "runtime_worktree_dirty": true,
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "sandbox_backends": [
+    "macos_seatbelt"
+  ],
+  "fixture": "committed Gitust main cloned locally; task commits only in scratch",
+  "mcp_clients": 2,
+  "mcp_only_commit_demonstrated": false,
+  "tasks_1_to_9_commit_actor": "local operator Git client",
+  "task_10_commit_actor": "separate Git Smart HTTP client clone",
+  "external_github_publication": false,
+  "tasks": [
+    {
+      "task": 1,
+      "scenario": "two HTTP MCP clients, isolated concurrent source edits",
+      "passed": true,
+      "commit": "6e9e2760276cd4f940ca67895d227c7a2b872869",
+      "concurrent_edit_wall_ms": 301,
+      "concurrent_edit_observed": true
+    },
+    {
+      "task": 2,
+      "scenario": "required Check failure, repair, rebase and verification retry",
+      "passed": true,
+      "failed_check_exit": 1,
+      "commit": "ba0b3e7c2fcb30381a8b423b5da402109b739680"
+    },
+    {
+      "task": 3,
+      "scenario": "approval waits for exact commit verification",
+      "passed": true,
+      "commit": "9a6cd13e5f325d0383c43be0f7994edd6d678731"
+    },
+    {
+      "task": 4,
+      "scenario": "new commit invalidates earlier approval eligibility",
+      "passed": true,
+      "commit": "a5ba172fc79900b07d3d7b74931b8010b8cb608c"
+    },
+    {
+      "task": 5,
+      "scenario": "commit pending edits before verification",
+      "passed": true,
+      "commit": "bd0b8e6e00fcaeaaf96d15530037c7e058bc16df"
+    },
+    {
+      "task": 6,
+      "scenario": "failed command and successful rerun",
+      "passed": true,
+      "commit": "3978ea6889ea853a5060840e45dbeca2ddbc2863",
+      "saved_runs": 3
+    },
+    {
+      "task": 7,
+      "scenario": "unavailable local upstream and explicit publication retry",
+      "passed": true,
+      "commit": "9d495a286f2275eeca292ff16c49091627539116"
+    },
+    {
+      "task": 8,
+      "scenario": "discard checkout while preserving committed private work",
+      "passed": true,
+      "discarded_commit": "57510cda949dead4232e9b6c391df58bee687bbe"
+    },
+    {
+      "task": 9,
+      "scenario": "offline backup, relocation, login, durable evidence and re-verification",
+      "passed": true,
+      "commit": "6a9a292a1b352c6b09b18aa304bfa33c40109673",
+      "retained_runs": 2,
+      "restored_approvals": 7
+    },
+    {
+      "task": 10,
+      "scenario": "real Git HTTP clone, commit, managed push, approve, publish and fetch",
+      "passed": true,
+      "commit": "992578480e02e04174358f619278e742c0782b50"
+    }
+  ],
+  "git_fsck": "server, local upstream and HTTP client passed --full --strict"
+}

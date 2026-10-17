@@ -63,7 +63,7 @@ impl GitEngine {
     ) -> Result<RepoDiffSnapshot, GitEngineError> {
         let start = Instant::now();
         let clean_path = match file_path {
-            Some(p) if !p.trim().is_empty() => Some(Self::validate_repo_relative_path(p)?),
+            Some(p) if !p.is_empty() => Some(Self::validate_repo_relative_path(p)?),
             _ => None,
         };
 

@@ -71,6 +71,21 @@ pub fn builtin_mcp_tools() -> Vec<McpToolDescriptor> {
             }),
         },
         McpToolDescriptor {
+            name: "gitust_worktree_commit",
+            description: "Commit explicitly listed files in your managed agent worktree using the expected HEAD SHA. Requires trusted single-user execution and SiteAdmin ownership. Does not verify, approve, merge, or publish; run explicit verification afterward.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "worktree_id": { "type": "string", "format": "uuid" },
+                    "expected_head": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$", "description": "Current branch commit SHA. A stale value is rejected; inspect the branch after an indeterminate result." },
+                    "paths": { "type": "array", "minItems": 1, "maxItems": 128, "items": { "type": "string", "minLength": 1, "maxLength": 4096 }, "description": "Explicit repository-relative file paths, including deletions; directory recursion is not supported." },
+                    "message": { "type": "string", "minLength": 1, "maxLength": 8192 }
+                },
+                "required": ["worktree_id", "expected_head", "paths", "message"],
+                "additionalProperties": false
+            }),
+        },
+        McpToolDescriptor {
             name: "gitust_worktree_list",
             description: "List active agent worktrees managed by Gitust in this repository.",
             input_schema: serde_json::json!({

@@ -80,7 +80,7 @@ async fn approval_rejects_local_commit_after_successful_verification() {
     let (status, body) = run(&app, &token, &wt, "test -f README.md").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(state.worktrees.read()[0].status, WorktreeStatus::Verified);
-    assert!(state.worktrees.read()[0].verified_commit.is_some());
+    let previous = state.worktrees.read()[0].verified_commit.clone().unwrap();
     std::fs::write(dir.join("README.md"), "not verified\n").unwrap();
     commit(&dir);
     let (status, body) = call(
@@ -88,7 +88,7 @@ async fn approval_rejects_local_commit_after_successful_verification() {
         "POST",
         format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
         &token,
-        None,
+        Some(serde_json::json!({"expected_commit": previous.0})),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
@@ -105,7 +105,7 @@ async fn approval_rejects_local_commit_after_successful_verification() {
         "POST",
         format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
         &token,
-        None,
+        Some(serde_json::json!({"expected_commit": checked.0})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -141,6 +141,7 @@ async fn dirty_checkout_and_failed_rerun_never_retain_approval_authority() {
     assert_eq!(state.worktrees.read()[0].status, WorktreeStatus::Failed);
     assert!(state.worktrees.read()[0].verified_commit.is_none());
     assert_eq!(run(&app, &token, &wt, "true").await.0, StatusCode::OK);
+    let checked = state.worktrees.read()[0].verified_commit.clone().unwrap();
     std::fs::write(dir.join("README.md"), "dirty after verification").unwrap();
     assert_eq!(
         call(
@@ -148,7 +149,7 @@ async fn dirty_checkout_and_failed_rerun_never_retain_approval_authority() {
             "POST",
             format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
             &token,
-            None
+            Some(serde_json::json!({"expected_commit": checked.0}))
         )
         .await
         .0,
@@ -161,6 +162,7 @@ async fn dirty_checkout_and_failed_rerun_never_retain_approval_authority() {
 async fn restart_does_not_infer_verification_from_a_clean_branch() {
     let (tmp, state, app, token, wt, _dir) = fixture().await;
     assert_eq!(run(&app, &token, &wt, "true").await.0, StatusCode::OK);
+    let checked = state.worktrees.read()[0].verified_commit.clone().unwrap();
     let restarted = AppState::with_auth_store(
         tmp.path().join("repo"),
         "https://example.test/repo.git".into(),
@@ -179,7 +181,7 @@ async fn restart_does_not_infer_verification_from_a_clean_branch() {
             "POST",
             format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
             &token,
-            None
+            Some(serde_json::json!({"expected_commit": checked.0}))
         )
         .await
         .0,

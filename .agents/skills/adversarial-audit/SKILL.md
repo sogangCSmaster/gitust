@@ -225,3 +225,24 @@ Whenever a new class of P0 or P1 bug is uncovered during development, testing, o
 - A live token selects live mode immediately, including during hydration failure. Never show showcase users, worktrees, code or invented timings as server evidence. Demonstration-only security controls must not claim that server policy was changed.
 - Read refreshes must not invalidate successful writes; bind async responses to the initiating session and separate read request ordering from mutation ordering.
 - An empty fail-open baseline must stay empty after commits too; comparison only against HEAD is insufficient in a pre-push hook. Test scanner annotation boundaries and new pattern coverage with fixtures. Safe Option defaults and numeric saturation still require specific reasoning, not automatic vulnerability labels.
+
+### Check 22: Durable Target Identity and Shared Staging Ownership
+- A worktree's creation target and base SHA are authoritative inputs to Checks and merge. Persist them independently of reflogs; Git maintenance may expire creation entries. Migrate only positively identified legacy creation evidence, and reject verification/approval when the target is unknown. Never substitute a display default such as `main`.
+- Validate immutable creation records by version, worktree ID, branch and bounded regular-file reads. Publish atomically without replacing an existing record; retain service ownership through creation and migration. Approval must match the persisted target.
+- Repository service ownership must precede every shared staging mutation, including the first mirror initialization and fetch. Retain operation serialization through fetch and apply, or use operation-private staging. A busy/failed second sync must not change which upstream the first sync applies. Test two distinct local upstreams with an independent Git SHA oracle.
+- Persistence writers must enforce the same serialized-size ceiling as readers before replacing the last good snapshot. Verify failed writes preserve disk, rollback memory and allow reopening.
+
+### Check 23: Backups Must Be Independent and Preserve Executable State
+- A successful `git fsck` can still depend on the original installation when objects/refs or other Git metadata are symlinks, object alternates are external, or a partial clone promises missing objects. Refuse unsupported layouts or explicitly capture and reconnect every dependency; prove restoration after making the original inaccessible.
+- Preserve and verify file modes and private directory modes in addition to content and symlink targets. A lost executable bit can turn a clean restored task into a dirty checkout and invalidate its Checks.
+- Hold the repository and auth locks during a stopped snapshot, leave the original pointers unchanged during relocation, reject incomplete/integrity-mismatched snapshots and keep writer/reader manifest limits identical.
+- Operational Git/CLI subprocesses must clear inherited `GIT_*` selectors before adding intentional authentication settings. `-C` alone does not override `GIT_DIR`/`GIT_WORK_TREE`; test with a separate original repository and prove it remains unchanged.
+
+### Check 24: Host-Side Commit Inputs Must Retain Sandbox Boundaries
+- A host-side commit tool must not read files hidden from the task's execution sandbox. Apply the same private-file policy to selected sources and implicit normalization inputs, including attributes and configuration; reject hardlink and filesystem-name aliases to protected files or directories.
+- Bound both explicit paths and derived ancestor/attribute candidates before accumulating them. Keep the per-worktree guard through the final state transition, recheck original credential and repository authority before ref CAS, and invalidate prior verification when a commit attempt starts.
+- Validate active linked-worktree `config.worktree` before any host Git operation that may consult attributes or filters. Configuration reads must be bounded regular-file reads without following symlinks or waiting on FIFOs; reject executable filters and includes rather than running them.
+
+### Check 25: Human Approval Must Bind the Commit the Client Observed
+- Require the full reviewed commit SHA in approval requests. Compare it with the current verified SHA while holding the worktree guard, and pass that same SHA to the merge engine. Another client's newer valid verification must not silently replace the human's intended target; reject the stale request without erasing the newer evidence.
+- Re-authenticate the original credential after reading a bounded approval body. Return the checked SHA with execution results, correlate it with the current verification state, and clear stale output on SHA changes. The UI must also verify the approved response SHA before offering publication.

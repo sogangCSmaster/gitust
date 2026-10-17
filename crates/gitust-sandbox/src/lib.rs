@@ -210,12 +210,22 @@ impl SandboxSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxCommandOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxCommandResult {
     pub command: String,
     pub required: bool,
     /// None means this command was skipped after an earlier failure.
     pub exit_code: Option<i32>,
     pub duration_ms: Option<u64>,
+    /// Older saved results omit output; skipped commands never have output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<SandboxCommandOutput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

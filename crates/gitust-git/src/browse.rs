@@ -120,7 +120,7 @@ impl GitEngine {
 
     /// Validates and normalizes a repository-relative file or directory path.
     pub fn validate_repo_relative_path(path: &str) -> Result<String, GitEngineError> {
-        let trimmed = path.trim().trim_matches('/');
+        let trimmed = path.trim_matches('/');
         if trimmed.is_empty() {
             return Ok(String::new());
         }

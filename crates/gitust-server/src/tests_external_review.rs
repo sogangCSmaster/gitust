@@ -100,12 +100,21 @@ async fn merged_worktrees_preserve_approval_against_owner_and_mcp_discard() {
     let dir = state.get_worktree_runtime(wt.id).unwrap().worktree_dir;
     commit(&dir);
     assert_eq!(run(&app, &admin, &wt, "true").await.0, StatusCode::OK);
+    let checked = state
+        .worktrees
+        .read()
+        .iter()
+        .find(|entry| entry.id == wt.id)
+        .unwrap()
+        .verified_commit
+        .clone()
+        .unwrap();
     let (status, body) = call(
         &app,
         "POST",
         format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
         &admin,
-        None,
+        Some(serde_json::json!({"expected_commit": checked.0})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");

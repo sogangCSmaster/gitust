@@ -317,6 +317,11 @@ fn write_snapshot_atomically(
     let tmp_path = target_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
     let payload = serde_json::to_vec(snap)
         .map_err(|e| AuthError::StorageError(format!("failed to serialize auth db: {e}")))?;
+    if payload.len() as u64 > MAX_AUTH_DB_BYTES {
+        return Err(AuthError::StorageError(format!(
+            "auth db snapshot exceeds the {MAX_AUTH_DB_BYTES}-byte limit"
+        )));
+    }
     let written = (|| {
         let mut opts = fs::OpenOptions::new();
         opts.write(true).create_new(true);

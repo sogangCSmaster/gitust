@@ -17,6 +17,7 @@ mod checks;
 mod config_guard;
 mod diff;
 mod mirror;
+mod mirror_init;
 mod outbound;
 mod process;
 mod smart_http;
@@ -26,7 +27,12 @@ mod tests;
 mod tests_outbound;
 mod verification;
 mod worktree;
+mod worktree_commit;
+mod worktree_commit_index;
+mod worktree_commit_normalize;
+mod worktree_commit_paths;
 mod worktree_metadata;
+mod worktree_origin;
 mod worktree_recovery;
 
 use std::ffi::OsStr;
@@ -56,6 +62,7 @@ pub use smart_http::{
     MAX_SMART_HTTP_BODY_BYTES, SMART_HTTP_TIMEOUT,
 };
 pub use worktree::{ManagedWorktreeEntry, MaterializedWorktree};
+pub use worktree_commit::{PreparedWorktreeCommit, WorktreeCommit};
 
 /// Every branch created on behalf of an agent lives under this namespace. The sync engine keeps
 /// this namespace on-premise, and the engine refuses to create or delete refs outside of it.
@@ -361,13 +368,20 @@ impl GitEngine {
     /// Re-entrant across clones of the same `GitEngine` instance (e.g. inside a single `AppState`),
     /// while strictly rejecting any second `GitEngine` instance or external OS process.
     pub fn lock_worktree_service(&self) -> Result<WorktreeServiceLock, GitEngineError> {
+        let repo = self.acquire_repo()?;
+        let path = Self::common_git_dir(&repo).join("gitust-worktree-service.lock");
+        self.lock_worktree_service_path(&path)
+    }
+
+    pub(crate) fn lock_worktree_service_path(
+        &self,
+        path: &Path,
+    ) -> Result<WorktreeServiceLock, GitEngineError> {
         // fail-open-ok: this mutex only caches a Weak OS-lock handle; poisoned cache recovery still requires a live handle or a new exclusive OS lock.
         let mut slot = self.service_lock.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = slot.upgrade() {
             return Ok(WorktreeServiceLock(existing));
         }
-        let repo = self.acquire_repo()?;
-        let path = Self::common_git_dir(&repo).join("gitust-worktree-service.lock");
         let mut opts = fs::File::options();
         opts.read(true).write(true).create(true).truncate(false);
         #[cfg(unix)]
@@ -375,11 +389,11 @@ impl GitEngine {
             use std::os::unix::fs::OpenOptionsExt;
             opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
         }
-        let lock = opts.open(&path).map_err(|e| io_err(&path, &e))?;
-        let meta = lock.metadata().map_err(|e| io_err(&path, &e))?;
+        let lock = opts.open(path).map_err(|e| io_err(path, &e))?;
+        let meta = lock.metadata().map_err(|e| io_err(path, &e))?;
         if !meta.is_file() {
             return Err(io_err(
-                &path,
+                path,
                 &std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     "worktree service lock path is not a regular file",
@@ -391,7 +405,7 @@ impl GitEngine {
             use std::os::unix::fs::PermissionsExt;
             if meta.permissions().mode() & 0o777 != 0o600 {
                 lock.set_permissions(fs::Permissions::from_mode(0o600))
-                    .map_err(|e| io_err(&path, &e))?;
+                    .map_err(|e| io_err(path, &e))?;
             }
         }
         match lock.try_lock() {
@@ -400,8 +414,10 @@ impl GitEngine {
                 *slot = Arc::downgrade(&inner);
                 Ok(WorktreeServiceLock(inner))
             }
-            Err(fs::TryLockError::WouldBlock) => Err(GitEngineError::WorktreeServiceBusy(path)),
-            Err(fs::TryLockError::Error(e)) => Err(io_err(&path, &e)),
+            Err(fs::TryLockError::WouldBlock) => {
+                Err(GitEngineError::WorktreeServiceBusy(path.to_path_buf()))
+            }
+            Err(fs::TryLockError::Error(e)) => Err(io_err(path, &e)),
         }
     }
 

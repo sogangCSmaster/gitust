@@ -12,8 +12,8 @@ use tokio::process::Command;
 use crate::policy::{build_sanitized_path, prepare_run, PreparedRun};
 use crate::{
     await_pipe_drain, command, kill_process_group, read_capped, LocalSandboxExecutor,
-    SandboxCleanupGuard, SandboxCommandResult, SandboxError, SandboxExecutionResult, SandboxSpec,
-    MAX_SANDBOX_STREAM_BYTES,
+    SandboxCleanupGuard, SandboxCommandOutput, SandboxCommandResult, SandboxError,
+    SandboxExecutionResult, SandboxSpec, MAX_SANDBOX_STREAM_BYTES,
 };
 
 impl LocalSandboxExecutor {
@@ -71,6 +71,7 @@ impl LocalSandboxExecutor {
                 required: index != 0,
                 exit_code: None,
                 duration_ms: None,
+                output: None,
             })
             .collect();
         let mut stdout = Vec::new();
@@ -107,6 +108,11 @@ impl LocalSandboxExecutor {
             // fail-open-ok: display-only elapsed time saturates rather than overflowing.
             let duration_ms = u64::try_from(elapsed_ms).unwrap_or(u64::MAX);
             step.duration_ms = Some(duration_ms);
+            step.output = Some(SandboxCommandOutput {
+                stdout: String::from_utf8_lossy(&outcome.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&outcome.stderr).into_owned(),
+                truncated: outcome.truncated,
+            });
             stdout.extend_from_slice(&outcome.stdout);
             stderr.extend_from_slice(&outcome.stderr);
             output_truncated |= outcome.truncated;

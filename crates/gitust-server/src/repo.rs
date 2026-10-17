@@ -213,13 +213,13 @@ pub(crate) async fn sync_github_handler(
     let start = std::time::Instant::now();
     let engine_for_fetch = state.git_engine.clone();
     let url_for_fetch = configured_url.clone();
-    tokio::task::spawn_blocking(move || {
-        let _held_fetch = fetch_guard;
-        engine_for_fetch.fetch_inbound_mirror_staging(&url_for_fetch)
+    let (fetch_result, fetch_guard) = tokio::task::spawn_blocking(move || {
+        let result = engine_for_fetch.fetch_inbound_mirror_staging(&url_for_fetch);
+        (result, fetch_guard)
     })
     .await
-    .map_err(internal_err)?
-    .map_err(|err| match err {
+    .map_err(internal_err)?;
+    fetch_result.map_err(|err| match err {
         GitEngineError::InvalidRemoteUrl(_) => (StatusCode::BAD_REQUEST, err.to_string()),
         GitEngineError::GitCommand { .. } => (StatusCode::BAD_GATEWAY, err.to_string()),
         other => map_git_err(other),
@@ -240,6 +240,7 @@ pub(crate) async fn sync_github_handler(
     let engine = state.git_engine.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         let _held = repo_guard;
+        let _held_fetch = fetch_guard;
         engine.apply_inbound_mirror_refs(&configured_url, start)
     })
     .await

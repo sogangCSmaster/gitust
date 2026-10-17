@@ -8,6 +8,109 @@ use crate::ancestry::{classify_branch_relation, BranchRelation};
 use crate::{GitEngine, GitEngineError};
 
 #[test]
+fn competing_mirror_process_cannot_replace_an_owned_services_staging_refs() {
+    let tmp = TempDir::new().expect("tempdir");
+    let upstream = tmp.path().join("upstream");
+    let foreign = tmp.path().join("foreign");
+    let mirror = tmp.path().join("mirror");
+    init_repo(&upstream);
+    git(
+        tmp.path(),
+        &[
+            "clone",
+            upstream.to_str().unwrap(),
+            foreign.to_str().unwrap(),
+        ],
+    );
+    fs::write(
+        foreign.join("foreign.txt"),
+        "not from the configured upstream\n",
+    )
+    .unwrap();
+    git(&foreign, &["add", "."]);
+    git(&foreign, &["commit", "-m", "foreign source"]);
+    git(&foreign, &["branch", "foreign-only"]);
+    let owner = GitEngine::new(&mirror);
+    owner
+        .sync_inbound_read_only(upstream.to_str().unwrap())
+        .unwrap();
+    let service = owner.lock_worktree_service().unwrap();
+    owner
+        .fetch_inbound_mirror_staging(upstream.to_str().unwrap())
+        .unwrap();
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "tests::tests_mirror::competing_mirror_process_probe",
+        ])
+        .env("GITUST_MIRROR_PROBE_REPO", &mirror)
+        .env("GITUST_MIRROR_PROBE_REMOTE", &foreign)
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "competing process must reject the busy service"
+    );
+    let result = owner
+        .apply_inbound_mirror_refs(upstream.to_str().unwrap(), std::time::Instant::now())
+        .unwrap();
+    assert_eq!(result.github_remote_url, upstream.to_str().unwrap());
+    assert_eq!(
+        git(&mirror, &["rev-parse", "refs/heads/main"]),
+        git(&upstream, &["rev-parse", "main"])
+    );
+    assert!(!owner
+        .list_non_agent_refs()
+        .unwrap()
+        .contains_key("refs/heads/foreign-only"));
+    drop(service);
+}
+
+#[test]
+fn competing_mirror_process_probe() {
+    let Some(repo) = std::env::var_os("GITUST_MIRROR_PROBE_REPO") else {
+        return;
+    };
+    let remote = std::env::var("GITUST_MIRROR_PROBE_REMOTE").unwrap();
+    assert!(matches!(
+        GitEngine::new(std::path::PathBuf::from(repo)).sync_inbound_read_only(&remote),
+        Err(GitEngineError::WorktreeServiceBusy(_))
+    ));
+}
+
+#[test]
+fn first_bare_mirror_initialization_respects_the_service_lock() {
+    let tmp = TempDir::new().unwrap();
+    let upstream = tmp.path().join("upstream");
+    let mirror = tmp.path().join("mirror");
+    init_repo(&upstream);
+    fs::create_dir(&mirror).unwrap();
+    let lock = fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(mirror.join("gitust-worktree-service.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+    let engine = GitEngine::new(&mirror);
+    assert!(matches!(
+        engine.sync_inbound_read_only(upstream.to_str().unwrap()),
+        Err(GitEngineError::WorktreeServiceBusy(_))
+    ));
+    assert!(!mirror.join("HEAD").exists());
+    lock.unlock().unwrap();
+    drop(lock);
+    engine
+        .sync_inbound_read_only(upstream.to_str().unwrap())
+        .unwrap();
+    assert_eq!(
+        git(&mirror, &["rev-parse", "main"]),
+        git(&upstream, &["rev-parse", "main"])
+    );
+}
+
+#[test]
 fn gate_7_4_inbound_mirror_sync_matches_upstream_refs_and_preserves_private_agent_branches() {
     let tmp = TempDir::new().expect("tempdir");
     let upstream_dir = tmp.path().join("upstream");

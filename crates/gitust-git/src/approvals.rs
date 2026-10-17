@@ -63,13 +63,23 @@ impl GitEngine {
         let _service = self.lock_worktree_service()?;
         let branch = Self::validate_agent_branch_name(branch)?;
         let base = Self::validate_outbound_branch(base)?;
-        let managed = self.list_agent_worktrees()?.into_iter().any(|w| {
+        let managed = self.list_agent_worktrees()?.into_iter().find(|w| {
             w.branch == branch
                 && w.worktree_dir.file_name().and_then(|s| s.to_str())
                     == Some(id.0.to_string().as_str())
         });
-        if !managed {
-            return Err(GitEngineError::WorktreeNotManaged(id.0.to_string()));
+        let managed =
+            managed.ok_or_else(|| GitEngineError::WorktreeNotManaged(id.0.to_string()))?;
+        let repo = self.acquire_repo()?;
+        let common = Self::common_git_dir(&repo);
+        let admin =
+            crate::worktree_metadata::read_worktree_admin_dir(&managed.worktree_dir, &common)?;
+        let origin = crate::worktree_origin::read_or_migrate(&admin, &common, id, Some(&branch))?
+            .ok_or_else(|| approval_error("worktree creation target is unknown; restore trusted metadata or recreate the worktree"))?;
+        if origin.base_branch != base {
+            return Err(GitEngineError::VerificationInvalid(
+                "approval target differs from the worktree creation target".into(),
+            ));
         }
         if self.load_worktree_approval(id)?.is_some() {
             return Err(approval_error("worktree already has a durable approval"));

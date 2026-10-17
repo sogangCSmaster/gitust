@@ -20,6 +20,7 @@ import { Icon } from "../components/workspace/icon";
 import type { LiveCommitSummary } from "./live-repo-client";
 import type { WorkbenchTab } from "./WorkbenchApp";
 import { DeferredView } from "../components/workspace/deferred-view";
+import { Alert, AlertDescription } from "../components/ui/alert";
 const EnterpriseAdminView = lazy(() =>
   import("../patterns/EnterpriseAdminView").then((module) => ({
     default: module.EnterpriseAdminView,
@@ -61,6 +62,10 @@ export interface WorkbenchTabViewsProps {
   lookupMicros: number | null;
   selectedFilePath: string;
   diffLines: DiffLine[];
+  liveDiffFiles: string[];
+  diffTruncated: boolean;
+  treeTruncated: boolean;
+  onSelectCommitDiffFile: (path: string) => void;
   actionJobs: ActionJobStep[];
   activeJobId: string;
   onSelectJob: (id: string) => void;
@@ -160,11 +165,39 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
           </StatusBadge>
         </Show>
       </div>
-      <VirtualDiffViewer
-        filePath={props.selectedFilePath}
-        lines={props.diffLines}
-        height={480}
-      />
+      <Show when={props.diffTruncated}>
+        <Alert>
+          <AlertDescription>
+            This diff preview is incomplete because the server limit was
+            reached. Some changed files or lines may be missing.
+          </AlertDescription>
+        </Alert>
+      </Show>
+      <div
+        class={
+          props.liveDiffFiles.length > 1
+            ? "grid min-w-0 gap-4 lg:grid-cols-[minmax(14rem,1fr)_minmax(0,2fr)]"
+            : "min-w-0"
+        }
+      >
+        <Show when={props.liveDiffFiles.length > 1}>
+          <VirtualFileTree
+            label="Changed files"
+            files={props.liveDiffFiles.map((path) => ({
+              path,
+              kind: "file" as const,
+            }))}
+            activePath={props.selectedFilePath}
+            onSelect={(file) => props.onSelectCommitDiffFile(file.path)}
+            height={240}
+          />
+        </Show>
+        <VirtualDiffViewer
+          filePath={props.selectedFilePath}
+          lines={props.diffLines}
+          height={480}
+        />
+      </div>
     </Show>
     <Show when={props.activeTab === "actions"}>
       <PageHeading
@@ -207,6 +240,22 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
             : "Browse a sample repository file tree."
         }
       />
+      <Show when={props.treeTruncated}>
+        <Alert>
+          <AlertDescription>
+            This repository path list is incomplete because the server limit was
+            reached. Search only covers the listed paths.
+          </AlertDescription>
+        </Alert>
+      </Show>
+      <Show when={props.diffTruncated}>
+        <Alert>
+          <AlertDescription>
+            This diff preview is incomplete because the server limit was
+            reached.
+          </AlertDescription>
+        </Alert>
+      </Show>
       <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(14rem,1fr)_minmax(0,2fr)]">
         <VirtualFileTree
           files={props.fileTreeNodes}

@@ -15,6 +15,7 @@ export interface VirtualFileTreeProps {
   activePath?: string;
   onSelect: (file: FileTreeNode) => void;
   height?: number;
+  label?: string;
 }
 
 export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
@@ -40,7 +41,11 @@ export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
     <Card class="min-w-0 overflow-hidden">
       <div class="border-b p-3">
         <Field
-          label="Search repository paths"
+          label={
+            props.label
+              ? `Search ${props.label.toLowerCase()}`
+              : "Search repository paths"
+          }
           hideLabel
           type="search"
           placeholder={`Find a file in ${props.files.length.toLocaleString()} paths...`}
@@ -57,7 +62,7 @@ export const VirtualFileTree: Component<VirtualFileTreeProps> = (props) => {
         class="relative overflow-auto overscroll-contain"
         style={{ height: `${height()}px` }}
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-        aria-label="Repository files"
+        aria-label={props.label ?? "Repository files"}
       >
         <div
           class="relative"

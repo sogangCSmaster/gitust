@@ -6,7 +6,7 @@ import type { AgentSandboxTask } from "../src/patterns/AgentSwarmView";
 
 const record = (id = "worktree-one", overrides: Partial<LiveWorktreeRecord> = {}): LiveWorktreeRecord => ({
   id, repo_id: "repository", agent: "CodexSwarm", branch: `agent/${id}`,
-  base_branch: "main", base_commit: "approved-sha", prompt_summary: "Test change",
+  base_branch: "main", base_commit: "a".repeat(40), prompt_summary: "Test change",
   materialize_micros: 50, status: "Merged", last_sandbox_duration_ms: 0,
   tests_passed: 1, tests_total: 1, files_changed: 1, additions: 1, deletions: 0,
   verified_commit: overrides.status === "Verified" ? "a".repeat(40) : null,

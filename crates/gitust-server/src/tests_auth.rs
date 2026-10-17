@@ -275,6 +275,7 @@ async fn approve_worktree_conflicts_while_exec_lock_held_and_preserves_terminal_
     .await;
     assert_eq!(s, StatusCode::OK);
 
+    let checked = state.worktrees.read()[0].verified_commit.clone().unwrap();
     let runtime = state.get_worktree_runtime(wt.id).expect("worktree runtime");
 
     // Hold exec_lock to simulate an in-flight sandbox execution.
@@ -289,7 +290,7 @@ async fn approve_worktree_conflicts_while_exec_lock_held_and_preserves_terminal_
         "POST",
         format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
         &token,
-        None,
+        Some(serde_json::json!({"expected_commit": checked.0})),
     )
     .await;
     assert_eq!(conflict_status, StatusCode::CONFLICT);
@@ -302,7 +303,7 @@ async fn approve_worktree_conflicts_while_exec_lock_held_and_preserves_terminal_
         "POST",
         format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
         &token,
-        None,
+        Some(serde_json::json!({"expected_commit": checked.0})),
     )
     .await;
     assert_eq!(no_commit_status, StatusCode::CONFLICT);
@@ -337,13 +338,14 @@ async fn approve_worktree_conflicts_while_exec_lock_held_and_preserves_terminal_
     )
     .await;
     assert_eq!(verified, StatusCode::OK, "{body}");
+    let checked = state.worktrees.read()[0].verified_commit.clone().unwrap();
 
     let (ok_status, _) = call(
         &app,
         "POST",
         format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
         &token,
-        None,
+        Some(serde_json::json!({"expected_commit": checked.0})),
     )
     .await;
     assert_eq!(ok_status, StatusCode::OK);

@@ -14,6 +14,32 @@ fn fixture() -> (tempfile::TempDir, SandboxSpec) {
 }
 
 #[tokio::test]
+async fn command_output_belongs_to_its_step_and_skipped_commands_have_none() {
+    let (_tmp, spec) = fixture();
+    let result = LocalSandboxExecutor::new(1)
+        .execute_with_checks(
+            WorktreeId::new(),
+            &spec,
+            "printf requested-out; printf requested-err >&2",
+            &[
+                "printf check-out; printf check-err >&2; exit 7".into(),
+                "printf never-run".into(),
+            ],
+        )
+        .await
+        .unwrap();
+    let json = serde_json::to_value(&result).unwrap();
+    assert_eq!(json["steps"][0]["output"]["stdout"], "requested-out");
+    assert_eq!(json["steps"][0]["output"]["stderr"], "requested-err");
+    assert_eq!(json["steps"][1]["output"]["stdout"], "check-out");
+    assert_eq!(json["steps"][1]["output"]["stderr"], "check-err");
+    assert_eq!(json["steps"][1]["output"]["truncated"], false);
+    assert!(json["steps"][2].get("output").is_none());
+    assert_eq!(result.stdout, "requested-outcheck-out");
+    assert_eq!(result.stderr, "requested-errcheck-err");
+}
+
+#[tokio::test]
 async fn host_records_steps_without_interpreting_stdout_and_preserves_shared_files() {
     let (_tmp, spec) = fixture();
     let requested = "printf marker > shared; printf home > \"$HOME/shared\"; printf tmp > \"$TMPDIR/shared\"; printf '{\"exit_code\":99,\"required\":true}'";
@@ -100,6 +126,8 @@ async fn output_cap_applies_to_sequence_and_utf8_is_decoded_after_combining_step
         .await
         .unwrap();
     assert_eq!(result.stdout, "€");
+    assert_eq!(result.steps[0].output.as_ref().unwrap().stdout, "�");
+    assert_eq!(result.steps[1].output.as_ref().unwrap().stdout, "��");
     let command = "dd if=/dev/zero bs=1024 count=768 2>/dev/null | tr '\\0' a; dd if=/dev/zero bs=1024 count=768 2>/dev/null | tr '\\0' b >&2";
     let result = executor
         .execute_with_checks(
@@ -116,6 +144,13 @@ async fn output_cap_applies_to_sequence_and_utf8_is_decoded_after_combining_step
     assert!(result.output_truncated);
     assert!(spec.workdir.join("done").exists());
     assert!(result.steps.iter().all(|s| s.exit_code == Some(0)));
+    assert!(!result.steps[0].output.as_ref().unwrap().truncated);
+    assert!(result.steps[1].output.as_ref().unwrap().truncated);
+    assert_eq!(
+        result.steps[1].output.as_ref().unwrap().stdout.len(),
+        256 * 1024
+    );
+    assert!(result.steps[2].output.as_ref().unwrap().stdout.is_empty());
 }
 
 #[tokio::test]

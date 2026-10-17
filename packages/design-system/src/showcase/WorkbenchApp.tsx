@@ -48,10 +48,7 @@ import { WorkbenchTabViews } from "./WorkbenchTabViews";
 import { LiveRunHistoryDialog } from "./LiveRunHistoryDialog";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { SidebarProvider, SidebarInset } from "../components/ui/sidebar";
-import {
-  WorkbenchNavigation,
-  type WorkbenchNavItem,
-} from "./WorkbenchNavigation";
+import { WorkbenchNavigation, workbenchNavItems } from "./WorkbenchNavigation";
 
 export type WorkbenchTab =
   "swarm" | "issues" | "diff" | "actions" | "admin" | "tree" | "primitives";
@@ -162,6 +159,9 @@ export const WorkbenchApp: Component = () => {
   );
   const [activeCommitRev, setActiveCommitRev] = createSignal("HEAD");
   const [lookupMicros, setLookupMicros] = createSignal<number | null>(null);
+  const [liveDiffFiles, setLiveDiffFiles] = createSignal<string[]>([]);
+  const [diffTruncated, setDiffTruncated] = createSignal(false);
+  const [treeTruncated, setTreeTruncated] = createSignal(false);
   const [selectedFilePath, setSelectedFilePath] = createSignal(
     liveMode() ? "Repository preview" : "crates/gitust-git/src/browse.rs",
   );
@@ -191,6 +191,9 @@ export const WorkbenchApp: Component = () => {
     setLiveFileTreeNodes,
     setLiveCommits,
     getActiveCommitRev: activeCommitRev,
+    setLiveDiffFiles,
+    setDiffTruncated,
+    setTreeTruncated,
     showQuickFeedback,
   });
 
@@ -215,7 +218,11 @@ export const WorkbenchApp: Component = () => {
     fallbackUsers: INITIAL_ENTERPRISE_USERS,
     onTokenAuthenticated: () => {
       setHistoryTask(null);
+      liveClient.resetRepoEpoch();
       setLiveMode(true);
+      setOptimisticToast(null);
+      setActiveCommitRev("HEAD");
+      setSelectedFilePath("Repository preview");
       setEnterpriseUsers([]);
       setLiveCommits([]);
       setLiveDiffLines([]);
@@ -228,7 +235,11 @@ export const WorkbenchApp: Component = () => {
     },
     onTokenCleared: () => {
       setHistoryTask(null);
+      liveClient.resetRepoEpoch();
       setLiveMode(false);
+      setOptimisticToast(null);
+      setActiveCommitRev("HEAD");
+      setSelectedFilePath("crates/gitust-git/src/browse.rs");
       setLiveCommits([]);
       setLookupMicros(null);
       liveSwarmClient.resetSwarmEpoch();
@@ -252,7 +263,7 @@ export const WorkbenchApp: Component = () => {
   });
 
   const approveAndMergeSwarmTask = (id: number) => {
-    if (getLiveToken()) {
+    if (liveMode() || getLiveToken()) {
       void liveSwarmClient.approveLiveWorktree(id);
     } else {
       demoActions.approveDemoSwarmTask(id);
@@ -264,7 +275,7 @@ export const WorkbenchApp: Component = () => {
   };
 
   const discardSwarmTask = (id: number) => {
-    if (getLiveToken()) {
+    if (liveMode() || getLiveToken()) {
       void liveSwarmClient.discardLiveWorktree(id);
     } else {
       demoActions.discardDemoSwarmTask(id);
@@ -272,7 +283,7 @@ export const WorkbenchApp: Component = () => {
   };
 
   const spawnBatchAgentSwarm = () => {
-    if (getLiveToken()) {
+    if (liveMode() || getLiveToken()) {
       void liveSwarmClient.spawnLiveWorktree();
     } else {
       demoActions.spawnDemoBatchSwarm();
@@ -302,6 +313,11 @@ export const WorkbenchApp: Component = () => {
         window.history.replaceState({}, "", path);
       }
     }
+    const sessionChanged = (event: StorageEvent) => {
+      if (event.key === "gitust_token" || event.key === null)
+        void liveAuthClient.syncStoredSession();
+    };
+    window.addEventListener("storage", sessionChanged);
     void liveAuthClient.hydrateAuthData();
     void liveClient.hydrateFromLiveBackend();
     void liveSwarmClient.hydrateSwarmWorktrees();
@@ -327,49 +343,15 @@ export const WorkbenchApp: Component = () => {
     });
 
     onCleanup(() => {
+      window.removeEventListener("storage", sessionChanged);
       if (toastTimer) clearTimeout(toastTimer);
       cleanups.forEach((fn) => fn());
     });
   });
 
-  const tabs = createMemo<WorkbenchNavItem[]>(() => [
-    {
-      id: "swarm",
-      label: "Worktrees",
-      count: swarmTasks().length,
-      icon: <Icon name="bot" size={14} />,
-    },
-    {
-      id: "issues",
-      label: "Issues · Demo",
-      icon: <Icon name="git-pull-request" size={14} />,
-    },
-    {
-      id: "diff",
-      label: liveMode() ? "Diff" : "Diff · Demo",
-      icon: <Icon name="diff" size={14} />,
-    },
-    {
-      id: "actions",
-      label: "Actions · Demo",
-      icon: <Icon name="play" size={14} />,
-    },
-    {
-      id: "admin",
-      label: "Access",
-      icon: <Icon name="shield-check" size={14} />,
-    },
-    {
-      id: "tree",
-      label: liveMode() ? "Files" : "Files · Demo",
-      icon: <Icon name="folder" size={14} />,
-    },
-    {
-      id: "primitives",
-      label: "Components",
-      icon: <Icon name="sliders" size={14} />,
-    },
-  ]);
+  const tabs = createMemo(() =>
+    workbenchNavItems(liveMode(), swarmTasks().length),
+  );
 
   return (
     <SidebarProvider>
@@ -454,6 +436,12 @@ export const WorkbenchApp: Component = () => {
             lookupMicros={lookupMicros()}
             selectedFilePath={selectedFilePath()}
             diffLines={diffLines()}
+            liveDiffFiles={liveDiffFiles()}
+            diffTruncated={diffTruncated()}
+            treeTruncated={treeTruncated()}
+            onSelectCommitDiffFile={(path) =>
+              void liveClient.selectCommitDiffFile(path)
+            }
             actionJobs={actionJobs()}
             activeJobId={activeJobId()}
             onSelectJob={setActiveJobId}

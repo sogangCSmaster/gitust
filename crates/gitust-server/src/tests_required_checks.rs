@@ -43,6 +43,10 @@ async fn manual_success_cannot_skip_required_base_checks() {
         &tmp.path().join("repo"),
         &["printf required-check; exit 7", "echo must-not-run"],
     );
+    let checked = state
+        .git_engine
+        .clean_worktree_commit(wt.id, &wt.branch)
+        .unwrap();
     let (status, body) = run(&app, &token, &wt, "exit 0").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let result: serde_json::Value = serde_json::from_str(&body).unwrap();
@@ -60,7 +64,7 @@ async fn manual_success_cannot_skip_required_base_checks() {
             "POST",
             format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
             &token,
-            None
+            Some(serde_json::json!({"expected_commit": checked.0}))
         )
         .await
         .0,
@@ -119,7 +123,7 @@ async fn checks_success_binds_policy_and_commit_then_allows_approval() {
         "POST",
         format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
         &token,
-        None,
+        Some(serde_json::json!({"expected_commit": verified.0})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -139,6 +143,7 @@ async fn added_changed_or_removed_policy_invalidates_prior_verification() {
             commit(&dir);
         }
         assert_eq!(run(&app, &token, &wt, "true").await.0, StatusCode::OK);
+        let checked = state.worktrees.read()[0].verified_commit.clone().unwrap();
         if change == "removed" {
             git(&repo, &["rm", ".gitust-checks.json"]);
             commit(&repo);
@@ -151,7 +156,7 @@ async fn added_changed_or_removed_policy_invalidates_prior_verification() {
             "POST",
             format!("/api/v1/swarm/worktrees/{}/approve", wt.id.0),
             &token,
-            None,
+            Some(serde_json::json!({"expected_commit": checked.0})),
         )
         .await;
         assert_eq!(status, StatusCode::CONFLICT, "{change}: {body}");

@@ -2,14 +2,11 @@
 //! Streamable HTTP + OAuth 2.0 Bearer auth (`POST /mcp`, `POST /api/v1/mcp`) and local
 //! `stdio` (`gitust mcp`).
 
-use std::path::PathBuf;
-
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use gitust_core::{AgentKind, AuthenticatedPrincipal, EnterpriseRole, UserId};
-use gitust_db::AuthStore;
+use gitust_core::{AgentKind, AuthenticatedPrincipal};
 use gitust_git::GitEngine;
 use gitust_sandbox::{builtin_mcp_tools, McpToolDescriptor};
 use serde::Deserialize;
@@ -17,7 +14,14 @@ use uuid::Uuid;
 
 use crate::auth::extract_mcp_principal_async;
 use crate::state::{filter_authorized_worktrees, AppState, MAX_MCP_LINE_BYTES};
+use crate::worktrees::DiscardAuthority::Agent;
 use crate::worktrees::{discard_worktree_core, exec_worktree_sandbox_core, spawn_worktree_core};
+
+#[path = "mcp_stdio.rs"]
+mod stdio;
+pub use stdio::{serve_mcp_stdio, serve_mcp_stream};
+#[path = "worktree_commit.rs"]
+mod commit;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -177,7 +181,15 @@ pub(crate) async fn mcp_http_post_handler(State(state): State<AppState>, req: Re
         );
     };
 
-    match handle_mcp_json_line_with_options(&state, &caller, line.trim(), false).await {
+    match handle_mcp_json_line_authorized(
+        &state,
+        &caller,
+        line.trim(),
+        false,
+        commit::CommitAuthority::Credential(parts.headers),
+    )
+    .await
+    {
         Some(resp) => json_response(StatusCode::OK, resp),
         None => StatusCode::ACCEPTED.into_response(),
     }
@@ -201,6 +213,23 @@ pub async fn handle_mcp_json_line_with_options(
     caller: &AuthenticatedPrincipal,
     line: &str,
     include_local_paths: bool,
+) -> Option<String> {
+    handle_mcp_json_line_authorized(
+        state,
+        caller,
+        line,
+        include_local_paths,
+        commit::CommitAuthority::Principal,
+    )
+    .await
+}
+
+async fn handle_mcp_json_line_authorized(
+    state: &AppState,
+    caller: &AuthenticatedPrincipal,
+    line: &str,
+    include_local_paths: bool,
+    authority: commit::CommitAuthority,
 ) -> Option<String> {
     let parsed: serde_json::Value = match serde_json::from_str(line) {
         Ok(v) => v,
@@ -299,6 +328,16 @@ pub async fn handle_mcp_json_line_with_options(
             };
 
             match tool_name {
+                "gitust_worktree_commit" => {
+                    let args = match parse_tool_args::<commit::CommitRequest>(&id, raw_args) {
+                        Ok(args) => args,
+                        Err(response) => return Some(response),
+                    };
+                    match commit::commit_worktree(state, caller, args, authority).await {
+                        Ok(result) => Some(mcp_tool_ok(id, result, false)),
+                        Err((status, message)) => Some(mcp_tool_http_err(id, status, message)),
+                    }
+                }
                 "gitust_worktree_spawn" => {
                     let args: McpSpawnToolArgs = match parse_tool_args(&id, raw_args) {
                         Ok(a) => a,
@@ -372,7 +411,7 @@ pub async fn handle_mcp_json_line_with_options(
                     )
                     .await
                     {
-                        Ok((res, status)) => Some(mcp_tool_ok(
+                        Ok((res, status, checked_commit)) => Some(mcp_tool_ok(
                             id,
                             serde_json::json!({
                                 "worktree_id": res.worktree_id.0,
@@ -387,6 +426,7 @@ pub async fn handle_mcp_json_line_with_options(
                                 "output_truncated": res.output_truncated,
                                 "steps": res.steps,
                                 "status": status,
+                                "checked_commit": checked_commit,
                             }),
                             res.exit_code != 0,
                         )),
@@ -435,7 +475,7 @@ pub async fn handle_mcp_json_line_with_options(
                         Ok(a) => a,
                         Err(resp) => return Some(resp),
                     };
-                    match discard_worktree_core(state, caller, args.worktree_id).await {
+                    match discard_worktree_core(state, caller, args.worktree_id, Agent).await {
                         Ok(_) => Some(mcp_tool_ok(
                             id,
                             serde_json::json!({ "worktree_id": args.worktree_id, "status": "discarded" }),
@@ -457,140 +497,4 @@ pub async fn handle_mcp_json_line_with_options(
             format!("Method not found: '{other}'"),
         )),
     }
-}
-
-enum BoundedLine {
-    Eof,
-    Line(String),
-    TooLong,
-    InvalidUtf8,
-}
-
-async fn read_bounded_line<R: tokio::io::AsyncBufRead + Unpin>(
-    reader: &mut R,
-    max_bytes: usize,
-) -> Result<BoundedLine, std::io::Error> {
-    use tokio::io::AsyncBufReadExt;
-
-    let mut buf = Vec::new();
-    loop {
-        let available = reader.fill_buf().await?;
-        if available.is_empty() {
-            if buf.is_empty() {
-                return Ok(BoundedLine::Eof);
-            }
-            return Ok(String::from_utf8(buf)
-                .map(BoundedLine::Line)
-                // fail-open-ok: decoding failure becomes an explicit InvalidUtf8 frame that the reader rejects.
-                .unwrap_or(BoundedLine::InvalidUtf8));
-        }
-        if let Some(newline_pos) = available.iter().position(|&b| b == b'\n') {
-            let to_consume = newline_pos + 1;
-            if buf.len().saturating_add(newline_pos) > max_bytes {
-                reader.consume(to_consume);
-                return Ok(BoundedLine::TooLong);
-            }
-            buf.extend_from_slice(&available[..newline_pos]);
-            reader.consume(to_consume);
-            if buf.last() == Some(&b'\r') {
-                buf.pop();
-            }
-            return Ok(String::from_utf8(buf)
-                .map(BoundedLine::Line)
-                // fail-open-ok: decoding failure becomes an explicit InvalidUtf8 frame that the reader rejects.
-                .unwrap_or(BoundedLine::InvalidUtf8));
-        }
-        let chunk_len = available.len();
-        if buf.len().saturating_add(chunk_len) > max_bytes {
-            reader.consume(chunk_len);
-            loop {
-                let rem = reader.fill_buf().await?;
-                if rem.is_empty() {
-                    break;
-                }
-                if let Some(pos) = rem.iter().position(|&b| b == b'\n') {
-                    reader.consume(pos + 1);
-                    break;
-                }
-                let n = rem.len();
-                reader.consume(n);
-            }
-            return Ok(BoundedLine::TooLong);
-        }
-        buf.extend_from_slice(available);
-        reader.consume(chunk_len);
-    }
-}
-
-/// Serves the MCP JSON-RPC 2.0 protocol over an arbitrary async buffered reader and writer.
-pub async fn serve_mcp_stream<R, W>(
-    state: AppState,
-    mut reader: R,
-    mut writer: W,
-) -> Result<(), std::io::Error>
-where
-    R: tokio::io::AsyncBufRead + Unpin,
-    W: tokio::io::AsyncWrite + Unpin,
-{
-    use tokio::io::AsyncWriteExt;
-
-    let caller = AuthenticatedPrincipal {
-        user_id: UserId::new(),
-        username: "mcp-local-agent".to_owned(),
-        role: EnterpriseRole::SiteAdmin,
-        team_ids: Vec::new(),
-    };
-
-    loop {
-        let out_opt = match read_bounded_line(&mut reader, MAX_MCP_LINE_BYTES).await? {
-            BoundedLine::Eof => break,
-            BoundedLine::TooLong => Some(jsonrpc_err(
-                serde_json::Value::Null,
-                -32600,
-                format!("MCP request line exceeds {MAX_MCP_LINE_BYTES} bytes"),
-            )),
-            BoundedLine::InvalidUtf8 => Some(jsonrpc_err(
-                serde_json::Value::Null,
-                -32700,
-                "Parse error: invalid UTF-8",
-            )),
-            BoundedLine::Line(line) if line.trim().is_empty() => None,
-            BoundedLine::Line(line) => handle_mcp_json_line(&state, &caller, line.trim()).await,
-        };
-        if let Some(resp) = out_opt {
-            writer.write_all(resp.as_bytes()).await?;
-            writer.write_all(b"\n").await?;
-            writer.flush().await?;
-        }
-    }
-    Ok(())
-}
-
-/// Starts the built-in MCP JSON-RPC 2.0 server over `stdin`/`stdout` for Claude Code / Cursor.
-pub async fn serve_mcp_stdio(
-    repo_path: PathBuf,
-    github_mirror_url: String,
-) -> Result<(), std::io::Error> {
-    let (state, _service_lock) = tokio::task::spawn_blocking(move || {
-        let engine = GitEngine::new(&repo_path);
-        engine
-            .ensure_config_has_no_credentials()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e))?;
-        let lock = engine
-            .lock_worktree_service()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::WouldBlock, e))?;
-        let state = AppState::with_engine_and_auth_store(
-            engine,
-            github_mirror_url,
-            AuthStore::new_in_memory(),
-        )
-        .map_err(std::io::Error::other)?
-        .with_trusted_sandbox_exec(true);
-        Ok::<_, std::io::Error>((state, lock))
-    })
-    .await
-    .map_err(std::io::Error::other)??;
-
-    let stdin = tokio::io::BufReader::new(tokio::io::stdin());
-    serve_mcp_stream(state, stdin, tokio::io::stdout()).await
 }

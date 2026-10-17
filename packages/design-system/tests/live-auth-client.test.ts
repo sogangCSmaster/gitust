@@ -72,3 +72,22 @@ it("shows a signed-in non-admin's own account as active", async () => {
     expect.objectContaining({ liveId: "a", status: "active" }),
   ]);
 });
+it("clears the previous account's credentials and rejects its late PAT after a cross-tab replacement", async () => {
+  const pending = deferred<Response>();
+  fetchMock.mockReturnValueOnce(pending.promise);
+  const client = createLiveAuthClient(cb);
+  const creating = client.createPat("old account key");
+  token = "session-b";
+  await client.syncStoredSession();
+  expect(cb.setLiveSession).toHaveBeenCalledWith(null);
+  expect(cb.setLastIssuedInviteUrl).toHaveBeenCalledWith(null);
+  expect(cb.setLastIssuedPatToken).toHaveBeenCalledWith(null);
+  expect(cb.setLiveInvites).toHaveBeenCalledWith([]);
+  expect(cb.setLivePats).toHaveBeenCalledWith([]);
+  expect(cb.setLiveSshKeys).toHaveBeenCalledWith([]);
+  expect(cb.setEnterpriseUsers).toHaveBeenCalledWith([]);
+  pending.resolve(response({ raw_token: "obsolete-synthetic-pat" }));
+  await creating;
+  expect(cb.setLastIssuedPatToken).not.toHaveBeenCalledWith("obsolete-synthetic-pat");
+  expect(cb.onTokenAuthenticated).toHaveBeenCalledTimes(1);
+});

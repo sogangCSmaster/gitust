@@ -21,6 +21,8 @@ The goal is an open-source foundation for teams that want to operate their own a
 
 Gitust is in early development. Workspace and mirror foundations are implemented; internal Git hosting, approval, and Checks are being developed as Phase 3. APIs and storage formats may change.
 
+The current milestone is a trusted single-user self-hosted alpha: operate concurrent agent worktrees, verify and approve exact commits, publish deliberately, and recover the installation. See the [alpha acceptance conditions](docs/operations/alpha-acceptance.md) for the scope and required evidence.
+
 | Area | Available now |
 |---|---|
 | Workspaces | Managed `agent/*` branches, linked worktrees, ownership checks, and startup recovery |
@@ -29,7 +31,7 @@ Gitust is in early development. Workspace and mirror foundations are implemented
 | Approval and publication | Human-approved fast-forward merge, exact-SHA push, persisted records, and explicit retry |
 | Git hosting | Smart HTTP clone/fetch and restricted pushes to managed agent branches |
 | Mirroring | Explicit inbound synchronization that preserves local work and private agent refs |
-| Agent integration | MCP over stdio or HTTP; OAuth with PKCE for HTTP MCP |
+| Agent integration | MCP over stdio or HTTP; explicit host-side worktree commits; OAuth with PKCE for HTTP MCP |
 | Accounts | CLI bootstrap, administrator-issued invitations, roles, PATs, SSH key management, and revocation |
 | Web UI | Embedded SolidJS workbench for browsing and the agent verification/approval/publication flow |
 
@@ -111,10 +113,16 @@ gitust triage list --repo /absolute/path/to/repository
 
 One worktree service owns a repository at a time. When `serve` is running, connect agents to its `/mcp` HTTP endpoint instead of starting another stdio service on the same repository.
 
+Sandbox commands can edit their own checkout, while shared Git administration stays read-only inside the sandbox. The host-side `gitust_worktree_commit` MCP tool commits explicitly listed files against an expected HEAD SHA. HTTP use requires trusted single-user execution, a SiteAdmin and worktree ownership; stdio runs under local operator authority. Every accepted commit attempt clears prior verification, and a successful commit requires fresh verification before human approval. See the [commit contract and recovery procedure](docs/architecture/mcp-commits.md).
+
+The [local ten-task rehearsal](docs/operations/alpha-rehearsal.md) passed after the index-aware normalization fixes, including 15 MCP commits and relocated restoration. This establishes the recorded local protocol-client flow; actual IDE-agent, GitHub and Linux integration remain unverified. See [current validation and review limits](docs/security/mcp-commit-review-2026-10-17.md).
+
 In the workbench, run verification, inspect the result, select **Approve & Merge**, then **Publish to GitHub**. Publication sends the approved SHA and its reachable history, not every local branch. A failed push preserves the local merge for explicit retry.
 
 - [Verification and required Checks](docs/architecture/worktree-verification.md)
+- [MCP commits, supported Git normalization, and interrupted-commit recovery](docs/architecture/mcp-commits.md)
 - [Approval, publication, recovery, and CLI examples](docs/architecture/outbound-sync.md)
+- [Offline installation backup and relocated restoration](docs/operations/backup-restore.md)
 
 Local `triage approve` is an explicit operator action: it does not automatically run Checks or consume server verification evidence. Use HTTP/workbench approval when enforcing server verification policy.
 
@@ -135,7 +143,7 @@ git config core.hooksPath .githooks
 scripts/verify.sh
 ```
 
-The script checks file sizes, fail-closed handling, Rust formatting, Clippy, Rust tests, frontend types/tests, and embedded-bundle freshness. Integration tests require local listeners and OS sandbox permissions. Benchmarks run separately. Independent review gates are documented in `AGENTS.md`.
+The script checks file sizes, fail-closed handling, Rust formatting, Clippy, Rust tests, frontend types/tests, offline backup/restore regressions (Python 3), and embedded-bundle freshness. Integration tests require local listeners and OS sandbox permissions. Benchmarks run separately. Independent review gates are documented in `AGENTS.md`.
 
 ## License and project direction
 

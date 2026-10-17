@@ -1,0 +1,248 @@
+{
+  "version": 2,
+  "started_at": "2026-10-17T01:31:51.660042+00:00",
+  "completed_at": "2026-10-17T01:32:05.177354+00:00",
+  "source_commit": "adb4b6e2e09b99ff8bb3ebf268dad11199c6f718",
+  "binary_sha256": "f5899e6269836fbad5b19c3063b568c0e3a618c686ae1fb1b21e2f248b7477bc",
+  "operator_script_sha256": {
+    "alpha-rehearsal.py": "dfb0c3cb42c67c0059654a1d548be0aff95a0b0d62a2a35923596f76e5e195f6",
+    "backup.py": "75e371b8ae9b8b3bb073e9422f906fba251622755ba1e9dc7d67f6cbdf74dd3e"
+  },
+  "runtime_worktree_dirty": true,
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "sandbox_backends": [
+    "macos_seatbelt"
+  ],
+  "fixture": "committed Gitust main cloned locally; task commits only in scratch",
+  "mcp_clients": 2,
+  "mcp_only_commit_demonstrated": true,
+  "tasks_1_to_9_commit_actor": "gitust_worktree_commit via HTTP MCP",
+  "mcp_commits": [
+    {
+      "task": 2,
+      "worktree_id": "9085c235-7a94-46ca-b931-8e707d7d1f63",
+      "branch": "agent/alpha/task-02",
+      "parent": "51914a2578ec84342b38b071ab1ab97b2a483453",
+      "commit": "edefa504d81ee8570025e2a324905f966a2a1d85",
+      "paths": [
+        "docs/alpha-rehearsal/task-02.md"
+      ]
+    },
+    {
+      "task": 1,
+      "worktree_id": "f3c17831-ccb1-45b5-9fd3-8d0c6f9cfaa7",
+      "branch": "agent/alpha/task-01",
+      "parent": "51914a2578ec84342b38b071ab1ab97b2a483453",
+      "commit": "05e3d273a0c7ff69f7e39934aa19d28d51e09cec",
+      "paths": [
+        "docs/alpha-rehearsal/task-01.md"
+      ]
+    },
+    {
+      "task": 2,
+      "worktree_id": "9085c235-7a94-46ca-b931-8e707d7d1f63",
+      "branch": "agent/alpha/task-02",
+      "parent": "edefa504d81ee8570025e2a324905f966a2a1d85",
+      "commit": "e283beb9acdb4a7dc8df312aff96bccb0c8c17fd",
+      "paths": [
+        "docs/alpha-rehearsal/check-state"
+      ]
+    },
+    {
+      "task": 2,
+      "worktree_id": "9085c235-7a94-46ca-b931-8e707d7d1f63",
+      "branch": "agent/alpha/task-02",
+      "parent": "e283beb9acdb4a7dc8df312aff96bccb0c8c17fd",
+      "commit": "c36ac775cfa5f57a13e9af98c05b4571028e8fd1",
+      "paths": [
+        "docs/alpha-rehearsal/check-state"
+      ]
+    },
+    {
+      "task": 2,
+      "worktree_id": "208a8756-3471-4444-bfb9-224655aa1e3b",
+      "branch": "agent/alpha/task-02-retry",
+      "parent": "05e3d273a0c7ff69f7e39934aa19d28d51e09cec",
+      "commit": "a72f5e5ea7629acd11de0b58dfa3878839c2e93b",
+      "paths": [
+        "docs/alpha-rehearsal/task-02.md"
+      ]
+    },
+    {
+      "task": 3,
+      "worktree_id": "5d6b0fe4-806f-4f2e-891e-8a34137a47a2",
+      "branch": "agent/alpha/task-03",
+      "parent": "a72f5e5ea7629acd11de0b58dfa3878839c2e93b",
+      "commit": "9bb20c33edaf3f8014b4bdb4bd9b8ee5984ece87",
+      "paths": [
+        "docs/alpha-rehearsal/task-03.md"
+      ]
+    },
+    {
+      "task": 4,
+      "worktree_id": "adbf6a63-627f-4455-a61b-3c0155d75735",
+      "branch": "agent/alpha/task-04",
+      "parent": "9bb20c33edaf3f8014b4bdb4bd9b8ee5984ece87",
+      "commit": "744a07fbccfdd486907f6a19c0a04618d1fda9b5",
+      "paths": [
+        "docs/alpha-rehearsal/task-04.md"
+      ]
+    },
+    {
+      "task": 4,
+      "worktree_id": "adbf6a63-627f-4455-a61b-3c0155d75735",
+      "branch": "agent/alpha/task-04",
+      "parent": "744a07fbccfdd486907f6a19c0a04618d1fda9b5",
+      "commit": "5e84e18b081ad34a7407e086dd44b8533fa3af84",
+      "paths": [
+        "docs/alpha-rehearsal/task-04.md"
+      ]
+    },
+    {
+      "task": 5,
+      "worktree_id": "b0986ce4-6cff-4be3-80d8-d562f2a4ac56",
+      "branch": "agent/alpha/task-05",
+      "parent": "5e84e18b081ad34a7407e086dd44b8533fa3af84",
+      "commit": "6a4c62d2c240b15ed56477434fc781371677014e",
+      "paths": [
+        "docs/alpha-rehearsal/task-05.md"
+      ]
+    },
+    {
+      "task": 5,
+      "worktree_id": "b0986ce4-6cff-4be3-80d8-d562f2a4ac56",
+      "branch": "agent/alpha/task-05",
+      "parent": "6a4c62d2c240b15ed56477434fc781371677014e",
+      "commit": "8a4cec2975bc7434ce79d46399ddac748d9c349e",
+      "paths": [
+        "docs/alpha-rehearsal/task-05.md"
+      ]
+    },
+    {
+      "task": 6,
+      "worktree_id": "1694f0df-8137-42c9-a96b-72e5148ba29c",
+      "branch": "agent/alpha/task-06",
+      "parent": "8a4cec2975bc7434ce79d46399ddac748d9c349e",
+      "commit": "8333ad71d9124947b771ecc8de4ea8824b6a9731",
+      "paths": [
+        "docs/alpha-rehearsal/task-06.md"
+      ]
+    },
+    {
+      "task": 7,
+      "worktree_id": "bdce1046-597e-47d8-80ed-083abb93b6c5",
+      "branch": "agent/alpha/task-07",
+      "parent": "8333ad71d9124947b771ecc8de4ea8824b6a9731",
+      "commit": "a594beafc806a69b8cf6781b88a4c9374c0d6827",
+      "paths": [
+        "docs/alpha-rehearsal/task-07.md"
+      ]
+    },
+    {
+      "task": 8,
+      "worktree_id": "f162d18f-efe7-465a-b256-4014a0bc4cc1",
+      "branch": "agent/alpha/task-08",
+      "parent": "a594beafc806a69b8cf6781b88a4c9374c0d6827",
+      "commit": "b5bcbce4300a8b8b8c1733db4c505b84c461b113",
+      "paths": [
+        "docs/alpha-rehearsal/task-08.md"
+      ]
+    },
+    {
+      "task": 9,
+      "worktree_id": "41282ed6-28a3-480f-aafe-955906cbaa5e",
+      "branch": "agent/alpha/task-09",
+      "parent": "a594beafc806a69b8cf6781b88a4c9374c0d6827",
+      "commit": "c0f97255e29904cd4a4a0f89701f7a659a863f94",
+      "paths": [
+        "docs/alpha-rehearsal/task-09.md"
+      ]
+    },
+    {
+      "task": 9,
+      "worktree_id": "41282ed6-28a3-480f-aafe-955906cbaa5e",
+      "branch": "agent/alpha/task-09",
+      "parent": "c0f97255e29904cd4a4a0f89701f7a659a863f94",
+      "commit": "edcf8c724fd1ad33dc5851828f9124fade914b3b",
+      "paths": [
+        "docs/alpha-rehearsal/task-09.md"
+      ]
+    }
+  ],
+  "task_10_commit_actor": "separate Git Smart HTTP client clone",
+  "external_github_publication": false,
+  "tasks": [
+    {
+      "task": 1,
+      "scenario": "two HTTP MCP clients, isolated concurrent source edits and MCP commits",
+      "passed": true,
+      "commit": "05e3d273a0c7ff69f7e39934aa19d28d51e09cec",
+      "concurrent_edit_wall_ms": 495,
+      "concurrent_edit_observed": true
+    },
+    {
+      "task": 2,
+      "scenario": "required Check failure, MCP repair and fresh-main worktree retry",
+      "passed": true,
+      "failed_check_exit": 1,
+      "commit": "a72f5e5ea7629acd11de0b58dfa3878839c2e93b",
+      "preserved_initial_branch": "agent/alpha/task-02",
+      "preserved_initial_commit": "c36ac775cfa5f57a13e9af98c05b4571028e8fd1",
+      "retry_branch": "agent/alpha/task-02-retry"
+    },
+    {
+      "task": 3,
+      "scenario": "approval waits for exact commit verification",
+      "passed": true,
+      "commit": "9bb20c33edaf3f8014b4bdb4bd9b8ee5984ece87"
+    },
+    {
+      "task": 4,
+      "scenario": "stale approval is rejected before and after newer verification",
+      "passed": true,
+      "reviewed_previous_commit": "744a07fbccfdd486907f6a19c0a04618d1fda9b5",
+      "newly_verified_commit": "5e84e18b081ad34a7407e086dd44b8533fa3af84",
+      "commit": "5e84e18b081ad34a7407e086dd44b8533fa3af84"
+    },
+    {
+      "task": 5,
+      "scenario": "commit pending edits before verification",
+      "passed": true,
+      "commit": "8a4cec2975bc7434ce79d46399ddac748d9c349e"
+    },
+    {
+      "task": 6,
+      "scenario": "failed command and successful rerun",
+      "passed": true,
+      "commit": "8333ad71d9124947b771ecc8de4ea8824b6a9731",
+      "saved_runs": 3
+    },
+    {
+      "task": 7,
+      "scenario": "unavailable local upstream and explicit publication retry",
+      "passed": true,
+      "commit": "a594beafc806a69b8cf6781b88a4c9374c0d6827"
+    },
+    {
+      "task": 8,
+      "scenario": "discard checkout while preserving committed private work",
+      "passed": true,
+      "discarded_commit": "b5bcbce4300a8b8b8c1733db4c505b84c461b113"
+    },
+    {
+      "task": 9,
+      "scenario": "offline backup, relocation, original-PAT MCP commit and re-verification",
+      "passed": true,
+      "commit": "edcf8c724fd1ad33dc5851828f9124fade914b3b",
+      "retained_runs": 2,
+      "restored_approvals": 7
+    },
+    {
+      "task": 10,
+      "scenario": "real Git HTTP clone, commit, managed push, approve, publish and fetch",
+      "passed": true,
+      "commit": "2771605148abf00f83b0044cf652a3b13a62015f"
+    }
+  ],
+  "git_fsck": "server, local upstream and HTTP client passed --full --strict"
+}

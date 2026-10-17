@@ -5,6 +5,7 @@
 //! `credential.helper = store` / `!cmd`, or `[include]` / `[includeIf]` directives.
 
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -12,6 +13,19 @@ use std::time::Duration;
 use crate::{io_err, GitEngine, GitEngineError};
 
 impl GitEngine {
+    /// Validates shared config and this authenticated linked checkout's active configuration.
+    pub fn ensure_worktree_config_has_no_credentials(
+        &self,
+        worktree_dir: &Path,
+    ) -> Result<(), GitEngineError> {
+        let repo = self.acquire_repo()?;
+        reject_replacement_refs(&repo)?;
+        let common = Self::common_git_dir(&repo);
+        reject_credentials_in_config(&common)?;
+        let admin = crate::worktree_metadata::read_worktree_admin_dir(worktree_dir, &common)?;
+        reject_linked_worktree_config(&admin)
+    }
+
     /// Validates and normalizes an upstream Git remote URL or local repository path.
     ///
     /// - Rejects empty strings, strings > 2048 bytes, leading `-` (flag injection), whitespace/control
@@ -124,21 +138,70 @@ pub(crate) fn run_git_fetch_with_timeout(
     Ok(())
 }
 
+/// Replacement maps cached at open time survive ref removal, so that process must restart.
+pub(crate) fn reject_replacement_refs(repo: &gix::Repository) -> Result<(), GitEngineError> {
+    if repo.objects.store_ref().replacements().next().is_some() {
+        return Err(GitEngineError::VerificationInvalid(
+            "refs/replace cached object replacements are unsupported for exact-SHA workflows; remove replacement refs and restart the Gitust service before retrying".into()
+        ));
+    }
+    let unreadable = |error: String| {
+        GitEngineError::VerificationInvalid(format!(
+            "cannot inspect refs/replace for exact-SHA verification: {error}"
+        ))
+    };
+    let platform = repo.references().map_err(|e| unreadable(e.to_string()))?;
+    let mut replacements = platform
+        .prefixed("refs/replace/")
+        .map_err(|e| unreadable(e.to_string()))?;
+    if let Some(reference) = replacements.next() {
+        reference.map_err(|e| unreadable(e.to_string()))?;
+        return Err(GitEngineError::VerificationInvalid(
+            "refs/replace object replacements are unsupported for exact-SHA verification, approval, and publication; remove replacement refs before using managed workflows".into()
+        ));
+    }
+    Ok(())
+}
+
 /// Fails closed if the shared repository config (`config` or `config.worktree`) contains
 /// credentials or external config includes an agent could read: userinfo in `http(s)://` URLs
 /// (`https://user:token@host`, `https://token@host`), any `http.extraHeader` setting,
 /// `credential.helper = store` / `!cmd`, or `[include]` / `[includeIf]` directives.
 pub(crate) fn reject_credentials_in_config(common_git_dir: &Path) -> Result<(), GitEngineError> {
     for name in ["config", "config.worktree"] {
-        let config_path = common_git_dir.join(name);
-        let text = match fs::read_to_string(&config_path) {
-            Ok(t) => t,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(io_err(&config_path, &e)),
-        };
-        if config_contains_credentials(&text) {
-            return Err(GitEngineError::CredentialsInRepoConfig);
-        }
+        reject_config_file(&common_git_dir.join(name))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn reject_linked_worktree_config(admin: &Path) -> Result<(), GitEngineError> {
+    reject_config_file(&admin.join("config.worktree"))
+}
+
+fn reject_config_file(path: &Path) -> Result<(), GitEngineError> {
+    const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = match options.open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io_err(path, &e)),
+    };
+    let metadata = file.metadata().map_err(|e| io_err(path, &e))?;
+    if !metadata.is_file() || metadata.len() > MAX_CONFIG_BYTES {
+        return Err(GitEngineError::CredentialsInRepoConfig);
+    }
+    let mut text = String::new();
+    file.take(MAX_CONFIG_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(|e| io_err(path, &e))?;
+    if text.len() as u64 > MAX_CONFIG_BYTES || config_contains_credentials(&text) {
+        return Err(GitEngineError::CredentialsInRepoConfig);
     }
     Ok(())
 }

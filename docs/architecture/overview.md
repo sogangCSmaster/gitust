@@ -19,25 +19,38 @@ Gitust is a Rust Cargo workspace with a SolidJS frontend embedded in the CLI/ser
 
 ## Task lifecycle
 
-A task receives a managed `agent/*` branch and linked worktree. Ordinary execution invalidates previous verification. Explicit verification checks a clean attached commit before and after commands, including required policy from the merge target.
+A task receives a managed `agent/*` branch and linked worktree. Ordinary execution invalidates previous verification. Agents can commit explicitly named files through the host-side `gitust_worktree_commit` MCP tool without gaining sandbox write access to shared Git metadata. Starting an authorized commit attempt clears prior verification; success leaves the task Pending and requires fresh verification. Explicit verification checks a clean attached commit before and after commands, including required policy from the merge target.
 
 Approval requires current evidence and performs a fast-forward merge. Publication separately sends the approved SHA upstream. Worktree/repository locks coordinate mutations; a repository service lock prevents competing Gitust services from independently managing the same repository.
 
-See [verification and Checks](worktree-verification.md) and [approval/publication](outbound-sync.md) for exact contracts and failure behavior.
+Inbound mirroring acquires service ownership before repository initialization or shared staging fetches. HTTP synchronization keeps its fetch guard until apply finishes while taking the repository mutation lock only for local application. A failed competing sync must not replace the first operation's upstream refs.
+
+See [MCP commits and recovery](mcp-commits.md), [verification and Checks](worktree-verification.md) and [approval/publication](outbound-sync.md) for exact contracts and failure behavior.
 
 ## Persistence and recovery
 
-- Auth state uses a configured JSON file with cross-process locking and atomic replacement.
+- Auth state uses a configured JSON file with cross-process locking and atomic replacement. Both reading and writing enforce a 64MiB snapshot ceiling; a rejected write preserves the previous file and rolls back memory. Email input is limited to 254 UTF-8 bytes.
 - Git objects, refs, and linked-worktree metadata remain in Git storage.
+- Each managed worktree has a bounded, immutable `gitust-origin.json` in its Git administration directory. It binds the worktree ID/branch to the creation target and SHA independently of reflog retention. Valid legacy creation entries are migrated; missing evidence leaves the target unknown, and verification/approval refuse it. Corrupt new metadata fails recovery rather than falling back to `main`. Restore trusted metadata or discard and recreate an unknown-target task; retargeting is not implemented.
 - Approval/publication records live under the common Git directory's `gitust-approvals` directory.
 - Runtime verification evidence is discarded on restart; an unmerged task needs fresh verification.
 
-Git mutation and approval-record persistence are not one transaction. Failures between them may require operator inspection. Backups need auth state and the full repository/worktree layout; a complete restore workflow remains on the roadmap.
+Git mutation and approval-record persistence are not one transaction. Failures between them may require operator inspection. Host-side commits also publish the branch before installing its prepared index; an index-installation failure reports the created SHA and requires index recovery without restoring verification authority. An uncatchable kill can leave a stale worktree `index.lock` that needs the stopped-writer procedure in the commit documentation.
+
+The [offline backup tool and runbook](../operations/backup-restore.md) preserve auth state and the full supported repository/worktree layout. Relocated macOS rehearsals include the MCP commit path; release acceptance and Linux restoration evidence remain open in the [alpha progress report](../operations/alpha-progress-2026-10-17.md).
 
 ## Execution and trust
 
 The executor uses macOS Seatbelt or Linux Bubblewrap, with an isolated environment, bounded output, a timeout, and network denial. Server execution is opt-in for SiteAdmins on trusted single-user deployments, not a hostile multi-tenant boundary.
 
 MCP-purpose OAuth sessions are restricted to MCP; they cannot act as general login credentials for approval, publication, administration, or Git HTTP. Local stdio MCP and CLI commands run under the local operator's authority.
+
+HTTP MCP commits require trusted execution, a live SiteAdmin credential and the persisted worktree owner. The original credential and repository authority are checked again immediately before the branch update. Local stdio commits use operator authority, so a recovered task can be continued without transferring its stored owner. Both transports reject terminal/approved tasks, stale HEADs, staged conflicts and unsupported commit inputs. Builtin Git content normalization is supported through bounded private configuration/attribute snapshots; executable filters, hooks and signing programs do not run.
+
+MCP worktree discard never removes a merged task or its human approval evidence, even for a SiteAdmin. Merged-task cleanup requires an authorized Maintainer/SiteAdmin through the general HTTP operation or an explicit local CLI command. Unmerged owner cleanup remains available through MCP.
+
+## Repository browsing
+
+Git file paths retain valid leading/trailing spaces. The workbench shows a changed-file selector and loads each diff with immutable head/base SHAs and a literal path. Binary and metadata-only changes are distinguished from an unchanged commit. Partial diff/tree results retain a visible truncation notice. Cross-tab session changes clear live identity/data/request epochs; live worktrees can never fall back to simulated demo mutations.
 
 Gitust governs its local state and execution. The agent client separately controls model interactions; a remote AI provider may receive source code depending on that configuration.

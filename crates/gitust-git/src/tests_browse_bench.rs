@@ -7,6 +7,51 @@ use super::{git, init_repo, materialize};
 use crate::{DiffLineKind, GitEngine, GitEngineError};
 
 #[test]
+fn repository_paths_preserve_leading_trailing_and_only_spaces() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("repo");
+    init_repo(&dir);
+    for (path, content) in [
+        ("note", "plain\n"),
+        ("note ", "trailing\n"),
+        (" note", "leading\n"),
+        (" ", "space only\n"),
+    ] {
+        fs::write(dir.join(path), content).unwrap();
+    }
+    git(&dir, &["add", "."]);
+    git(&dir, &["commit", "-m", "distinct paths"]);
+    let engine = GitEngine::new(&dir);
+    for (path, content) in [
+        ("note", "plain\n"),
+        ("note ", "trailing\n"),
+        (" note", "leading\n"),
+        (" ", "space only\n"),
+    ] {
+        let blob = engine.read_blob(None, path).unwrap();
+        assert_eq!(blob.path, path);
+        assert_eq!(blob.content.as_deref(), Some(content));
+        let diff = engine.inspect_diff(None, None, Some(path)).unwrap();
+        assert_eq!(diff.files.len(), 1);
+        assert_eq!(diff.files[0].path, path);
+    }
+    assert_eq!(
+        GitEngine::validate_repo_relative_path("/note /").unwrap(),
+        "note "
+    );
+    for invalid in ["../note", "a/../note", "a//note", ".git/config", "a/./note"] {
+        assert!(GitEngine::validate_repo_relative_path(invalid).is_err());
+    }
+    assert_eq!(
+        engine
+            .inspect_tree(None, Some("/"), false)
+            .unwrap()
+            .base_path,
+        ""
+    );
+}
+
+#[test]
 fn browse_commits_tree_blob_and_diff_in_process_and_adversarial_bounds() {
     let tmp = TempDir::new().expect("tempdir");
     let repo_dir = tmp.path().join("repo");

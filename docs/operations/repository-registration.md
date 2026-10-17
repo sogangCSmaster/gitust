@@ -123,10 +123,12 @@ See the [read-only Git contract](read-only-git.md). Capability labels describe s
 comes from current server-side account, registration and team checks.
 
 Back up all configured repositories with their shared auth database while every writer is
-stopped. The existing backup utility snapshots one repository per invocation; it does not
-orchestrate an atomic catalog-wide backup. Keep the snapshots and their common auth checkpoint
-together. Restoring only one side of any registration still refuses startup. Complete matching
-relocation preserves UUIDs; duplicate copied identities cannot be mounted together. This does
+stopped. Pass every configured secondary path explicitly with `--read-only-repo` to the
+[backup utility](backup-restore.md#include-configured-read-only-repositories). It holds all
+repository service locks and the shared auth lock for one snapshot and manifest; it does not
+discover omitted repositories from auth records. Restoring only one side of any registration
+still refuses startup. Complete matching relocation preserves UUIDs; duplicate copied
+identities cannot be mounted together. This does
 not add online repository creation/import, hot reload, registered stdio support or multi-node
 ownership, and complete rollback of both anchors retains the documented legacy limitation.
 

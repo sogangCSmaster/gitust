@@ -87,9 +87,9 @@ gitust serve --bind 127.0.0.1:3300 \
 ```
 
 Validate catalog identities, current team access and data from each restored path. A copied
-registration does not grant new access, and a restored read-only repository does not gain
-write or Git transport capability. The manual examples below describe one repository;
-use the scripted multi-repository procedure for a shared checkpoint.
+registration does not grant new access. A restored read-only repository retains authenticated
+clone/fetch without gaining push or worktree execution. The manual examples below describe
+one repository; use the scripted multi-repository procedure for a shared checkpoint.
 
 The repeatable local check is
 `python3 scripts/multi-repository-backup-rehearsal.py --binary target/debug/gitust --report /private/tmp/gitust-multi-backup.json`.

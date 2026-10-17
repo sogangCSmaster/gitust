@@ -34,7 +34,6 @@ export interface ShowcaseDemoCallbacks {
  */
 export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
   const approveDemoSwarmTask = (id: number) => {
-    const t0 = performance.now();
     cb.setSwarmTasks((prev) =>
       prev.map((t) => {
         if (
@@ -44,9 +43,8 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
         ) {
           return t;
         }
-        const dt = (performance.now() - t0).toFixed(2);
         cb.showQuickFeedback(
-          `Fast-forward merged ${t.branch} (${t.agent}) into ${t.baseBranch} in ${dt}ms (Local On-Premise)`
+          `Demo worktree marked merged: ${t.branch}.`
         );
         return {
           ...t,
@@ -69,7 +67,7 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
           return t;
         }
         cb.showQuickFeedback(
-          `Discarded CoW Worktree ${t.branch} & freed sandbox in 0.1ms`
+          `Demo worktree marked discarded: ${t.branch}.`
         );
         return { ...t, sandboxStatus: "discarded", updatedAt: "just now" };
       })
@@ -77,7 +75,6 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
   };
 
   const spawnDemoBatchSwarm = () => {
-    const t0 = performance.now();
     const providers: AgentProvider[] = [
       "Claude Code",
       "Cursor Agent",
@@ -95,7 +92,7 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
         branch: `agent/${agent.toLowerCase().split(" ")[0]}/parallel-task-${id}`,
         baseBranch: "main",
         forkLatencyMs: Number((0.25 + (idx % 4) * 0.04).toFixed(2)),
-        promptSummary: `Parallel sandbox task #${id}: zero-copy refactor & unit test verification`,
+        promptSummary: `Sample agent task #${id}: update code and review example results`,
         sandboxStatus: "verified",
         compileTimeMs: 68 + ((idx * 7) % 35),
         testsPassed: 24,
@@ -108,21 +105,18 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
     });
 
     cb.setSwarmTasks((prev) => [...batch, ...prev]);
-    const dt = (performance.now() - t0).toFixed(2);
     cb.showQuickFeedback(
-      `Spawned +10 Demo Agent Branches in ${dt}ms (Offline Showcase)`
+      "Added 10 demo worktrees."
     );
   };
 
   const toggleIssueStatus = (id: number) => {
-    const t0 = performance.now();
     cb.setIssues((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
         const nextStatus = item.status === "open" ? "closed" : "open";
-        const dt = (performance.now() - t0).toFixed(2);
         cb.showQuickFeedback(
-          `Optimistic UI: #${item.id} → ${nextStatus.toUpperCase()} (${dt}ms, 0 network wait)`
+          `Demo issue #${item.id} marked ${nextStatus}.`
         );
         return { ...item, status: nextStatus, updatedAt: "just now" };
       })
@@ -146,7 +140,7 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
     cb.setIssues((prev) => [newItem, ...prev]);
     cb.setActiveTab("issues");
     cb.setFocusedIssueIdx(0);
-    cb.showQuickFeedback(`Created Issue #${newId} instantaneously (< 1ms)`);
+    cb.showQuickFeedback(`Added demo issue #${newId}.`);
   };
 
   const rerunAllActionJobs = () => {

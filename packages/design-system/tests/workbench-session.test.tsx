@@ -176,7 +176,7 @@ it("clears live rows on another tab's logout instead of allowing a fake live mer
   expect(screen.queryAllByText("REAL worktree")).toHaveLength(0);
   await fireEvent.click(oldButton);
   expect(
-    screen.queryByText(/Fast-forward merged agent\/real-branch/),
+    screen.queryByText(/Demo worktree marked merged: agent\/real-branch/),
   ).toBeNull();
   expect(mutations()).toHaveLength(requests);
 });
@@ -189,7 +189,7 @@ it("never sends a live row into demo actions while its storage event is still pe
     screen.getByRole("button", { name: "Approve & merge" }),
   );
   expect(
-    screen.queryByText(/Fast-forward merged agent\/real-branch/),
+    screen.queryByText(/Demo worktree marked merged: agent\/real-branch/),
   ).toBeNull();
   expect(screen.getByRole("button", { name: "Approve & merge" })).toBeTruthy();
 });

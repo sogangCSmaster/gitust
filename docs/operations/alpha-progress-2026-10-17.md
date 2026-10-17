@@ -834,3 +834,11 @@ These local fixes do not establish success for a new hosted revision.
 Initial JavaScript remains 70,610 bytes at gzip level 9, above the 50,000-byte
 target. Physical-device checks, final-candidate installation/restore acceptance
 and actual GitHub product publication remain open. Automatic Gate B stays stopped.
+
+The [fixed-source membership CI record](evidence/alpha-ci-8ac7e32-2026-10-18.json)
+observes [run 39070612384](https://github.com/sogangCSmaster/gitust/actions/runs/39070612384),
+attempt 1, for `8ac7e320616a9cdad718e74d7b9327a754af3777`. Ubuntu 22.04 and macOS 15
+both completed successfully, including the combined invitation/membership rehearsal
+and crash recovery. Required steps 1–20 succeeded except the intentional macOS
+Linux-prerequisite skip at step 6. The earlier failed run remains recorded above;
+subsequent changes are outside this tested revision.

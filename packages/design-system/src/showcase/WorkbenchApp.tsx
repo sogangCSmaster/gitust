@@ -26,6 +26,7 @@ import { filterAgentSwarmTasks } from "../patterns/worktree-filter";
 import { filterIssueItems } from "../patterns/issue-filter";
 import { NewWorktreeDialog } from "./NewWorktreeDialog";
 import { createNewWorktreeController } from "./new-worktree-controller";
+import { createPrimaryWorktreeActions } from "./primary-worktree-actions";
 import { createLiveAuthClient } from "./live-auth-client";
 import { createLiveRepoClient, getLiveToken } from "./live-repo-client";
 import { createLiveSwarmClient } from "./live-swarm-client";
@@ -108,17 +109,6 @@ export const WorkbenchApp: Component = () => {
   const [historyTask, setHistoryTask] = createSignal<AgentSandboxTask | null>(
     null,
   );
-  const historyTarget = createMemo(() =>
-    liveMode() &&
-    liveSession()?.role === "SiteAdmin" &&
-    swarmTasks().some((task) => task.liveId === historyTask()?.liveId)
-      ? historyTask()
-      : null,
-  );
-  createEffect(() => {
-    if (!liveMode() || liveSession()?.role !== "SiteAdmin")
-      setHistoryTask(null);
-  });
   const [redeemMode, setRedeemMode] = createSignal<"invite" | "reset">(
     accessLink?.mode ?? "invite",
   );
@@ -174,6 +164,9 @@ export const WorkbenchApp: Component = () => {
   };
 
   const liveClient = createLiveRepoClient({
+    getRepositoryId: () => connectedRepository.selected()?.id,
+    canWorkbench: () => connectedRepository.canWorkbench(),
+    onRepositoryUnavailable: (id) => connectedRepository.unavailable(id),
     setActiveCommitRev,
     setLookupMicros,
     setSelectedFilePath,
@@ -194,6 +187,7 @@ export const WorkbenchApp: Component = () => {
     getSwarmTasks: swarmTasks,
     setSwarmTasks,
     onRepoMutated: () => {
+      if (!connectedRepository.canWorkbench()) return;
       void liveClient.hydrateFromLiveBackend();
       void connectedRepository.refresh();
     },
@@ -203,6 +197,7 @@ export const WorkbenchApp: Component = () => {
   const clearRepositoryView = () => {
     newWorktree.reset();
     setHistoryTask(null);
+    if (liveMode()) setSwarmTasks([]);
     liveClient.resetRepoEpoch();
     liveSwarmClient.resetSwarmEpoch();
     setSwarmFilter("");
@@ -216,10 +211,10 @@ export const WorkbenchApp: Component = () => {
     liveMode,
     setActiveTab,
     clearView: clearRepositoryView,
-    hydrate: () => {
-      setSwarmTasks([]);
+    hydrate: (repository) => {
       void liveClient.hydrateFromLiveBackend();
-      void liveSwarmClient.hydrateSwarmWorktrees();
+      if (repository.capability === "workbench")
+        void liveSwarmClient.hydrateSwarmWorktrees();
     },
   });
   const {
@@ -229,8 +224,25 @@ export const WorkbenchApp: Component = () => {
     navigate,
   } = connectedRepository;
 
+  const historyTarget = createMemo(() =>
+    connectedRepository.canWorkbench() &&
+    liveMode() &&
+    liveSession()?.role === "SiteAdmin" &&
+    swarmTasks().some((task) => task.liveId === historyTask()?.liveId)
+      ? historyTask()
+      : null,
+  );
+  createEffect(() => {
+    if (
+      !connectedRepository.canWorkbench() ||
+      !liveMode() ||
+      liveSession()?.role !== "SiteAdmin"
+    )
+      setHistoryTask(null);
+  });
   const newWorktree = createNewWorktreeController({
-    getRepository: selectedRepository,
+    getRepository: () =>
+      connectedRepository.canWorkbench() ? selectedRepository() : null,
     liveMode,
     sessionReady: () => Boolean(liveSession()),
     create: liveSwarmClient.spawnLiveWorktree,
@@ -304,51 +316,29 @@ export const WorkbenchApp: Component = () => {
     showQuickFeedback,
   });
 
-  const approveAndMergeSwarmTask = (id: number) => {
-    if (!selectedRepository() || activeTab() !== "swarm") return;
-    if (liveMode() || getLiveToken()) {
-      void liveSwarmClient.approveLiveWorktree(id);
-    } else {
-      demoActions.approveDemoSwarmTask(id);
-    }
-  };
-
-  const publishSwarmTask = (id: number) => {
-    if (!selectedRepository() || activeTab() !== "swarm") return;
-    void liveSwarmClient.publishLiveWorktree(id);
-  };
-
-  const discardSwarmTask = (id: number) => {
-    if (!selectedRepository() || activeTab() !== "swarm") return;
-    if (liveMode() || getLiveToken()) {
-      void liveSwarmClient.discardLiveWorktree(id);
-    } else {
-      demoActions.discardDemoSwarmTask(id);
-    }
-  };
-
-  const spawnBatchAgentSwarm = () => {
-    if (!selectedRepository() || activeTab() !== "swarm") return;
-    if (liveMode() || getLiveToken()) {
-      if (!liveSession()) {
-        showQuickFeedback(
-          "Your account is still loading. Try again when it is ready.",
-        );
-        return;
-      }
-      newWorktree.open();
-    } else {
-      demoActions.spawnDemoBatchSwarm();
-    }
-  };
-
-  const reviewSwarmTask = (id: number) => {
-    if (!selectedRepository() || activeTab() !== "swarm") return;
-    const task = swarmTasks().find((task) => task.id === id);
-    if (!liveMode() || !getLiveToken() || !task?.liveId) return;
-    setActiveTab("diff");
-    void liveClient.loadLiveWorktreeDiff(task);
-  };
+  const {
+    approveAndMergeSwarmTask,
+    publishSwarmTask,
+    discardSwarmTask,
+    spawnBatchAgentSwarm,
+    reviewSwarmTask,
+  } = createPrimaryWorktreeActions({
+    canWorkbench: connectedRepository.canWorkbench,
+    activeTab,
+    liveMode,
+    sessionReady: () => Boolean(liveSession()),
+    feedback: showQuickFeedback,
+    liveApprove: liveSwarmClient.approveLiveWorktree,
+    liveDiscard: liveSwarmClient.discardLiveWorktree,
+    livePublish: liveSwarmClient.publishLiveWorktree,
+    demoApprove: demoActions.approveDemoSwarmTask,
+    demoDiscard: demoActions.discardDemoSwarmTask,
+    demoSpawn: demoActions.spawnDemoBatchSwarm,
+    openNewWorktree: newWorktree.open,
+    tasks: swarmTasks,
+    openChanges: () => setActiveTab("diff"),
+    loadWorktreeDiff: liveClient.loadLiveWorktreeDiff,
+  });
 
   onMount(() => {
     const sessionChanged = (event: StorageEvent) => {
@@ -359,6 +349,7 @@ export const WorkbenchApp: Component = () => {
     void liveAuthClient.hydrateAuthData();
     void connectedRepository.refresh();
     const cleanups = registerWorkbenchShortcuts({
+      isBrowseOnly: connectedRepository.browseOnly,
       getActiveTab: activeTab,
       setActiveTab: navigate,
       toggleCommandPalette: () => setCmdOpen((v) => !v),
@@ -402,6 +393,7 @@ export const WorkbenchApp: Component = () => {
         active={activeTab()}
         onSelect={navigate}
         repositoryName={selectedRepository()?.name}
+        browseOnly={connectedRepository.browseOnly()}
         liveMode={liveMode()}
         username={liveSession()?.username}
       />
@@ -457,6 +449,7 @@ export const WorkbenchApp: Component = () => {
 
           <WorkbenchTabViews
             repositoryId={selectedRepository()?.id}
+            canWorkbench={connectedRepository.canWorkbench()}
             activeTab={activeTab()}
             liveMode={liveMode()}
             swarmTasks={swarmTasks()}
@@ -467,17 +460,18 @@ export const WorkbenchApp: Component = () => {
             onPublishSwarmTask={publishSwarmTask}
             onReviewSwarmTask={reviewSwarmTask}
             onVerifySwarmTask={(id, command) => {
-              if (selectedRepository() && activeTab() === "swarm")
+              if (connectedRepository.canWorkbench() && activeTab() === "swarm")
                 void liveSwarmClient.verifyLiveWorktree(id, command);
             }}
-            onRefreshSwarmTasks={() =>
-              void liveSwarmClient.hydrateSwarmWorktrees()
-            }
+            onRefreshSwarmTasks={() => {
+              if (connectedRepository.canWorkbench())
+                void liveSwarmClient.hydrateSwarmWorktrees();
+            }}
             onViewRunHistory={(id) => {
               const task = swarmTasks().find((task) => task.liveId === id);
               if (
                 task &&
-                selectedRepository() &&
+                connectedRepository.canWorkbench() &&
                 liveMode() &&
                 liveSession()?.role === "SiteAdmin"
               )
@@ -569,7 +563,10 @@ export const WorkbenchApp: Component = () => {
             submitting={newWorktree.submitting()}
             onSubmit={newWorktree.submit}
             onClose={newWorktree.close}
-            onRefresh={() => void liveSwarmClient.hydrateSwarmWorktrees()}
+            onRefresh={() => {
+              if (connectedRepository.canWorkbench())
+                void liveSwarmClient.hydrateSwarmWorktrees();
+            }}
           />
         )}
       </Show>

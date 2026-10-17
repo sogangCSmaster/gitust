@@ -511,3 +511,6 @@ mod tests_automatic_restart;
 mod tests_repository_automatic_runs;
 #[path = "tests_repository_registration.rs"]
 mod tests_repository_registration;
+
+#[path = "tests_repository_catalog.rs"]
+mod tests_repository_catalog;

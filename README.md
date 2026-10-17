@@ -83,6 +83,8 @@ Open [localhost:3000](http://127.0.0.1:3000) and sign in. There is no public sig
 
 To enable server-side command execution, add `--trusted-single-user-sandbox` on a **trusted single-user installation**. Execution also requires a SiteAdmin. The current OS sandbox is not a multi-tenant security boundary. Network access is disabled inside runs; prepare tools and dependencies before executing builds.
 
+Add repeated `--read-only-repo /absolute/path/to/another/repository` arguments to browse other existing repositories registered against the same auth database. The server supports up to 32 configured repositories in total; secondary repositories expose Files and Changes through UUID-scoped reads. Worktrees, execution, MCP, synchronization and Git transport remain on the primary `--repo`. See [registration and read-only repositories](docs/operations/repository-registration.md).
+
 The upstream URL configures synchronization and publication. Starting the server does not automatically mirror or publish commits. Private outbound GitHub authentication currently uses SSH keys/agent and a preconfigured `known_hosts`, rather than HTTPS credential helpers.
 
 For frontend development, keep the Rust server running on `127.0.0.1:3000` and start Vite in another terminal:

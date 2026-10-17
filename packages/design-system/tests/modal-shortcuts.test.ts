@@ -31,3 +31,30 @@ it("blocks destructive background shortcuts inside Kobalte modal dialogs", () =>
   );
   expect(handler).toHaveBeenCalledOnce();
 });
+
+it("rechecks dynamic workspace capability for keyboard and command-palette dispatch", () => {
+  let allowed = true;
+  const handler = vi.fn();
+  unregister.push(
+    shortcutManager.register({
+      id: "test.capability",
+      title: "Primary action",
+      category: "Actions",
+      keys: "a",
+      enabled: () => allowed,
+      handler,
+    }),
+  );
+  allowed = false;
+  document.body.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "a", bubbles: true }),
+  );
+  expect(shortcutManager.executeById("test.capability")).toBe(false);
+  expect(handler).not.toHaveBeenCalled();
+  allowed = true;
+  document.body.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "a", bubbles: true }),
+  );
+  expect(shortcutManager.executeById("test.capability")).toBe(true);
+  expect(handler).toHaveBeenCalledTimes(2);
+});

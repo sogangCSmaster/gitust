@@ -1,7 +1,7 @@
 # Registering the configured local repository
 
-Each service still serves one configured Git repository. Registration binds that existing
-repository's stable UUID to its auth-store ACL; it does not add another repository, clone
+Registration binds an existing repository's stable UUID to its auth-store ACL; it does not
+configure another repository on a running service, clone
 an upstream, change refs or enable anonymous access. Unregistered repositories retain the
 existing trusted single-user sharing policy for authenticated users.
 
@@ -58,3 +58,51 @@ backup restoration, original-PAT MCP commits, fresh verification/approval and ac
 clone/push/fetch with `fsck`. A separate active outsider must remain denied after each restart
 and relocation. CI requires the public `registered_repository_acl_and_restore` result; this
 does not replace the separate member-versus-outsider tests or prove an actual IDE-agent session.
+
+## Browsing additional registered repositories
+
+Keep the existing primary `--repo` and add an explicit `--read-only-repo PATH` for each
+secondary repository. Register every secondary against the same auth database first. Up to
+32 actual repositories, including the primary, may be configured. Only the primary retains
+the existing legacy sharing option; every secondary must have a complete matching registration.
+
+```sh
+gitust serve --repo /path/to/primary --auth-db /path/to/auth-db.json \
+  --read-only-repo /path/to/secondary
+```
+
+The service owns a separate Git engine, pinned ACL binding and strong service lock for each
+repository. Duplicate common Git directories and UUIDs, missing or mismatched anchors, busy
+services and unresolved execution fences refuse startup. A failed startup releases all newly
+acquired ownership before exposing HTTP; secondary startup never initializes missing identity
+or starts its worktrees, automatic jobs or synchronization. Change this inventory while stopped.
+
+`GET /api/v1/repos` lists only configured repositories the current account can access, using
+one auth snapshot for current memberships and pinned bindings. Metadata-only auth rows are
+excluded. Each item contains `id`, `name`, `branch`, `head_commit`, `capability` and `is_default`.
+The primary advertises `workbench`; secondary items advertise `browse`. An account may have
+no visible default repository or an empty catalog. Reads use `/api/v1/repos/UUID/commits`,
+`tree`, `blob` and `diff`, retaining the existing object-read response formats and limits.
+Credentials and current ACLs are checked before and after Git I/O. Responses disable caching;
+host paths are neither routing inputs nor response fields. An unavailable or inconsistent
+configured binding fails instead of silently disappearing from the catalog.
+
+Secondary browsing does not enable writes, managed worktrees, Actions, MCP/OAuth or Git
+transport for those UUIDs. Existing `/api/v1/repo/*`, worktree and Git endpoints continue to
+use the primary. Capability labels describe these supported operations; authorization always
+comes from current server-side account, registration and team checks.
+
+Back up all configured repositories with their shared auth database while every writer is
+stopped. The existing backup utility snapshots one repository per invocation; it does not
+orchestrate an atomic catalog-wide backup. Keep the snapshots and their common auth checkpoint
+together. Restoring only one side of any registration still refuses startup. Complete matching
+relocation preserves UUIDs; duplicate copied identities cannot be mounted together. This does
+not add online repository creation/import, hot reload, registered stdio support or multi-node
+ownership, and complete rollback of both anchors retains the documented legacy limitation.
+
+Run `python3 scripts/multi-repository-rehearsal.py --binary target/debug/gitust --report /tmp/gitust-multi-repository.json`
+with a new report path to exercise two synthetic repositories and a shared auth store. It
+checks team filtering, UUID-routed reads against independent Git objects, rejected secondary
+worktree creation, credential denial, restart and startup rollback, then removes its private
+fixtures. The repository CI runs this rehearsal on Linux and macOS; its public evidence
+excludes credentials and does not represent GitHub publication or a catalog-wide backup.

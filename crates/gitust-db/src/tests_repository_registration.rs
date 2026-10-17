@@ -238,3 +238,84 @@ fn registration_retry_cannot_skip_a_failed_directory_sync() {
         .configured_repository_access(id, Some(binding))
         .unwrap();
 }
+
+#[test]
+fn catalog_batch_uses_current_stored_membership_and_rejects_a_broken_binding() {
+    let store = AuthStore::new_in_memory();
+    store
+        .bootstrap_initial_admin_cli("operator", "operator@company.internal", "Password!2026")
+        .unwrap();
+    let login = store.login("operator", "Password!2026").unwrap();
+    let admin = store
+        .authenticate_session(&login.raw_session_token)
+        .unwrap();
+    let (team_a, team_b) = (TeamId::new(), TeamId::new());
+    let a = store
+        .register_local_repository(&admin, RepoId::new(), "a", team_a, true, None)
+        .unwrap();
+    let b = store
+        .register_local_repository(&admin, RepoId::new(), "b", team_b, true, None)
+        .unwrap();
+    let expected = store
+        .configured_repository_accesses(&[
+            (a.metadata.id, Some(a.binding)),
+            (b.metadata.id, Some(b.binding)),
+        ])
+        .unwrap();
+    let invite = store
+        .create_invite_link(
+            &admin,
+            "member@company.internal",
+            EnterpriseRole::Developer,
+            vec![team_a],
+            None,
+        )
+        .unwrap();
+    let profile = store
+        .redeem_invite_link(&invite.raw_token, "member", "Password!2026")
+        .unwrap();
+    let mut stale = gitust_core::AuthenticatedPrincipal {
+        user_id: profile.id,
+        username: profile.username,
+        role: EnterpriseRole::SiteAdmin,
+        team_ids: vec![team_a, team_b],
+    };
+    let allowed = store
+        .authorized_repository_catalog(&stale, &expected)
+        .unwrap();
+    assert_eq!(
+        allowed.iter().map(|row| row.0).collect::<Vec<_>>(),
+        vec![a.metadata.id]
+    );
+    store
+        .write_state()
+        .unwrap()
+        .users
+        .get_mut(&profile.id)
+        .unwrap()
+        .team_ids = vec![team_b];
+    stale.team_ids = vec![team_a];
+    assert_eq!(
+        store
+            .authorized_repository_catalog(&stale, &expected)
+            .unwrap()
+            .iter()
+            .map(|row| row.0)
+            .collect::<Vec<_>>(),
+        vec![b.metadata.id]
+    );
+    store
+        .write_state()
+        .unwrap()
+        .repositories
+        .get_mut(&b.metadata.id)
+        .unwrap()
+        .binding = None;
+    assert!(matches!(
+        store.authorized_repository_catalog(&stale, &expected),
+        Err(gitust_core::AuthError::StorageError(_))
+    ));
+    assert!(AuthStore::new_in_memory()
+        .authorized_repository_catalog(&stale, &expected)
+        .is_err());
+}

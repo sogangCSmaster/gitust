@@ -89,6 +89,10 @@ enum Commands {
         #[arg(long, default_value = ".")]
         repo: PathBuf,
 
+        /// Existing ACL-registered repository available for browsing only (repeatable; total limit 32)
+        #[arg(long = "read-only-repo")]
+        read_only_repos: Vec<PathBuf>,
+
         /// Upstream GitHub repository URL for real-time bi-directional mirroring
         #[arg(long, default_value = "https://github.com/sogangCSmaster/gitust.git")]
         sync_github: String,
@@ -204,6 +208,7 @@ async fn main() -> Result<()> {
         Commands::Serve {
             bind,
             repo,
+            read_only_repos,
             sync_github,
             auth_db,
             trusted_single_user_sandbox,
@@ -211,13 +216,14 @@ async fn main() -> Result<()> {
         } => {
             let auth_store =
                 tokio::task::spawn_blocking(move || AuthStore::open_persistent(&auth_db)).await??;
-            gitust_server::serve(
+            gitust_server::serve_with_read_only_repositories(
                 bind,
                 repo,
                 sync_github,
                 auth_store,
                 trusted_single_user_sandbox,
                 sync_timeout,
+                read_only_repos,
             )
             .await?;
         }

@@ -109,7 +109,11 @@ export const ShortcutsReferenceModal: Component<{
         </DialogDescription>
       </DialogHeader>
       <div class="divide-y">
-        <For each={shortcutManager.shortcuts()}>
+        <For
+          each={shortcutManager
+            .shortcuts()
+            .filter((command) => command.enabled?.() !== false)}
+        >
           {(shortcut) => (
             <div class="flex items-center justify-between gap-4 py-3">
               <div class="min-w-0">

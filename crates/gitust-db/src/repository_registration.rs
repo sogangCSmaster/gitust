@@ -130,25 +130,79 @@ impl AuthStore {
         repo_id: RepoId,
         receipt: Option<RepositoryRegistration>,
     ) -> Result<RepoAccess, AuthError> {
-        if repo_id.0.is_nil() {
+        self.configured_repository_accesses(&[(repo_id, receipt)])?
+            .pop()
+            .ok_or_else(invalid)
+    }
+
+    /// Startup checks all explicitly configured anchors under one authoritative snapshot.
+    pub fn configured_repository_accesses(
+        &self,
+        expected: &[(RepoId, Option<RepositoryRegistration>)],
+    ) -> Result<Vec<RepoAccess>, AuthError> {
+        if expected.is_empty() || expected.len() > 32 {
             return Err(invalid());
         }
         let guard = self.read_state()?;
-        match (guard.repositories.get(&repo_id), receipt) {
-            (None, None) => Ok(RepoAccess {
-                repo_id,
-                registration: None,
-            }),
-            (Some(row), Some(receipt))
-                if receipt.valid_for(repo_id) && row.binding == Some(receipt) =>
-            {
-                Ok(RepoAccess {
-                    repo_id,
-                    registration: Some(receipt),
-                })
+        let mut ids = HashSet::new();
+        let mut result = Vec::with_capacity(expected.len());
+        for &(repo_id, receipt) in expected {
+            if repo_id.0.is_nil() || !ids.insert(repo_id) {
+                return Err(invalid());
             }
-            _ => Err(invalid()),
+            match (guard.repositories.get(&repo_id), receipt) {
+                (None, None) => result.push(RepoAccess {
+                    repo_id,
+                    registration: None,
+                }),
+                (Some(row), Some(receipt))
+                    if receipt.valid_for(repo_id) && row.binding == Some(receipt) =>
+                {
+                    result.push(RepoAccess {
+                        repo_id,
+                        registration: Some(receipt),
+                    })
+                }
+                _ => return Err(invalid()),
+            }
         }
+        Ok(result)
+    }
+
+    /// Filters only configured services, checking pinned bindings and current membership once.
+    pub fn authorized_repository_catalog(
+        &self,
+        caller: &AuthenticatedPrincipal,
+        expected: &[RepoAccess],
+    ) -> Result<Vec<(RepoId, Option<RepositoryRecord>)>, AuthError> {
+        if expected.is_empty() || expected.len() > 32 {
+            return Err(invalid());
+        }
+        let guard = self.read_state()?;
+        let active = Self::verify_active_user_locked(&guard, caller)?;
+        let mut visible = Vec::with_capacity(expected.len());
+        let mut ids = HashSet::new();
+        for access in expected {
+            if access.repo_id.0.is_nil() || !ids.insert(access.repo_id) {
+                return Err(invalid());
+            }
+            let row = guard.repositories.get(&access.repo_id);
+            match (access.registration, row) {
+                (None, None) => visible.push((access.repo_id, None)),
+                (Some(binding), Some(row))
+                    if binding.valid_for(access.repo_id) && row.binding == Some(binding) =>
+                {
+                    if !row.metadata.is_private
+                        || active.role == EnterpriseRole::SiteAdmin
+                        || active.team_ids.contains(&row.metadata.owner_team_id)
+                    {
+                        visible.push((access.repo_id, Some(row.metadata.clone())));
+                    }
+                }
+                _ => return Err(invalid()),
+            }
+        }
+        Ok(visible)
     }
 
     /// Offline CLI registration: existing metadata is never adopted, and retries retain the nonce.

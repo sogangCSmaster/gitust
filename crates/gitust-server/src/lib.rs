@@ -25,6 +25,8 @@ pub mod oauth;
 mod outbound;
 pub(crate) mod quota;
 pub mod repo;
+mod repository_reads;
+mod repository_registry;
 mod repository_summary;
 mod run_history;
 pub mod state;
@@ -186,7 +188,14 @@ pub fn build_router(state: AppState) -> Router {
             post(auth::create_password_reset_handler),
         )
         // Team Repository BOLA Routes
-        .route("/api/v1/repos", post(auth::create_team_repo_handler))
+        .route(
+            "/api/v1/repos",
+            get(repository_reads::catalog).post(auth::create_team_repo_handler),
+        )
+        .route("/api/v1/repos/{id}/commits", get(repository_reads::commits))
+        .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))
+        .route("/api/v1/repos/{id}/blob", get(repository_reads::blob))
+        .route("/api/v1/repos/{id}/diff", get(repository_reads::diff))
         .route("/api/v1/repos/{id}", get(auth::get_team_repo_handler))
         .route("/api/v1/repo/automatic-runs", get(automatic_run_page::list))
         // Agent Swarm, Sync & MCP Routes (Authenticated & Team/Role BOLA protected)
@@ -251,6 +260,28 @@ pub async fn serve(
     trusted_sandbox_exec: bool,
     sync_timeout_secs: Option<u64>,
 ) -> Result<(), std::io::Error> {
+    serve_with_read_only_repositories(
+        addr,
+        repo_path,
+        github_mirror_url,
+        auth_store,
+        trusted_sandbox_exec,
+        sync_timeout_secs,
+        Vec::new(),
+    )
+    .await
+}
+
+/// Adds explicitly registered read-only secondary repositories without widening primary tools.
+pub async fn serve_with_read_only_repositories(
+    addr: SocketAddr,
+    repo_path: PathBuf,
+    github_mirror_url: String,
+    auth_store: AuthStore,
+    trusted_sandbox_exec: bool,
+    sync_timeout_secs: Option<u64>,
+    read_only_repos: Vec<PathBuf>,
+) -> Result<(), std::io::Error> {
     let (state, _service_lock) = tokio::task::spawn_blocking(
         move || -> Result<(AppState, gitust_git::WorktreeServiceLock), std::io::Error> {
             let mut engine = gitust_git::GitEngine::new(&repo_path);
@@ -260,9 +291,14 @@ pub async fn serve(
             let lock = engine
                 .lock_worktree_service()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::WouldBlock, e))?;
-            let state = AppState::with_engine_and_auth_store(engine, github_mirror_url, auth_store)
-                .map_err(std::io::Error::other)?
-                .with_trusted_sandbox_exec(trusted_sandbox_exec);
+            let mut state =
+                AppState::with_engine_and_auth_store(engine, github_mirror_url, auth_store)
+                    .map_err(std::io::Error::other)?
+                    .with_trusted_sandbox_exec(trusted_sandbox_exec);
+            state.repository_registry = Some(
+                repository_registry::RepositoryRegistry::load(&state, read_only_repos)
+                    .map_err(std::io::Error::other)?,
+            );
             Ok((state, lock))
         },
     )

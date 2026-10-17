@@ -168,6 +168,22 @@ pub(crate) mod storage {
         Ok(())
     }
 
+    pub(super) fn load_existing(common: &Path) -> Result<RepoId, GitEngineError> {
+        let parent = File::options()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(common)
+            .map_err(|_| invalid("common Git directory could not be opened"))?;
+        let directory = open_at(
+            &parent,
+            &name(DIRECTORY)?,
+            libc::O_RDONLY | libc::O_DIRECTORY,
+        )?
+        .ok_or_else(|| invalid("repository identity must already exist"))?;
+        private_directory(&directory)?;
+        read(&directory)
+    }
+
     pub(super) fn load_or_create(common: &Path) -> Result<RepoId, GitEngineError> {
         let parent = File::options()
             .read(true)
@@ -248,6 +264,22 @@ pub(crate) mod storage {
 }
 
 impl GitEngine {
+    /// Reads existing identity without initializing an unregistered secondary repository.
+    pub fn load_existing_repository_id(&self) -> Result<RepoId, GitEngineError> {
+        let service = self.lock_worktree_service()?;
+        service.ensure_available()?;
+        #[cfg(unix)]
+        {
+            storage::load_existing(&self.repository_common_directory()?)
+        }
+        #[cfg(not(unix))]
+        {
+            Err(invalid(
+                "repository identity storage requires Unix file semantics",
+            ))
+        }
+    }
+
     /// Returns the configured repository's private persisted ID, creating only a legacy first ID.
     /// Existing incomplete or unsafe identity metadata always requires explicit operator repair.
     pub fn load_or_create_repository_id(&self) -> Result<RepoId, GitEngineError> {

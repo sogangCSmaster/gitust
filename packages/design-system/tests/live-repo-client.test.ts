@@ -3,6 +3,9 @@ import { createLiveRepoClient } from "../src/showcase/live-repo-client";
 import type { DiffLine } from "../src/patterns/VirtualDiffViewer";
 
 let token: string | null;
+let repositoryId = "11111111-1111-4111-8111-111111111111";
+let workbench = true;
+let unavailable: ReturnType<typeof vi.fn>;
 let lines: DiffLine[] | null;
 let blobLines: DiffLine[] | null;
 let feedback: ReturnType<typeof vi.fn>;
@@ -22,14 +25,20 @@ function deferred<T>() {
   return { promise, resolve };
 }
 async function hydrateTree(view: ReturnType<typeof createLiveRepoClient>) {
-  fetchMock.mockResolvedValueOnce(response({ commits: [] }))
+  fetchMock
+    .mockResolvedValueOnce(response({ commits: [] }))
     .mockResolvedValueOnce(response({ commit_sha: head, entries: [] }))
-    .mockResolvedValueOnce(response({ head_sha: head, base_sha: base, files: [], lines: [] }));
+    .mockResolvedValueOnce(
+      response({ head_sha: head, base_sha: base, files: [], lines: [] }),
+    );
   await view.hydrateFromLiveBackend();
   fetchMock.mockReset();
 }
 beforeEach(async () => {
   token = "session-a";
+  repositoryId = "11111111-1111-4111-8111-111111111111";
+  workbench = true;
+  unavailable = vi.fn();
   lines = null;
   blobLines = null;
   feedback = vi.fn();
@@ -41,7 +50,12 @@ beforeEach(async () => {
   vi.stubGlobal("window", { localStorage: { getItem: () => token } });
   vi.stubGlobal("fetch", fetchMock);
   client = createLiveRepoClient({
-    setLiveBlobLines: (value) => { blobLines = value; },
+    getRepositoryId: () => repositoryId,
+    canWorkbench: () => workbench,
+    onRepositoryUnavailable: (id) => unavailable(id),
+    setLiveBlobLines: (value) => {
+      blobLines = value;
+    },
     setSelectedTreePath: vi.fn(),
     setActiveCommitRev: selectRevision,
     setLookupMicros: vi.fn(),
@@ -73,6 +87,60 @@ afterEach(() => vi.unstubAllGlobals());
 
 it("selects the resolved commit when the initial HEAD comparison loads", () => {
   expect(selectRevision).toHaveBeenLastCalledWith(head);
+});
+
+it("binds slow fetch and body responses to the selected UUID across A to B to A", async () => {
+  const slow = deferred<Response>();
+  fetchMock.mockReturnValueOnce(slow.promise);
+  const first = client.loadLiveCommitDiff("old-ref");
+  repositoryId = "22222222-2222-4222-8222-222222222222";
+  client.resetRepoEpoch();
+  fetchMock.mockResolvedValueOnce(response(diff("new.txt", "NEW REPOSITORY")));
+  await client.loadLiveCommitDiff("new-ref");
+  expect(fetchMock.mock.calls[1]?.[0]).toContain(
+    `/repos/${repositoryId}/diff?`,
+  );
+  expect(lines?.[0]?.content).toBe("NEW REPOSITORY");
+  repositoryId = "11111111-1111-4111-8111-111111111111";
+  client.resetRepoEpoch();
+  slow.resolve(response(diff("old.txt", "OLD REPOSITORY")));
+  await first;
+  expect(lines).toEqual([]);
+  await hydrateTree(client);
+  const body = deferred<unknown>();
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: () => body.promise,
+  });
+  const blob = client.selectFileFromTree({ path: "old.txt", kind: "file" });
+  await Promise.resolve();
+  repositoryId = "22222222-2222-4222-8222-222222222222";
+  client.resetRepoEpoch();
+  body.resolve({ commit_sha: head, content: "OLD BLOB BODY" });
+  await blob;
+  expect(blobLines?.[0]?.content).toContain("Select a file");
+  expect(lines).toEqual([]);
+});
+
+it("clears denied current repository access without reacting to an obsolete denial", async () => {
+  fetchMock.mockResolvedValueOnce(new Response("Denied", { status: 403 }));
+  await client.loadLiveCommitDiff("HEAD");
+  expect(unavailable).toHaveBeenCalledExactlyOnceWith(repositoryId);
+  unavailable.mockClear();
+  const old = deferred<Response>();
+  fetchMock.mockReturnValueOnce(old.promise);
+  const pending = client.loadLiveCommitDiff("HEAD");
+  repositoryId = "22222222-2222-4222-8222-222222222222";
+  old.resolve(new Response("Removed", { status: 404 }));
+  await pending;
+  expect(unavailable).not.toHaveBeenCalled();
+});
+
+it("does not issue a primary sync request while a browse-only repository is selected", () => {
+  workbench = false;
+  client.triggerGithubSync();
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 it("does not accept a previous account's blob or sync response", async () => {
@@ -111,7 +179,12 @@ it("keeps the newest selected viewer response", async () => {
 it("invalidates a pending file response when a directory is selected", async () => {
   const selected: string[] = [];
   const view = createLiveRepoClient({
-    setLiveBlobLines: (value) => { blobLines = value; },
+    getRepositoryId: () => repositoryId,
+    canWorkbench: () => workbench,
+    onRepositoryUnavailable: (id) => unavailable(id),
+    setLiveBlobLines: (value) => {
+      blobLines = value;
+    },
     setSelectedTreePath: (path) => selected.push(path),
     setActiveCommitRev: vi.fn(),
     setLookupMicros: vi.fn(),
@@ -170,13 +243,13 @@ it("never attributes a multi-file commit's combined lines to its first file", as
   expect(selectedPath).toBe("one.txt");
   expect(lines?.map((line) => line.content)).toEqual(["ONE"]);
   expect(fetchMock.mock.calls[1][0]).toBe(
-    `/api/v1/repo/diff?head=${head}&base=${base}&path=one.txt`,
+    `/api/v1/repos/${repositoryId}/diff?head=${head}&base=${base}&path=one.txt`,
   );
   await client.selectCommitDiffFile("two.txt");
   expect(selectedPath).toBe("two.txt");
   expect(lines?.map((line) => line.content)).toEqual(["TWO"]);
   expect(fetchMock.mock.calls[2][0]).toBe(
-    `/api/v1/repo/diff?head=${head}&base=${base}&path=two.txt`,
+    `/api/v1/repos/${repositoryId}/diff?head=${head}&base=${base}&path=two.txt`,
   );
 });
 
@@ -203,10 +276,14 @@ it.each(["logo.png", "empty.txt", "renamed.txt", "executable.sh"])(
 it("retains explicit truncation state for both a partial diff and a partial tree", async () => {
   fetchMock.mockImplementation(async (url: string) =>
     response(
-      url.includes("/repo/commits")
+      url.includes("/commits?")
         ? { commits: [] }
-        : url.includes("/repo/tree")
-          ? { commit_sha: head, entries: [{ path: "one.txt", is_dir: false }], truncated: true }
+        : url.includes("/tree?")
+          ? {
+              commit_sha: head,
+              entries: [{ path: "one.txt", is_dir: false }],
+              truncated: true,
+            }
           : diff("one.txt", "PARTIAL DIFF", true),
     ),
   );

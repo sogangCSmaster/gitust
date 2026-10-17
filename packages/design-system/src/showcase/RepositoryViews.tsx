@@ -13,6 +13,8 @@ export const DEMO_REPOSITORY: ConnectedRepository = {
   name: "gitust",
   branch: "main",
   headCommit: "554fb6c",
+  capability: "workbench",
+  isDefault: true,
 };
 
 export const RepositoryLanding: Component<{
@@ -23,15 +25,13 @@ export const RepositoryLanding: Component<{
   onSignIn: () => void;
 }> = (props) => {
   const [query, setQuery] = createSignal("");
-  const repository = createMemo(() =>
-    props.liveMode ? props.state.repository : DEMO_REPOSITORY,
+  const repositories = createMemo(() =>
+    props.liveMode ? props.state.repositories : [DEMO_REPOSITORY],
   );
   const match = createMemo(() => {
-    const repo = repository();
-    return repo &&
-      repo.name.toLowerCase().includes(query().trim().toLowerCase())
-      ? repo
-      : null;
+    return repositories().filter((repo) =>
+      repo.name.toLowerCase().includes(query().trim().toLowerCase()),
+    );
   });
   return (
     <section
@@ -48,7 +48,7 @@ export const RepositoryLanding: Component<{
           </h1>
           <p class="mt-1 text-xs text-muted-foreground">
             {props.liveMode
-              ? "Your connected repository."
+              ? "Choose a repository."
               : "Explore a sample repository, or sign in to your server."}
           </p>
         </div>
@@ -88,7 +88,7 @@ export const RepositoryLanding: Component<{
         </Card>
       </Show>
       <Show
-        when={match()}
+        when={match().length > 0}
         fallback={
           <Show when={!props.state.error}>
             <p
@@ -96,7 +96,7 @@ export const RepositoryLanding: Component<{
               class="py-8 text-center text-sm text-muted-foreground"
             >
               {props.state.loading
-                ? "Loading repository…"
+                ? "Loading repositories…"
                 : query()
                   ? "No matching repositories."
                   : "No repository is available."}
@@ -104,31 +104,44 @@ export const RepositoryLanding: Component<{
           </Show>
         }
       >
-        {(repo) => (
-          <Button
-            variant="ghost"
-            class="h-auto w-full justify-start gap-3 rounded-xl border bg-card p-4 text-left hover:bg-accent/60 sm:p-5"
-            aria-label={`Open repository ${repo().name}`}
-            onClick={() => props.onOpen(repo())}
-          >
-            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Icon name="repo" size={20} />
-            </span>
-            <span class="min-w-0 flex-1">
-              <span class="block truncate text-sm font-semibold">
-                {repo().name}
-              </span>
-              <span class="mt-1 flex min-w-0 items-center gap-2 text-xs font-normal text-muted-foreground">
-                <Icon name="git-branch" size={12} />
-                <span class="truncate">{repo().branch}</span>
-                <span class="shrink-0">
-                  {props.liveMode ? "Connected" : "Demo"}
+        <div class="overflow-hidden rounded-xl border bg-card">
+          <For each={match()}>
+            {(repo) => (
+              <Button
+                variant="ghost"
+                class="h-auto w-full justify-start gap-3 rounded-none border-b px-3 py-3 text-left last:border-b-0 hover:bg-accent/60 sm:px-4"
+                aria-label={`Open repository ${repo.name}`}
+                onClick={() => props.onOpen(repo)}
+              >
+                <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Icon name="repo" size={20} />
                 </span>
-              </span>
-            </span>
-            <Icon name="chevron-right" class="shrink-0 text-muted-foreground" />
-          </Button>
-        )}
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-semibold">
+                    {repo.name}
+                  </span>
+                  <span class="mt-1 flex min-w-0 items-center gap-2 text-xs font-normal text-muted-foreground">
+                    <Icon name="git-branch" size={12} />
+                    <span class="truncate" title={repo.branch}>
+                      {repo.branch}
+                    </span>
+                    <span class="shrink-0">
+                      {props.liveMode
+                        ? repo.capability === "browse"
+                          ? "Browse only"
+                          : "Workbench"
+                        : "Demo"}
+                    </span>
+                  </span>
+                </span>
+                <Icon
+                  name="chevron-right"
+                  class="shrink-0 text-muted-foreground"
+                />
+              </Button>
+            )}
+          </For>
+        </div>
       </Show>
       <Show when={!props.liveMode}>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -145,7 +158,8 @@ export const RepositoryLanding: Component<{
       </Show>
       <Show when={props.liveMode}>
         <p class="text-xs text-muted-foreground">
-          This server hosts one configured repository.
+          Browse source in every listed repository. Agent work stays in the
+          workbench.
         </p>
       </Show>
     </section>
@@ -213,6 +227,13 @@ export const RepositoryOverview: Component<{
               Demo
             </span>
           </Show>
+          <Show
+            when={props.liveMode && props.repository.capability === "browse"}
+          >
+            <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              Browse only
+            </span>
+          </Show>
         </div>
         <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
           <span class="inline-flex min-w-0 max-w-full items-center gap-1.5">
@@ -230,7 +251,13 @@ export const RepositoryOverview: Component<{
         </div>
       </div>
       <div class="overflow-hidden rounded-xl border bg-card">
-        <For each={destinations}>
+        <For
+          each={destinations.filter(
+            (destination) =>
+              props.repository.capability === "workbench" ||
+              ["tree", "diff"].includes(destination.id),
+          )}
+        >
           {(destination) => (
             <Button
               variant="ghost"

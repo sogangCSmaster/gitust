@@ -1,6 +1,12 @@
 # Alpha acceptance progress — 2026-10-17
 
-The repository Actions checkpoint `89a2062dda66a25356ab54c178afe3b20e01fae9`
+The explicit repository-registration checkpoint `d92b8fe0b6bf30ad8c4965a8ea39421f43052b16`
+passed [exact-source Linux/macOS CI](evidence/alpha-ci-d92b8fe-2026-10-17.json).
+Both platforms completed the mechanical gates, all ten operating tasks and crash
+recovery; tasks 9 and 10 exercised registered ACLs through relocated restoration
+and actual Git HTTP operations. Tasks 1 through 8 retained legacy sharing.
+
+The earlier repository Actions checkpoint `89a2062dda66a25356ab54c178afe3b20e01fae9`
 passed [exact-source Linux/macOS CI](evidence/alpha-ci-89a2062-2026-10-17.json),
 including all mechanical gates, six repository-page regressions, ten operating tasks
 and actual execution-crash recovery. The same automatic attempt was visible through

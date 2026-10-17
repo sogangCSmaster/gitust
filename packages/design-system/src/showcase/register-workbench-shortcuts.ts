@@ -1,9 +1,11 @@
 import { shortcutManager } from "../keyboard/shortcut-manager";
 import { toggleTheme } from "../tokens/theme";
 import type { AgentSandboxTask, IssueItem } from "../index";
+import type { ShortcutDefinition } from "../keyboard/shortcut-manager";
 import type { WorkbenchTab } from "./WorkbenchApp";
 
 export interface WorkbenchShortcutCallbacks {
+  isBrowseOnly?: () => boolean;
   getActiveTab: () => WorkbenchTab;
   setActiveTab: (tab: WorkbenchTab) => void;
   toggleCommandPalette: () => void;
@@ -39,8 +41,8 @@ export function registerWorkbenchShortcuts(
     }
     action();
   };
-  return [
-    shortcutManager.register({
+  const definitions: ShortcutDefinition[] = [
+    {
       id: "cmd.palette",
       title: "Open Command Palette",
       category: "Actions",
@@ -49,32 +51,32 @@ export function registerWorkbenchShortcuts(
       allowInInput: true,
       allowWhenModalOpen: true,
       handler: () => cb.toggleCommandPalette(),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "nav.swarm",
       title: "Go to worktrees",
       category: "Navigation",
       keys: "g w",
       description: "Review isolated changes and verification results.",
       handler: () => cb.setActiveTab("swarm"),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "nav.issues",
       title: "Go to issues & pull requests",
       category: "Navigation",
       keys: "g i",
       description: "Explore sample issues with keyboard navigation.",
       handler: () => cb.setActiveTab("issues"),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "nav.diff",
       title: "Go to changes",
       category: "Navigation",
       keys: "g d",
       description: "Browse repository commits and diffs.",
       handler: () => cb.setActiveTab("diff"),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "nav.actions",
       title: "Go to Actions",
       category: "Navigation",
@@ -82,32 +84,32 @@ export function registerWorkbenchShortcuts(
       description:
         "Browse automatic Checks; demo mode shows a sample pipeline.",
       handler: () => cb.setActiveTab("actions"),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "nav.admin",
       title: "Go to access & accounts",
       category: "Navigation",
       keys: "g s",
       description: "Manage your account, invitations and Git credentials.",
       handler: () => cb.setActiveTab("admin"),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "nav.tree",
       title: "Go to repository files",
       category: "Navigation",
       keys: "g t",
       description: "Search paths and preview repository files.",
       handler: () => cb.setActiveTab("tree"),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "nav.primitives",
       title: "Go to components",
       category: "Navigation",
       keys: "g p",
       description: "Explore the solid-ui component reference.",
       handler: () => cb.setActiveTab("primitives"),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "list.down",
       title: "Move Focus Down",
       category: "Issues & PRs",
@@ -123,8 +125,8 @@ export function registerWorkbenchShortcuts(
           cb.setFocusedIssueIdx((i) => Math.min(maxIdx, i + 1));
         }
       },
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "list.up",
       title: "Move Focus Up",
       category: "Issues & PRs",
@@ -140,8 +142,8 @@ export function registerWorkbenchShortcuts(
           cb.setFocusedIssueIdx((i) => Math.min(maxIdx, Math.max(0, i - 1)));
         }
       },
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "swarm.approve",
       title: "Approve & merge selected worktree",
       category: "Actions",
@@ -159,8 +161,8 @@ export function registerWorkbenchShortcuts(
           if (task) cb.approveAndMergeSwarmTask(task.id);
         }
       }),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "swarm.discard",
       title: "Discard selected worktree",
       category: "Actions",
@@ -177,8 +179,8 @@ export function registerWorkbenchShortcuts(
           if (task) cb.discardSwarmTask(task.id);
         }
       }),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "swarm.spawn",
       title: "Create worktree",
       category: "Actions",
@@ -186,8 +188,8 @@ export function registerWorkbenchShortcuts(
       description:
         "Create an isolated workspace. Demo mode uses sample worktrees.",
       handler: whenViewReady(() => cb.spawnBatchAgentSwarm()),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "issue.toggle",
       title: "Toggle selected demo issue status",
       category: "Issues & PRs",
@@ -202,24 +204,24 @@ export function registerWorkbenchShortcuts(
         const item = list[clampedIdx];
         if (item) cb.toggleIssueStatus(item.id);
       }),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "issue.create",
       title: "Create demo issue",
       category: "Issues & PRs",
       keys: "c",
       description: "Add an issue to the sample list.",
       handler: whenViewReady(() => cb.createOptimisticIssue()),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "actions.rerun",
       title: "Replay Actions demo",
       category: "Actions",
       keys: "r",
       description: "Reset sample jobs and logs.",
       handler: whenViewReady(() => cb.rerunAllActionJobs()),
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "filter.focus",
       title: "Search issues",
       category: "Actions",
@@ -229,8 +231,8 @@ export function registerWorkbenchShortcuts(
         cb.setActiveTab("issues");
         cb.focusFilterInput();
       },
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "view.theme",
       title: "Toggle light / dark theme",
       category: "View & Theme",
@@ -240,8 +242,8 @@ export function registerWorkbenchShortcuts(
         const next = toggleTheme();
         cb.showQuickFeedback(`Theme switched to ${next.toUpperCase()}`);
       },
-    }),
-    shortcutManager.register({
+    },
+    {
       id: "view.help",
       title: "Show keyboard shortcuts",
       category: "View & Theme",
@@ -249,6 +251,22 @@ export function registerWorkbenchShortcuts(
       description: "View navigation and action shortcuts.",
       allowWhenModalOpen: true,
       handler: () => cb.toggleShortcutsModal(),
-    }),
+    },
   ];
+  const primaryCommands = new Set([
+    "nav.swarm",
+    "nav.actions",
+    "swarm.approve",
+    "swarm.discard",
+    "swarm.spawn",
+    "actions.rerun",
+  ]);
+  return definitions.map((definition) =>
+    shortcutManager.register({
+      ...definition,
+      enabled: primaryCommands.has(definition.id)
+        ? () => !cb.isBrowseOnly?.()
+        : undefined,
+    }),
+  );
 }

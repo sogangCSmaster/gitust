@@ -42,12 +42,18 @@ beforeEach(() => {
         JSON.stringify(
           url.endsWith("/auth/me")
             ? { user_id: "admin", username: "Admin", role: "SiteAdmin" }
-            : url.endsWith("/api/v1/repo")
+            : url.endsWith("/api/v1/repos")
               ? {
-                  id: repoId,
-                  name: "real-actions-repo",
-                  branch: "main",
-                  head_commit: "c".repeat(40),
+                  repositories: [
+                    {
+                      id: repoId,
+                      name: "real-actions-repo",
+                      branch: "main",
+                      head_commit: "c".repeat(40),
+                      capability: "workbench",
+                      is_default: true,
+                    },
+                  ],
                 }
               : url.includes("/repo/automatic-runs")
                 ? {
@@ -64,9 +70,9 @@ beforeEach(() => {
                     ],
                     next_cursor: null,
                   }
-                : url.includes("/repo/commits")
+                : url.includes("/commits?")
                   ? { commits: [] }
-                  : url.includes("/repo/tree")
+                  : url.includes("/tree?")
                     ? { commit_sha: "c".repeat(40), entries: [] }
                     : [],
         ),

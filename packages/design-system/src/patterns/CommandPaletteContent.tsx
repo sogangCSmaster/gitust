@@ -20,19 +20,27 @@ export const CommandPaletteContent: Component<CommandPaletteProps> = (
   let searchInput: HTMLInputElement | undefined;
   onMount(() => searchInput?.focus());
   const commands = createMemo(() => {
-    const registered = shortcutManager.shortcuts();
+    const registered = shortcutManager
+      .shortcuts()
+      .filter((command) => command.enabled?.() !== false);
     const ids = new Set(registered.map((command) => command.id));
     return [
       ...registered,
-      ...(props.extraCommands ?? []).filter((command) => !ids.has(command.id)),
+      ...(props.extraCommands ?? []).filter(
+        (command) => !ids.has(command.id) && command.enabled?.() !== false,
+      ),
     ];
   });
   const categories = createMemo(() => [
     ...new Set(commands().map((command) => command.category)),
   ]);
   const execute = (command: ShortcutDefinition) => {
+    if (command.enabled?.() === false) return;
     props.onClose();
-    if (!shortcutManager.executeById(command.id))
+    if (
+      !shortcutManager.executeById(command.id) &&
+      command.enabled?.() !== false
+    )
       command.handler(new KeyboardEvent("keydown", { key: command.keys }));
   };
   return (

@@ -15,6 +15,8 @@ const repo = {
   name: "real-repo",
   branch: "trunk",
   headCommit: "a".repeat(40),
+  capability: "workbench" as const,
+  isDefault: true,
 };
 beforeAll(async () => {
   // Prepare the real lazy module before form interactions. Pending and rejected

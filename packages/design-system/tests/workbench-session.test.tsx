@@ -60,20 +60,26 @@ beforeEach(() => {
         JSON.stringify(
           url.endsWith("/auth/me")
             ? { user_id: "admin", username: "Admin", role: "SiteAdmin" }
-            : url.endsWith("/api/v1/repo")
+            : url.endsWith("/api/v1/repos")
               ? {
-                  id: "22222222-2222-4222-8222-222222222222",
-                  name: "real-repo",
-                  branch: "main",
-                  head_commit: "c".repeat(40),
+                  repositories: [
+                    {
+                      id: "22222222-2222-4222-8222-222222222222",
+                      name: "real-repo",
+                      branch: "main",
+                      head_commit: "c".repeat(40),
+                      capability: "workbench",
+                      is_default: true,
+                    },
+                  ],
                 }
               : url.endsWith("/swarm/worktrees")
                 ? [row]
-                : url.includes("/repo/commits")
+                : url.includes("/commits?")
                   ? { commits: [] }
-                  : url.includes("/repo/tree")
+                  : url.includes("/tree?")
                     ? { commit_sha: "c".repeat(40), entries: [] }
-                    : url.includes("/repo/diff")
+                    : url.includes("/diff?")
                       ? { files: [], lines: [] }
                       : [],
         ),
@@ -154,7 +160,10 @@ it("clears live rows on another tab's logout instead of allowing a fake live mer
     ).toBe(false),
   );
   const oldButton = screen.getByRole("button", { name: "Approve & merge" });
-  const mutations = () => fetcher.mock.calls.filter((call) => ["POST", "DELETE", "PUT", "PATCH"].includes(call[1]?.method));
+  const mutations = () =>
+    fetcher.mock.calls.filter((call) =>
+      ["POST", "DELETE", "PUT", "PATCH"].includes(call[1]?.method),
+    );
   const requests = mutations().length;
   storageChanged(null);
   expect(screen.getByText("Demo workspace")).toBeTruthy();
@@ -197,7 +206,7 @@ it("drops the old account and rows immediately when a replacement account is sti
 it("shows persistent partial-result notices in Changes and Repository files", async () => {
   const normalFetch = fetcher.getMockImplementation()!;
   fetcher.mockImplementation(async (url: string, options?: RequestInit) => {
-    if (url.includes("/repo/tree"))
+    if (url.includes("/tree?"))
       return new Response(
         JSON.stringify({
           entries: [{ path: "partial.txt", is_dir: false }],
@@ -205,7 +214,7 @@ it("shows persistent partial-result notices in Changes and Repository files", as
           truncated: true,
         }),
       );
-    if (url.includes("/repo/diff"))
+    if (url.includes("/diff?"))
       return new Response(
         JSON.stringify({
           files: [{ path: "partial.txt" }],
@@ -246,7 +255,7 @@ it("shows persistent partial-result notices in Changes and Repository files", as
 it("changes the selected diff file without displaying the aggregate multi-file content", async () => {
   const normalFetch = fetcher.getMockImplementation()!;
   fetcher.mockImplementation(async (url: string, options?: RequestInit) => {
-    if (url.includes("/repo/diff")) {
+    if (url.includes("/diff?")) {
       const path = new URL(url, "https://example.invalid").searchParams.get(
         "path",
       );
@@ -293,7 +302,7 @@ it("opens committed worktree changes at the displayed verified SHA and merge tar
   const normalFetch = fetcher.getMockImplementation()!;
   const base = "c".repeat(40);
   fetcher.mockImplementation(async (url: string, options?: RequestInit) => {
-    if (url.includes("/repo/diff"))
+    if (url.includes("/diff?"))
       return new Response(
         JSON.stringify({
           head_sha: row.verified_commit,
@@ -332,9 +341,7 @@ it("opens committed worktree changes at the displayed verified SHA and merge tar
   ).toBeTruthy();
   expect(screen.getByText("Base main")).toBeTruthy();
   expect(screen.getByText(base, { selector: "code" })).toBeTruthy();
-  const requests = fetcher.mock.calls.filter(([url]) =>
-    url.includes("/repo/diff"),
-  );
+  const requests = fetcher.mock.calls.filter(([url]) => url.includes("/diff?"));
   const query = new URL(requests.at(-1)![0], "https://example.invalid")
     .searchParams;
   expect(query.get("head")).toBe(row.verified_commit);
@@ -351,7 +358,7 @@ it("preserves an unknown worktree target and reports it instead of reviewing mai
   await renderConnectedWorkbench();
   await screen.findByRole("heading", { name: "REAL worktree", exact: true });
   const before = fetcher.mock.calls.filter(([url]) =>
-    url.includes("/repo/diff"),
+    url.includes("/diff?"),
   ).length;
   await fireEvent.click(
     screen.getByRole("button", {
@@ -363,7 +370,7 @@ it("preserves an unknown worktree target and reports it instead of reviewing mai
     selector: "p",
   });
   expect(
-    fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff")),
+    fetcher.mock.calls.filter(([url]) => url.includes("/diff?")),
   ).toHaveLength(before);
 });
 
@@ -382,11 +389,11 @@ it("does not expose live review in demo mode or dispatch a detached live opener 
     }),
   ).toBeNull();
   const requests = fetcher.mock.calls.filter(([url]) =>
-    url.includes("/repo/diff"),
+    url.includes("/diff?"),
   ).length;
   await fireEvent.click(button);
   expect(
-    fetcher.mock.calls.filter(([url]) => url.includes("/repo/diff")),
+    fetcher.mock.calls.filter(([url]) => url.includes("/diff?")),
   ).toHaveLength(requests);
 });
 
@@ -419,21 +426,21 @@ it("preserves password-reset access links when an old stored session is rejected
 it("keeps file previews separate from a selected worktree comparison across navigation", async () => {
   const normalFetch = fetcher.getMockImplementation()!;
   fetcher.mockImplementation(async (url: string, options?: RequestInit) => {
-    if (url.includes("/repo/tree"))
+    if (url.includes("/tree?"))
       return new Response(
         JSON.stringify({
           commit_sha: "c".repeat(40),
           entries: [{ path: "snapshot.txt", is_dir: false }],
         }),
       );
-    if (url.includes("/repo/blob"))
+    if (url.includes("/blob?"))
       return new Response(
         JSON.stringify({
           commit_sha: "c".repeat(40),
           content: "FILE SNAPSHOT CONTENT",
         }),
       );
-    if (url.includes("/repo/diff"))
+    if (url.includes("/diff?"))
       return new Response(
         JSON.stringify({
           head_sha: row.verified_commit,

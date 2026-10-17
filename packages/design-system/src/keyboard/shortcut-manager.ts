@@ -15,6 +15,8 @@ export interface ShortcutDefinition {
    * - Chord sequence (space-separated): "g i", "g p", "g c"
    */
   keys: string;
+  /** Current workspace capability; disabled commands are hidden and cannot be dispatched. */
+  enabled?: () => boolean;
   /** Handler invoked when matched */
   handler: (event: KeyboardEvent) => void;
   /** Optional subtitle or description */
@@ -90,7 +92,7 @@ class ShortcutManager {
   public executeById(id: string, syntheticEvent?: KeyboardEvent): boolean {
     const start = performance.now();
     const def = this.registry.get(id);
-    if (!def) return false;
+    if (!def || def.enabled?.() === false) return false;
 
     const ev =
       syntheticEvent ??
@@ -231,7 +233,7 @@ class ShortcutManager {
       const matchedChord = this.keyMap.get(chordCandidate);
       this.clearChord();
 
-      if (matchedChord) {
+      if (matchedChord && matchedChord.enabled?.() !== false) {
         event.preventDefault();
         event.stopPropagation();
         matchedChord.handler(event);
@@ -261,7 +263,7 @@ class ShortcutManager {
 
     // 3. Direct single-key or modifier shortcut match
     const directMatch = this.keyMap.get(token);
-    if (directMatch) {
+    if (directMatch && directMatch.enabled?.() !== false) {
       if (event.repeat && !directMatch.allowRepeat) {
         return;
       }

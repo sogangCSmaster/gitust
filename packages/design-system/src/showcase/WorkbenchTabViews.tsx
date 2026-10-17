@@ -61,6 +61,7 @@ export interface WorkbenchTabViewsProps {
   activeTab: WorkbenchTab;
   liveMode: boolean;
   repositoryId?: string;
+  canWorkbench?: boolean;
   swarmTasks: AgentSandboxTask[];
   focusedSwarmIdx: number;
   onFocusedSwarmIdxChange: (idx: number) => void;
@@ -112,7 +113,7 @@ export interface WorkbenchTabViewsProps {
 
 export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
   <>
-    <Show when={props.activeTab === "swarm"}>
+    <Show when={props.activeTab === "swarm" && props.canWorkbench !== false}>
       <PageHeading
         title="Worktrees"
         description="A separate space for every agent. Verify changes, then merge with confidence."
@@ -163,12 +164,16 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         />
       </DeferredView>
     </Show>
-    <Show when={props.activeTab === "diff"}>
+    <Show
+      when={
+        props.activeTab === "diff" && (!props.liveMode || props.repositoryId)
+      }
+    >
       <PageHeading
         title="Changes"
         description={
           props.liveMode
-            ? "Browse commits and inspect changes from the connected repository."
+            ? "Browse commits and inspect changes from the selected repository."
             : "Explore sample commits and a virtualized diff."
         }
       />
@@ -188,7 +193,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         />
       </DeferredView>
     </Show>
-    <Show when={props.activeTab === "actions"}>
+    <Show when={props.activeTab === "actions" && props.canWorkbench !== false}>
       <PageHeading
         title="Actions"
         description={
@@ -238,12 +243,16 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         />
       </DeferredView>
     </Show>
-    <Show when={props.activeTab === "tree"}>
+    <Show
+      when={
+        props.activeTab === "tree" && (!props.liveMode || props.repositoryId)
+      }
+    >
       <PageHeading
         title="Repository files"
         description={
           props.liveMode
-            ? "Search paths and open files from the connected repository."
+            ? "Search paths and open files from the selected repository."
             : "Browse a sample repository file tree."
         }
       />

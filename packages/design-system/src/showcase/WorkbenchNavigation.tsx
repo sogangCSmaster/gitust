@@ -87,6 +87,7 @@ export const WorkbenchNavigation: Component<{
   items: WorkbenchNavItem[];
   active: WorkbenchTab;
   repositoryName?: string;
+  browseOnly?: boolean;
   liveMode: boolean;
   username?: string;
   onSelect: (tab: WorkbenchTab) => void;
@@ -103,7 +104,13 @@ export const WorkbenchNavigation: Component<{
   };
   const menu = (group: WorkbenchNavItem["group"]) => (
     <SidebarMenu>
-      <For each={props.items.filter((item) => item.group === group)}>
+      <For
+        each={props.items.filter(
+          (item) =>
+            item.group === group &&
+            (!props.browseOnly || !["swarm", "actions"].includes(item.id)),
+        )}
+      >
         {(item) => (
           <SidebarMenuItem>
             <SidebarMenuButton

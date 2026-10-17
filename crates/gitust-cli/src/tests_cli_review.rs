@@ -154,3 +154,33 @@ fn cli_discard_is_not_blocked_by_an_unrelated_corrupt_approval() {
     assert!(worktrees[0].worktree_dir.exists());
     assert_eq!(std::fs::read_to_string(corrupt).unwrap(), "not json");
 }
+
+#[test]
+fn read_only_repository_flags_are_explicit_and_do_not_replace_the_primary() {
+    use clap::Parser;
+    let parsed = crate::Cli::try_parse_from([
+        "gitust",
+        "serve",
+        "--repo",
+        "/primary",
+        "--read-only-repo",
+        "/secondary-a",
+        "--read-only-repo",
+        "/secondary-b",
+    ])
+    .unwrap();
+    match parsed.command {
+        crate::Commands::Serve {
+            repo,
+            read_only_repos,
+            ..
+        } => {
+            assert_eq!(repo, std::path::PathBuf::from("/primary"));
+            assert_eq!(
+                read_only_repos,
+                ["/secondary-a", "/secondary-b"].map(std::path::PathBuf::from)
+            );
+        }
+        _ => panic!("expected serve"),
+    }
+}

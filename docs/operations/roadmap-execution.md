@@ -41,8 +41,9 @@ phase or replace its remaining requirements.
 Repository CI is a development verification tool. It does not implement the
 GitHub Actions-compatible execution engine inside Gitust. Likewise, current MCP
 OAuth is agent authorization, not enterprise account SSO; SSH key registration
-is not an SSH Git server; and AuthStore repository metadata is not an operational
-multi-repository registry.
+is not an SSH Git server. Metadata-only AuthStore repository records do not create
+Git services; the operator-configured catalog includes only opened repositories,
+and additional repositories currently support browsing rather than worktree execution.
 
 ## Work protocol
 

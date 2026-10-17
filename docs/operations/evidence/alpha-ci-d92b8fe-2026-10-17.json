@@ -1,0 +1,269 @@
+{
+  "id": 39020106537,
+  "html_url": "https://github.com/sogangCSmaster/gitust/actions/runs/39020106537",
+  "head_sha": "d92b8fe0b6bf30ad8c4965a8ea39421f43052b16",
+  "run_attempt": 1,
+  "status": "completed",
+  "conclusion": "success",
+  "created_at": "2026-10-17T09:10:21Z",
+  "updated_at": "2026-10-17T09:14:47Z",
+  "jobs": [
+    {
+      "id": 117360055054,
+      "name": "Verify and rehearse (ubuntu-22.04)",
+      "started_at": "2026-10-17T09:10:24Z",
+      "completed_at": "2026-10-17T09:14:46Z",
+      "status": "completed",
+      "conclusion": "success",
+      "required_steps": {
+        "Require an executable OS sandbox": "success",
+        "Run every mechanical gate": "success",
+        "Run the real ten-task operating rehearsal": "success",
+        "Record only public rehearsal evidence": "success",
+        "Reject unsafe service restart after an interrupted command": "success"
+      },
+      "observed_rust_test_summaries": [
+        {
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 32,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 107,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 30,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 113,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "observed_frontend_test_summaries": [
+        {
+          "kind": "Test Files",
+          "passed": 29,
+          "total": 29
+        },
+        {
+          "kind": "Tests",
+          "passed": 212,
+          "total": 212
+        }
+      ],
+      "registration_test_names_passed": [
+        "tests::registration_email_limit_counts_utf8_bytes",
+        "tests::tests_auth::http_gate_public_registration_and_unauthenticated_worktrees_blocked",
+        "tests::tests_external_review::authorization_rejects_unknown_scopes_and_registration_rejects_malformed_redirects",
+        "tests::tests_external_review::saturated_dynamic_registration_keeps_existing_clients_and_rejects_new_ones",
+        "tests::tests_repository_registration::explicit_registration_requires_both_anchors_and_never_upgrades_a_running_legacy_scope",
+        "tests_repository_registration::receipt_retry_preserves_identity_and_never_overwrites_a_conflicting_anchor",
+        "tests_repository_registration::registration_pairs_retry_without_adoption_and_pinned_access_never_falls_back",
+        "tests_repository_registration::registration_retry_cannot_skip_a_failed_directory_sync",
+        "tests_repository_registration::snapshots_reject_duplicate_or_unrecognized_registration_records",
+        "tests_repository_registration::unsafe_or_partial_receipts_are_not_absence_and_are_never_deleted_by_retry",
+        "tests_review_regressions::revoked_ssh_key_can_be_registered_again_and_survives_reopen"
+      ],
+      "completed_task_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "mechanical_gate_passed": true,
+      "crash_rehearsal_passed": true,
+      "log_sha256_ansi_normalized": "1c51f15a646971b6f8df1a529261e1cae03bd5b345a5d130774d2c71a95002dc",
+      "platform": "Linux",
+      "sandbox_backend": "linux_bubblewrap",
+      "alpha_assertions": {
+        "registered_repository_acl_and_restore": true,
+        "registered_task_ids": [
+          9,
+          10
+        ],
+        "repository_identity_preserved_after_restart_and_restore": true,
+        "mcp_clients": 2,
+        "external_github_publication": false,
+        "git_fsck": "server, local upstream and HTTP client passed --full --strict"
+      },
+      "lifecycle_assertions": {
+        "automatic_attempt_retained_as_interrupted": true,
+        "repository_actions_running_and_interrupted": true,
+        "same_attempt_id_binding_checked": true,
+        "interrupted_automatic_attempt_replayed": false,
+        "verification_restored": false,
+        "git_fsck": "passed"
+      }
+    },
+    {
+      "id": 117360055078,
+      "name": "Verify and rehearse (macos-15)",
+      "started_at": "2026-10-17T09:10:27Z",
+      "completed_at": "2026-10-17T09:14:03Z",
+      "status": "completed",
+      "conclusion": "success",
+      "required_steps": {
+        "Require an executable OS sandbox": "success",
+        "Run every mechanical gate": "success",
+        "Run the real ten-task operating rehearsal": "success",
+        "Record only public rehearsal evidence": "success",
+        "Reject unsafe service restart after an interrupted command": "success"
+      },
+      "observed_rust_test_summaries": [
+        {
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 32,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 107,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 30,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 113,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "observed_frontend_test_summaries": [
+        {
+          "kind": "Test Files",
+          "passed": 29,
+          "total": 29
+        },
+        {
+          "kind": "Tests",
+          "passed": 212,
+          "total": 212
+        }
+      ],
+      "registration_test_names_passed": [
+        "tests::registration_email_limit_counts_utf8_bytes",
+        "tests::tests_auth::http_gate_public_registration_and_unauthenticated_worktrees_blocked",
+        "tests::tests_external_review::authorization_rejects_unknown_scopes_and_registration_rejects_malformed_redirects",
+        "tests::tests_external_review::saturated_dynamic_registration_keeps_existing_clients_and_rejects_new_ones",
+        "tests::tests_repository_registration::explicit_registration_requires_both_anchors_and_never_upgrades_a_running_legacy_scope",
+        "tests_repository_registration::receipt_retry_preserves_identity_and_never_overwrites_a_conflicting_anchor",
+        "tests_repository_registration::registration_pairs_retry_without_adoption_and_pinned_access_never_falls_back",
+        "tests_repository_registration::registration_retry_cannot_skip_a_failed_directory_sync",
+        "tests_repository_registration::snapshots_reject_duplicate_or_unrecognized_registration_records",
+        "tests_repository_registration::unsafe_or_partial_receipts_are_not_absence_and_are_never_deleted_by_retry",
+        "tests_review_regressions::revoked_ssh_key_can_be_registered_again_and_survives_reopen"
+      ],
+      "completed_task_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "mechanical_gate_passed": true,
+      "crash_rehearsal_passed": true,
+      "log_sha256_ansi_normalized": "f9c57c9e8ca4d2265c805c7bfe01a407c92af64082dc76c02cca53ac8c67b44d",
+      "platform": "Darwin",
+      "sandbox_backend": "macos_seatbelt",
+      "alpha_assertions": {
+        "registered_repository_acl_and_restore": true,
+        "registered_task_ids": [
+          9,
+          10
+        ],
+        "repository_identity_preserved_after_restart_and_restore": true,
+        "mcp_clients": 2,
+        "external_github_publication": false,
+        "git_fsck": "server, local upstream and HTTP client passed --full --strict"
+      },
+      "lifecycle_assertions": {
+        "automatic_attempt_retained_as_interrupted": true,
+        "repository_actions_running_and_interrupted": true,
+        "same_attempt_id_binding_checked": true,
+        "interrupted_automatic_attempt_replayed": false,
+        "verification_restored": false,
+        "git_fsck": "passed"
+      }
+    }
+  ],
+  "proof_source": "Successful fixed-script require -> private report -> CI validator path, together with observed PASS 01..10 and mechanical/crash completion markers. No raw private runtime JSON collected.",
+  "source_files": {
+    "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+    "scripts/execution-crash-rehearsal.py": "a59581087b2936af7e3305e8fbdd69d8cab4f41ee47954ab64e60f9133ea92ea",
+    ".github/workflows/ci.yml": "c10bff786c048d2623d9067ba72ea0b648b5ed29d6effe86c964d5a233f4d769"
+  },
+  "limitations": [
+    "Tasks 1 through 8 retain the legacy unbound scope; tasks 9 and 10 execute after explicit registration.",
+    "Native IDE agent proof remains incomplete.",
+    "Actual GitHub product publication remains deferred by the user."
+  ]
+}

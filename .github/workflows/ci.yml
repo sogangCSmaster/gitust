@@ -138,6 +138,34 @@ jobs:
               output.write("### Real operating rehearsal\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY
 
+      - name: Verify two real repositories and startup rollback
+        run: |
+          python3 scripts/multi-repository-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-multi-repository.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-multi-repository.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          expected_platform = {"Linux": "Linux", "macOS": "Darwin"}[os.environ["RUNNER_OS"]]
+          if (report["source_commit"] != expected or report["runtime_worktree_dirty"] is not False
+              or report["platform"] != expected_platform or report["actual_repositories"] != 2
+              or report["external_github_publication"] is not False):
+              raise SystemExit("The multi-repository rehearsal has invalid source or scope evidence")
+          checks = ["passed", "team_filtered_catalog", "independent_git_read_oracles",
+                    "primary_only_mutations", "revoked_and_deactivated_denied",
+                    "restart_identity_preserved", "partial_startup_locks_released",
+                    "duplicate_repository_rejected", "git_fsck"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("The multi-repository rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "actual_repositories", "external_github_publication", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### Two real repositories\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
       - name: Reject unsafe service restart after an interrupted command
         run: |
           python3 scripts/execution-crash-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-execution-crash.json"

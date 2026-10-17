@@ -39,9 +39,9 @@ beforeEach(async () => {
   vi.stubGlobal("window", { localStorage: { getItem: () => token } });
   fetcher = vi.fn(async (url: string) =>
     response(
-      url.includes("/repo/commits")
+      url.includes("/commits?")
         ? { commits: [] }
-        : url.includes("/repo/tree")
+        : url.includes("/tree?")
           ? {
               commit_sha: tree,
               entries: [{ path: "source.txt", is_dir: false }],
@@ -51,6 +51,8 @@ beforeEach(async () => {
   );
   vi.stubGlobal("fetch", fetcher);
   client = createLiveRepoClient({
+    getRepositoryId: () => "11111111-1111-4111-8111-111111111111",
+    canWorkbench: () => true,
     setActiveCommitRev: (value) => {
       revision = value;
     },

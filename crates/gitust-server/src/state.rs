@@ -120,6 +120,9 @@ pub(crate) use crate::quota::{RunStatusGuard, SpawnLifecycle, SpawnReservation};
 
 #[derive(Clone)]
 pub struct AppState {
+    #[cfg(test)]
+    pub(crate) repository_read_hook: Arc<Mutex<Option<crate::repository_reads::TestHook>>>,
+    pub(crate) repository_registry: Option<Arc<crate::repository_registry::RepositoryRegistry>>,
     pub(crate) automatic_checks: Arc<crate::automatic_checks::AutomaticChecks>,
     pub repo_id: RepoId,
     pub(crate) repo_access: gitust_core::RepoAccess,
@@ -235,6 +238,9 @@ impl AppState {
             created_at: Utc::now() - Duration::seconds(1),
         });
         Ok(Self {
+            repository_registry: None,
+            #[cfg(test)]
+            repository_read_hook: Arc::new(Mutex::new(None)),
             automatic_checks: Arc::new(crate::automatic_checks::AutomaticChecks::default()),
             repo_id,
             repo_access,

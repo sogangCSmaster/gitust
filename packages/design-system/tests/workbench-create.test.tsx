@@ -68,7 +68,10 @@ afterEach(() => {
 it("lets a Developer create from the connected trunk branch and selects the returned worktree", async () => {
   let createdBody: Record<string, string> | undefined;
   const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
-    if (url.endsWith("/api/v1/repo")) return response(repo);
+    if (url.endsWith("/api/v1/repos"))
+      return response({
+        repositories: [{ ...repo, capability: "workbench", is_default: true }],
+      });
     if (url.endsWith("/auth/me"))
       return response({
         user_id: "developer",
@@ -84,10 +87,10 @@ it("lets a Developer create from the connected trunk branch and selects the retu
       });
     }
     if (url.endsWith("/swarm/worktrees")) return response([row]);
-    if (url.includes("/repo/tree"))
+    if (url.includes("/tree?"))
       return response({ commit_sha: repo.head_commit, entries: [] });
-    if (url.includes("/repo/commits")) return response({ commits: [] });
-    if (url.includes("/repo/diff"))
+    if (url.includes("/commits?")) return response({ commits: [] });
+    if (url.includes("/diff?"))
       return response({
         head_sha: repo.head_commit,
         base_sha: "b".repeat(40),

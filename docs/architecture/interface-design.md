@@ -9,11 +9,14 @@ an Apple product or an official Apple design.
 
 - **Workspace:** Repositories and Access are global destinations. The sidebar
   brand is a single logo button; repeated product and workspace labels are omitted.
-- **Repository:** Open a repository to see Overview, Worktrees, Files, and Changes,
-  plus live Actions diagnostics for SiteAdmins. Actions groups retained automatic
-  attempts by worktree and opens the exact run in Activity; it has no execution controls.
-  A visible back action returns to Repositories. The current server exposes one
-  configured repository; this screen does not imply multi-repository provisioning.
+- **Repository:** The searchable live list contains authorized hosted repositories,
+  excluding metadata-only ACL records. The primary workbench has Overview,
+  Worktrees, Files, Changes and live Actions diagnostics for SiteAdmins. A secondary
+  repository is labelled **Browse only** and offers Overview, Files and Changes;
+  primary worktree actions, history, synchronization and their commands are absent.
+  Actions opens the exact retained run in Activity and has no execution controls.
+  A visible back action returns to Repositories. Hosting configuration remains an
+  operator task; this screen does not provision repositories.
 - **Previews:** Issues, signed-out Actions, and Components are grouped separately
   as previews. Their sample data never establishes live capabilities.
 
@@ -54,6 +57,10 @@ component system. Both light and dark themes are supported.
 Pending or failed view downloads must block state-changing shortcuts, including
 commands invoked through the palette. Navigation and recovery remain available.
 Nested popup content must retain its owning modal's accessibility and focus scope.
+Every live read uses the selected repository UUID. Changing the selection or session
+clears the old view and invalidates pending responses, including late body reads.
+A removed or denied repository returns to the list rather than falling back to the
+primary repository or showing a previous repository's content.
 
 Responsive viewport checks establish browser layout behavior, not physical device
 or assistive-technology certification. The JavaScript bundle remains above the

@@ -240,4 +240,29 @@ async fn required_checks_timeout_clears_previous_evidence_and_releases_worktree(
         .exec_lock
         .try_lock()
         .is_ok());
+    // Releasing the in-memory mutex does not authorize reuse after uncertain process cleanup.
+    let runtime = state.get_worktree_runtime(wt.id).unwrap();
+    let before = serde_json::to_value(
+        crate::run_history::read(&runtime.common_git_dir, wt.id, &wt.branch).unwrap(),
+    )
+    .unwrap();
+    let (status, _) = run(&app, &token, &wt, "true").await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = call(
+        &app,
+        "DELETE",
+        format!("/api/v1/swarm/worktrees/{}", wt.id.0),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(runtime.worktree_dir.exists());
+    assert_eq!(
+        serde_json::to_value(
+            crate::run_history::read(&runtime.common_git_dir, wt.id, &wt.branch).unwrap()
+        )
+        .unwrap(),
+        before
+    );
 }

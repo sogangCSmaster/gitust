@@ -280,13 +280,68 @@ async fn automatic_checks_require_trusted_mode_ownership_and_live_admin() {
 }
 
 #[cfg(unix)]
+struct HostProcess {
+    pid: i32,
+    parent: i32,
+    group: i32,
+    zombie: bool,
+    matches_nonce: bool,
+}
+
+#[cfg(unix)]
+async fn host_processes(nonce: &str) -> Vec<HostProcess> {
+    let nonce = nonce.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let output = std::process::Command::new("ps")
+            .args(["-axww", "-o", "pid=,ppid=,pgid=,stat=,args="])
+            .output()
+            .expect("spawn host process observer");
+        assert!(output.status.success(), "host process observer failed");
+        let stdout = String::from_utf8(output.stdout).expect("host process list is UTF-8");
+        let processes: Vec<_> = stdout
+            .lines()
+            .map(|line| {
+                let mut columns = line.split_whitespace();
+                let mut number = || {
+                    columns
+                        .next()
+                        .expect("host process numeric column")
+                        .parse::<i32>()
+                        .expect("host process numeric value")
+                };
+                let pid = number();
+                let parent = number();
+                let group = number();
+                assert!(pid > 0 && parent >= 0 && group >= 0);
+                let state = columns.next().expect("host process state");
+                HostProcess {
+                    pid,
+                    parent,
+                    group,
+                    zombie: state.starts_with('Z'),
+                    matches_nonce: columns.any(|argument| argument.contains(&nonce)),
+                }
+            })
+            .collect();
+        assert!(
+            !processes.is_empty(),
+            "host process observer returned no rows"
+        );
+        processes
+    })
+    .await
+    .expect("host process observer completed")
+}
+
+#[cfg(unix)]
 #[tokio::test]
 async fn stopping_service_cancels_an_active_automatic_command_and_releases_its_lock() {
     let (tmp, state, _app, token, wt, dir) = fixture().await;
+    let nonce = format!("gitust-cancel-{}", uuid::Uuid::new_v4());
     policy(
         &tmp.path().join("repo"),
         true,
-        "echo $$ > automatic.pid; touch automatic.started; sleep 10; touch automatic.finished",
+        &format!(": {nonce}; touch automatic.started; sleep 10; touch automatic.finished"),
     );
     let service = crate::automatic_checks::start(&state).unwrap();
     let caller = state.auth_store.authenticate_session(&token).unwrap();
@@ -300,12 +355,29 @@ async fn stopping_service_cancels_an_active_automatic_command_and_releases_its_l
     .await
     .expect("automatic command started");
     assert_eq!(state.worktrees.read()[0].status, WorktreeStatus::Compiling);
-    let pid: i32 = std::fs::read_to_string(dir.join("automatic.pid"))
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
-    assert!(pid > 0);
+    // Bubblewrap's shell PID belongs to its namespace; resolve host groups before cancellation.
+    let processes = host_processes(&nonce).await;
+    let matching: Vec<_> = processes
+        .iter()
+        .filter(|process| process.matches_nonce && !process.zombie)
+        .collect();
+    assert!(
+        !matching.is_empty(),
+        "automatic command is alive on the host"
+    );
+    let groups: std::collections::BTreeSet<_> =
+        matching.iter().map(|process| process.group).collect();
+    assert!(groups.iter().all(|group| *group > 1));
+    let parent = i32::try_from(std::process::id()).unwrap();
+    let direct_children: Vec<_> = matching
+        .iter()
+        .filter(|process| process.parent == parent)
+        .map(|process| process.pid)
+        .collect();
+    assert!(
+        !direct_children.is_empty(),
+        "host sandbox child is observed"
+    );
     drop(service);
     let runtime = state.get_worktree_runtime(wt.id).unwrap();
     let _guard = tokio::time::timeout(std::time::Duration::from_secs(5), runtime.exec_lock.lock())
@@ -314,12 +386,22 @@ async fn stopping_service_cancels_an_active_automatic_command_and_releases_its_l
     assert_eq!(state.worktrees.read()[0].status, WorktreeStatus::Failed);
     assert!(state.worktrees.read()[0].verified_commit.is_none());
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while unsafe { libc::kill(-pid, 0) } == 0 {
+        loop {
+            let processes = host_processes(&nonce).await;
+            let running = processes
+                .iter()
+                .any(|process| groups.contains(&process.group) && !process.zombie);
+            let unreaped_child = processes
+                .iter()
+                .any(|process| direct_children.contains(&process.pid));
+            if !running && !unreaped_child {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     })
     .await
-    .expect("automatic process group stopped");
+    .expect("host sandbox groups stopped and direct children reaped");
     assert!(!dir.join("automatic.finished").exists());
     assert!(
         crate::run_history::read(&runtime.common_git_dir, wt.id, &wt.branch)

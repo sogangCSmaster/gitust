@@ -169,3 +169,27 @@ async fn each_step_cleans_its_background_processes_before_the_next_step() {
     assert_eq!(result.stdout, "requestedchecked");
     assert!(!spec.workdir.join("background-leaked").exists());
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn failed_scratch_cleanup_cannot_report_a_completed_command() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_tmp, spec) = fixture();
+    let result = LocalSandboxExecutor::new(1)
+        .execute(WorktreeId::new(), &spec, "chmod 000 \"$HOME/..\"")
+        .await;
+    // Restore access for the test fixture's cleanup, even when the assertion fails.
+    for entry in std::fs::read_dir(&spec.scratch_base).unwrap() {
+        let path = entry.unwrap().path();
+        match std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("restore scratch permissions: {error}"),
+        }
+    }
+    assert!(matches!(
+        result,
+        Err(SandboxError::CleanupIncomplete { .. })
+    ));
+}

@@ -125,6 +125,7 @@ In the workbench, run verification, inspect the result, select **Approve & Merge
 - [MCP commits, supported Git normalization, and interrupted-commit recovery](docs/architecture/mcp-commits.md)
 - [Approval, publication, recovery, and CLI examples](docs/architecture/outbound-sync.md)
 - [Offline installation backup and relocated restoration](docs/operations/backup-restore.md)
+- [Interrupted execution fences and explicit operator recovery](docs/operations/execution-recovery.md)
 
 Local `triage approve` is an explicit operator action: it does not automatically run Checks or consume server verification evidence. Use HTTP/workbench approval when enforcing server verification policy.
 

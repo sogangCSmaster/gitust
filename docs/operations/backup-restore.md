@@ -200,3 +200,11 @@ For acceptance, record the backup identifier, binary/Git/OS versions, copied pat
 - Backup encryption, retention, off-host storage, credential rotation, and service-manager shutdown are operator responsibilities. This runbook does not claim a completed macOS/Linux deployment recovery rehearsal.
 
 The pointer-reconnection example was checked with a disposable normal repository and a linked worktree using Git 2.52.0: the copied layout resolved to its copied common directory, original pointers were unchanged, and main/linked `git fsck --full --strict` passed. That check validates the Git relocation step only, not full Gitust or cross-platform recovery.
+
+## Interrupted execution precondition
+
+The backup command also rejects unresolved execution fences, even if the crashed
+server's OS lock has already been released. Stop every prior command and follow
+the [explicit recovery procedure](execution-recovery.md) before taking a new
+snapshot. Restoring or relocating an installation must preserve these fences;
+it must not automatically clear evidence of a possibly live command.

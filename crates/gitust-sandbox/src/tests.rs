@@ -95,6 +95,9 @@ async fn gate_7_4_sandbox_isolation() {
     let m = mk("agent/claude/sandbox-gate");
     let sibling = mk("agent/cursor/sibling");
     fs::write(sibling.worktree_dir.join("SIBLING.txt"), "SIBLING_CONTENT").expect("write");
+    let executions = m.common_git_dir.join("gitust-active-executions");
+    fs::create_dir_all(&executions).expect("mkdir executions");
+    fs::write(executions.join("private.json"), "PRIVATE_EXECUTION_FENCE").expect("write fence");
     let spec = spec_for(&m);
     let exec = LocalSandboxExecutor::new(4).with_timeout_secs(10);
     let run = |cmd: String| {
@@ -146,6 +149,7 @@ async fn gate_7_4_sandbox_isolation() {
         format!("git --git-dir='{common}' show stash@{{0}}^3:.env"),
         format!("cat '{common}/refs/stash'"),
         format!("cat '{common}/logs/HEAD'"),
+        format!("cat '{common}/gitust-active-executions/private.json'"),
         format!("cat '{}/index'", sibling.worktree_admin_dir.display()),
     ] {
         let res = run(probe.clone()).await;
@@ -155,6 +159,7 @@ async fn gate_7_4_sandbox_isolation() {
             res.stdout
         );
         assert!(!res.stdout.contains("SECRET"), "{probe} leaked a secret");
+        assert!(!res.stdout.contains("PRIVATE_EXECUTION_FENCE"));
     }
 
     let admin_listing = run(format!("ls '{common}/worktrees'")).await;

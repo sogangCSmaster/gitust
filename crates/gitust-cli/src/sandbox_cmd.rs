@@ -163,11 +163,18 @@ pub(crate) async fn run_cli_sandbox(
         &m.worktrees_base,
         &m.sandbox_scratch_base,
     );
+    let fence_engine = engine.clone();
+    let target = m.worktree.clone();
+    let execution_guard = tokio::task::spawn_blocking(move || {
+        let fence = fence_engine.begin_execution_fence(&target)?;
+        Ok::<_, gitust_git::GitEngineError>((fence, guard))
+    })
+    .await??;
 
     let executor = LocalSandboxExecutor::new(1).with_timeout_secs(timeout_secs);
     // Biased select checks for a pending Ctrl-C (including one received during checkout) before
     // polling execution; dropping the execution future kills the sandboxed process group, and
-    // `CliWorktreeGuard` always cleans up the worktree.
+    // An uncertain interruption retains the execution fence and preserves the checkout.
     #[cfg(unix)]
     let outcome = tokio::select! {
         biased;
@@ -183,14 +190,26 @@ pub(crate) async fn run_cli_sandbox(
     };
 
     let Some(outcome) = outcome else {
+        let (fence, guard) = execution_guard;
+        drop(fence);
         guard.finish().await;
         eprintln!("[gitust sandbox] interrupted");
         return Ok(130);
     };
+    let (fence, guard) = execution_guard;
     let materialize_micros = m.worktree.materialize_micros;
+    let res = match outcome {
+        Ok(res) => {
+            tokio::task::spawn_blocking(move || fence.complete()).await??;
+            res
+        }
+        Err(error) => {
+            drop(fence);
+            guard.finish().await;
+            return Err(error.into());
+        }
+    };
     guard.finish().await;
-
-    let res = outcome?;
     if !res.stdout.is_empty() {
         print!("{}", res.stdout);
     }
@@ -202,4 +221,17 @@ pub(crate) async fn run_cli_sandbox(
         res.backend, materialize_micros, res.duration_ms, res.exit_code
     );
     Ok(res.exit_code)
+}
+
+pub(crate) async fn recover_cli_sandbox(repo: &Path, acknowledged: bool) -> Result<()> {
+    if !acknowledged {
+        anyhow::bail!("stop every prior sandbox command before explicitly acknowledging recovery");
+    }
+    let engine = GitEngine::new(repo);
+    let count = tokio::task::spawn_blocking(move || {
+        engine.recover_execution_fences_after_operator_confirmation()
+    })
+    .await??;
+    println!("Cleared {count} interrupted execution fences after operator confirmation. Reverify pending work before approval.");
+    Ok(())
 }

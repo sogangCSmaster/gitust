@@ -16,13 +16,17 @@ mod browse;
 mod checks;
 mod config_guard;
 mod diff;
+mod execution_fence;
 mod mirror;
 mod mirror_init;
 mod outbound;
 mod process;
+mod service_lock;
 mod smart_http;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_execution_fence;
 #[cfg(test)]
 mod tests_outbound;
 mod verification;
@@ -55,8 +59,11 @@ pub use diff::{
     DiffLineKind, RepoDiffFileSummary, RepoDiffLine, RepoDiffSnapshot, MAX_DIFF_BYTES,
     MAX_DIFF_LINES,
 };
+pub use execution_fence::ExecutionFence;
 pub use mirror::InboundMirrorSyncOutcome;
 pub(crate) use process::{git_command, run_git};
+pub use service_lock::WorktreeServiceLock;
+use service_lock::WorktreeServiceLockInner;
 pub use smart_http::{
     inspect_receive_pack_updates, ReceivePackRefUpdate, SmartHttpService,
     MAX_SMART_HTTP_BODY_BYTES, SMART_HTTP_TIMEOUT,
@@ -76,6 +83,8 @@ pub(crate) const SANDBOX_SCRATCH_DIR_NAME: &str = "gitust-sandbox-scratch";
 
 #[derive(Debug, Error)]
 pub enum GitEngineError {
+    #[error("execution lifetime fence: {0}")]
+    ExecutionFence(String),
     #[error("verification invalid: {0}")]
     VerificationInvalid(String),
     #[error("worktree approval state error: {0}")]
@@ -168,23 +177,6 @@ pub struct RepoHeadSnapshot {
     pub root_entries: Vec<GitTreeEntry>,
     pub lookup_micros: u64,
 }
-
-/// Exclusive OS file lock guard for `<common_git_dir>/gitust-worktree-service.lock`.
-///
-/// Explicitly calls `File::unlock()` (`flock(fd, LOCK_UN)`) on [`Drop`] before closing the file
-/// descriptor so that concurrent `fork()`/`execve()` calls in other threads never prolong the lock.
-#[derive(Debug)]
-pub(crate) struct WorktreeServiceLockInner(fs::File);
-
-impl Drop for WorktreeServiceLockInner {
-    fn drop(&mut self) {
-        // fail-open-ok: best-effort explicit flock release in Drop before OS fd close.
-        let _ = self.0.unlock();
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct WorktreeServiceLock(#[allow(dead_code)] Arc<WorktreeServiceLockInner>);
 
 /// Default overall ceiling for incremental `git fetch` (5 minutes), paired with 30s stall detection.
 pub const DEFAULT_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
@@ -381,65 +373,6 @@ impl GitEngine {
             })
             // fail-open-ok: bare repositories intentionally store managed checkouts beneath their common Git directory.
             .unwrap_or_else(|| common_git_dir.join(WORKTREES_DIR_NAME))
-    }
-
-    /// Acquires an exclusive non-blocking OS file lock (`gitust-worktree-service.lock`) inside
-    /// the canonical common `.git` directory.
-    ///
-    /// Re-entrant across clones of the same `GitEngine` instance (e.g. inside a single `AppState`),
-    /// while strictly rejecting any second `GitEngine` instance or external OS process.
-    pub fn lock_worktree_service(&self) -> Result<WorktreeServiceLock, GitEngineError> {
-        let repo = self.acquire_repo()?;
-        let path = Self::common_git_dir(&repo).join("gitust-worktree-service.lock");
-        self.lock_worktree_service_path(&path)
-    }
-
-    pub(crate) fn lock_worktree_service_path(
-        &self,
-        path: &Path,
-    ) -> Result<WorktreeServiceLock, GitEngineError> {
-        // fail-open-ok: this mutex only caches a Weak OS-lock handle; poisoned cache recovery still requires a live handle or a new exclusive OS lock.
-        let mut slot = self.service_lock.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(existing) = slot.upgrade() {
-            return Ok(WorktreeServiceLock(existing));
-        }
-        let mut opts = fs::File::options();
-        opts.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        }
-        let lock = opts.open(path).map_err(|e| io_err(path, &e))?;
-        let meta = lock.metadata().map_err(|e| io_err(path, &e))?;
-        if !meta.is_file() {
-            return Err(io_err(
-                path,
-                &std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "worktree service lock path is not a regular file",
-                ),
-            ));
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if meta.permissions().mode() & 0o777 != 0o600 {
-                lock.set_permissions(fs::Permissions::from_mode(0o600))
-                    .map_err(|e| io_err(path, &e))?;
-            }
-        }
-        match lock.try_lock() {
-            Ok(()) => {
-                let inner = Arc::new(WorktreeServiceLockInner(lock));
-                *slot = Arc::downgrade(&inner);
-                Ok(WorktreeServiceLock(inner))
-            }
-            Err(fs::TryLockError::WouldBlock) => {
-                Err(GitEngineError::WorktreeServiceBusy(path.to_path_buf()))
-            }
-            Err(fs::TryLockError::Error(e)) => Err(io_err(path, &e)),
-        }
     }
 
     /// Runs `git fsck --full --strict` against a repository or worktree path (Verification Gate 7.4).

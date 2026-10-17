@@ -23,6 +23,7 @@
 //!   process exits, times out, or the future is dropped. Check sequences share files and scratch
 //!   directories, but cannot rely on a previous command keeping background processes alive.
 
+mod cleanup;
 mod command;
 mod execution;
 mod mcp;
@@ -76,6 +77,9 @@ pub enum SandboxError {
 
     #[error("sandbox command '{command}' timed out after {timeout_secs}s")]
     TimedOut { command: String, timeout_secs: u64 },
+
+    #[error("sandbox cleanup could not be confirmed: {message}")]
+    CleanupIncomplete { message: String },
 }
 
 /// Isolation backend actually used for a run.
@@ -185,6 +189,7 @@ impl SandboxSpec {
             "config.worktree",
             "worktrees",
             "gitust-worktree-service.lock",
+            "gitust-active-executions",
             "gitust-approvals",
             "gitust-check-runs",
             ".gitust",
@@ -390,21 +395,8 @@ async fn read_capped<R: tokio::io::AsyncRead + Unpin>(
     (bytes, truncated)
 }
 
-/// Sends `SIGKILL` to the process group created via `process_group(0)`.
-#[cfg(unix)]
+/// Drop is best effort; only the checked shutdown path may report a completed command.
 fn kill_process_group(pid: u32) {
-    // fail-open-ok: OS pid fits in positive `i32` on Unix (`pid_t`); guard against invalid `u32::MAX`.
-    if let Ok(pgid) = i32::try_from(pid) {
-        if pgid > 1 {
-            // SAFETY: `killpg` has no memory-safety preconditions; `pgid` is the group id of the
-            // child we spawned as a group leader.
-            unsafe {
-                // fail-open-ok: `ESRCH` when the process group already exited naturally is expected.
-                let _ = libc::killpg(pgid, libc::SIGKILL);
-            }
-        }
-    }
+    // fail-open-ok: Drop cannot report cleanup errors; it never publishes a successful execution result.
+    let _ = cleanup::signal_group(pid);
 }
-
-#[cfg(not(unix))]
-fn kill_process_group(_pid: u32) {}

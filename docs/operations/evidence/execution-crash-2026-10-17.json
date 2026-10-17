@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "scope": "disposable synthetic installation; local macOS execution only",
+  "before": {
+    "source_commit": "696f32970b4ffe862ca92bf8b2b5f84d24164eaa",
+    "binary_sha256": "ad2ef74fa7bf045c475a604774ad3d9d4a9790c0664dad1c6d32c1f24bbc0b33",
+    "old_command_survived_sigkill": true,
+    "replacement_service_started": true,
+    "overlapping_new_execution_exit_code": 0,
+    "old_command_wrote_after_restart": true,
+    "backend": "macos_seatbelt"
+  },
+  "permanent_regression_before_exit": 1,
+  "permanent_regression_before_failure": "unsafe restart accepted while an execution was incomplete",
+  "after": {
+    "version": 1,
+    "passed": true,
+    "source_commit": "696f32970b4ffe862ca92bf8b2b5f84d24164eaa",
+    "binary_sha256": "ffd9e1f3173bb4568a5470ab951ca9f5ca2dc78f9fceaacb821b76d351005cd5",
+    "runtime_worktree_dirty": true,
+    "operator_script_sha256": "290ef27f731d8d84d3d8e7f58db6786a82c9adcd319d8e2e98fa2c60de24d76e",
+    "platform": "Darwin",
+    "backend": "macos_seatbelt",
+    "old_command_survived_sigkill": true,
+    "fresh_service_rejected": true,
+    "explicit_recovery_required": true,
+    "verification_restored": false,
+    "post_recovery_execution_passed": true,
+    "git_fsck": "passed",
+    "external_connections": false
+  },
+  "linux_runtime_verified": false,
+  "actual_ide_agent_session": false,
+  "final_mechanical_gate": "scripts/verify.sh exited 0 on the follow-up source"
+}

@@ -365,6 +365,7 @@ pub(crate) fn map_git_err(err: GitEngineError) -> (StatusCode, String) {
         GitEngineError::BranchAlreadyExists(_)
         | GitEngineError::MergeConflict(_)
         | GitEngineError::VerificationInvalid(_)
+        | GitEngineError::ExecutionFence(_)
         | GitEngineError::WorktreeServiceBusy(_) => StatusCode::CONFLICT,
         GitEngineError::CredentialsInRepoConfig => StatusCode::PRECONDITION_FAILED,
         _ => {

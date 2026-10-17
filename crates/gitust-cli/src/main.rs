@@ -18,7 +18,7 @@ use gitust_sandbox::builtin_mcp_tools;
 use gitust_sync::BiDirectionalSyncConfig;
 
 use crate::admin_cmd::{handle_admin_command, AdminCommands};
-use crate::sandbox_cmd::run_cli_sandbox;
+use crate::sandbox_cmd::{recover_cli_sandbox, run_cli_sandbox};
 use crate::triage_cmd::{
     run_triage_approve, run_triage_discard, run_triage_list, run_triage_publish, TriageSubcommands,
 };
@@ -36,7 +36,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum SandboxSubcommands {
-    /// Run a command inside an isolated CoW agent worktree and OS sandbox (`gitust sandbox run "<cmd>"`)
+    /// Run a command inside an isolated agent worktree and OS sandbox (`gitust sandbox run "<cmd>"`)
     Run {
         /// Command string to run inside the sandbox
         cmd: String,
@@ -52,6 +52,16 @@ enum SandboxSubcommands {
         /// Wall-clock timeout in seconds
         #[arg(long, default_value_t = 600)]
         timeout: u64,
+    },
+    /// Clear interrupted execution fences only after the operator stops all prior commands
+    Recover {
+        /// Explicit repository path; the server and all old sandbox processes must be stopped
+        #[arg(long)]
+        repo: PathBuf,
+
+        /// Confirm that every command from the previous service has stopped
+        #[arg(long, required = true)]
+        acknowledge_stopped_processes: bool,
     },
 }
 
@@ -222,6 +232,13 @@ async fn main() -> Result<()> {
             timeout,
         } => {
             let (run_cmd, run_repo, run_keep, run_timeout) = match sub {
+                Some(SandboxSubcommands::Recover {
+                    repo,
+                    acknowledge_stopped_processes,
+                }) => {
+                    recover_cli_sandbox(&repo, acknowledge_stopped_processes).await?;
+                    return Ok(());
+                }
                 Some(SandboxSubcommands::Run {
                     cmd,
                     repo,

@@ -212,6 +212,7 @@ impl GitEngine {
         prepared: PreparedWorktreeCommit,
         publish_gate: impl FnOnce() -> Result<(), GitEngineError>,
     ) -> Result<WorktreeCommit, GitEngineError> {
+        let _service = self.lock_worktree_service()?;
         let result = &prepared.result;
         let (directory, admin, common) =
             self.commit_checkout(result.worktree_id, &result.branch, &result.parent)?;

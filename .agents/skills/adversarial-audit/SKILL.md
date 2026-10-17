@@ -69,6 +69,7 @@ This skill enforces a ruthless, non-rubber-stamping verification standard before
 
 ### Check 6: Sandbox Isolation & Environment Hygiene
 - **Fail-Closed Execution**: Never fall back to unsandboxed host execution when `sandbox-exec` (macOS) or `bwrap` (Linux) is unavailable.
+- **Namespace-Safe Process Cleanup Oracles**: A sandbox shell PID is not necessarily a host PID or process-group ID. Observe actual host identities before cancellation, verify no executable descendants remain, and separately require direct children to be reaped. Zombie-only existence is not proof of a running command; process-inspection or permission errors must fail the test rather than mean "no processes".
 - **Strict Environment Allowlist**: Strip host secrets (`HOME`, `SSH_AUTH_SOCK`, `GIT_ASKPASS`, `GIT_SSH_COMMAND`, `GIT_CONFIG_*`, `GITHUB_TOKEN`, `AWS_*`, `DYLD_*`, `LD_*`) and enforce `GIT_CONFIG_NOSYSTEM=1` + isolated `HOME`/`TMPDIR`.
 
 ### Check 7: Auth Rate-Limiting DoS, Per-Key Memory Bounds & Unbounded Growth
@@ -252,3 +253,16 @@ Whenever a new class of P0 or P1 bug is uncovered during development, testing, o
 - Treat a full commit OID as object identity before looking up named refs; a missing object must not fall back to a same-named branch or tag. Resolve fully qualified `refs/...` exactly, without trying nested branch/tag namespaces first. Test both shadowing cases against independent Git object/ref queries.
 - Resolve a worktree comparison once, retain both returned head/base SHAs, and use and validate those SHAs on every file switch. Tree entries and blob content must share the tree's returned commit SHA. Missing or inconsistent revision metadata is an error, not permission to follow `HEAD` or substitute `main`.
 - Keep review context, file content and request/session epochs synchronized. Late responses and failed reads must not display another comparison's content or claim successful resolution; distinguish committed comparisons from uncommitted working files.
+
+
+### Check 27: CI Must Exercise Complete Git Histories
+- Source checkouts used by Gitust sync and operating rehearsals must contain complete Git history. A default shallow Actions checkout propagates shallow boundaries into local clones and can make the Git engine unable to resolve an otherwise valid branch tip. Use full-history checkout and fail before rehearsal when `git rev-parse --is-shallow-repository` is true; do not hide the failure or weaken the Git checks.
+- Validate the actual Git clone/commit/bare-clone/sync path with independent ref and object queries. Keep the operating rehearsal in CI so removing full-history checkout reproduces the failure, rather than merely asserting a YAML string.
+
+
+### Check 28: Server Death Must Not Release Unconfirmed Execution Authority
+- A server's OS service lock and in-memory worktree mutex can disappear while its sandbox command survives SIGKILL. Persist and fsync an execution fence before spawning commands; fresh service owners and raw-lock backup paths must refuse unresolved evidence. Same-engine cancellation or uncertain cleanup must quarantine new mutations too.
+- Never give arbitrary sandbox commands a repository lock FD: closing it or issuing LOCK_UN can break service ownership despite path-based sandbox rules. Do not infer death, signal processes or clear durable evidence using a stored PID or TTL.
+- Preserve the fence on uncertain outcomes, and remove it only after confirmed command/group cleanup. Explicit operator recovery must hold exclusive service ownership and validate all bounded private metadata before deleting anything. Recovery cannot restore verification or approval authority.
+- Keep the worktree guard inside blocking fence creation and retain a holder whose fence field drops before its operation/checkout guard; destructured locals drop in reverse declaration order. Sweep prepared commit completion, discard history cleanup, CLI cleanup, sync, backup and relocated restore for bypasses.
+- Run scripts/execution-crash-rehearsal.py against the actual binary: SIGKILL during an automatic Check must reject replacement startup, then authenticated fixture process cleanup and explicit recovery must permit execution without restoring verification. Record each platform's observed behavior separately.

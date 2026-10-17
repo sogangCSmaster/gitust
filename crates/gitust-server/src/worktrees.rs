@@ -126,6 +126,7 @@ pub(crate) async fn discard_worktree_core(
         let dir = runtime.worktree_dir.clone();
         tokio::task::spawn_blocking(move || {
             let _held_guard = run_guard;
+            let _service = engine.lock_worktree_service().map_err(map_git_err)?;
             // Remove diagnostics while the checkout is still recoverable if cleanup fails.
             crate::run_history::remove(&common, wt_id)?;
             engine
@@ -139,7 +140,15 @@ pub(crate) async fn discard_worktree_core(
         return Ok(StatusCode::NO_CONTENT);
     }
 
-    state.remove_worktree_entry(wt.id);
+    let engine = state.git_engine.clone();
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let _service = engine.lock_worktree_service().map_err(map_git_err)?;
+        state.remove_worktree_entry(wt.id);
+        Ok::<_, (StatusCode, String)>(())
+    })
+    .await
+    .map_err(internal_err)??;
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -139,3 +139,11 @@ HTTP/MCP에서 생성한 작업의 소유권은 common Git directory의 `gitust-
 
 
 `tests_steps.rs`와 `tests_check_steps.rs`는 명령별 결과의 출처, 실패 뒤 실행 생략, 일반 실행의 승인 자격 미부여, 전체 시간·출력 상한, 공유 파일과 명령 간 프로세스 정리, UTF-8 출력 결합을 확인한다. 외부 취소로 pipe drain이 중단되어도 reader task가 남지 않는 회귀도 포함한다.
+
+## Interrupted commands and service replacement
+
+Managed execution now creates a durable fence before starting a command. An
+unconfirmed execution quarantines further changes and prevents a fresh service
+from acquiring repository ownership. The [recovery procedure](../operations/execution-recovery.md)
+requires the operator to stop prior commands and explicitly acknowledge recovery;
+it does not infer process death from a PID or restore verification authority.

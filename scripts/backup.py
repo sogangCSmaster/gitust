@@ -43,6 +43,22 @@ def exclusive_lock(path):
         os.close(fd)
 
 
+def require_no_unconfirmed_execution(common):
+    path = common / "gitust-active-executions"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return
+    try:
+        if stat.S_IMODE(os.fstat(fd).st_mode) != 0o700:
+            raise ValueError("execution fence directory must be private")
+        with os.scandir(fd) as entries:
+            if next(entries, None) is not None:
+                raise ValueError("unconfirmed sandbox execution: stop prior commands and explicitly recover before backup")
+    finally:
+        os.close(fd)
+
+
 def inside(path, parent):
     return path == parent or parent in path.parents
 
@@ -170,6 +186,7 @@ def create(args):
         raise ValueError("backup output must be separate from all source paths")
     with ExitStack() as locks:
         locks.enter_context(exclusive_lock(common / "gitust-worktree-service.lock"))
+        require_no_unconfirmed_execution(common)
         locks.enter_context(exclusive_lock(Path(str(auth) + ".lock")))
         validate_git_storage(common, base, bare)
         linked = linked_worktrees(repo, common, base, bare)

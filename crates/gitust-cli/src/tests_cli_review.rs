@@ -36,6 +36,43 @@ fn repo() -> tempfile::TempDir {
 }
 
 #[tokio::test]
+async fn execution_recovery_requires_explicit_stopped_process_confirmation() {
+    use clap::Parser;
+    let tmp = repo();
+    let engine = GitEngine::new(tmp.path());
+    let worktree = engine
+        .materialize_agent_worktree(
+            WorktreeId::new(),
+            RepoId::new(),
+            AgentKind::InternalBot,
+            "agent/test/interrupted",
+            "main",
+            "Interrupted execution fixture",
+        )
+        .unwrap();
+    let fence = engine.begin_execution_fence(&worktree.worktree).unwrap();
+    drop(fence);
+    drop(engine);
+    assert!(crate::Cli::try_parse_from([
+        "gitust",
+        "sandbox",
+        "recover",
+        "--repo",
+        tmp.path().to_str().unwrap(),
+    ])
+    .is_err());
+    assert!(crate::sandbox_cmd::recover_cli_sandbox(tmp.path(), false)
+        .await
+        .is_err());
+    assert!(GitEngine::new(tmp.path()).lock_worktree_service().is_err());
+    crate::sandbox_cmd::recover_cli_sandbox(tmp.path(), true)
+        .await
+        .unwrap();
+    assert!(GitEngine::new(tmp.path()).lock_worktree_service().is_ok());
+    assert!(worktree.worktree_dir.exists());
+}
+
+#[tokio::test]
 async fn cli_sandbox_cannot_mutate_a_repository_owned_by_another_service() {
     let tmp = repo();
     let engine = GitEngine::new(tmp.path());

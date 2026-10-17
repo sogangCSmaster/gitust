@@ -11,9 +11,9 @@ use tokio::process::Command;
 
 use crate::policy::{build_sanitized_path, prepare_run, PreparedRun};
 use crate::{
-    await_pipe_drain, command, kill_process_group, read_capped, LocalSandboxExecutor,
-    SandboxCleanupGuard, SandboxCommandOutput, SandboxCommandResult, SandboxError,
-    SandboxExecutionResult, SandboxSpec, MAX_SANDBOX_STREAM_BYTES,
+    await_pipe_drain, cleanup, command, read_capped, LocalSandboxExecutor, SandboxCleanupGuard,
+    SandboxCommandOutput, SandboxCommandResult, SandboxError, SandboxExecutionResult, SandboxSpec,
+    MAX_SANDBOX_STREAM_BYTES,
 };
 
 impl LocalSandboxExecutor {
@@ -121,9 +121,17 @@ impl LocalSandboxExecutor {
                 break;
             }
         }
-        if let Some(run_dir) = cleanup.run_dir.take() {
-            // fail-open-ok: scratch cleanup failure cannot expand a completed sandbox.
-            let _ = tokio::task::spawn_blocking(move || fs::remove_dir_all(run_dir)).await;
+        if let Some(run_dir) = cleanup.run_dir.as_ref() {
+            let run_dir = run_dir.clone();
+            tokio::task::spawn_blocking(move || fs::remove_dir_all(run_dir))
+                .await
+                .map_err(|_| SandboxError::CleanupIncomplete {
+                    message: "scratch cleanup did not complete".into(),
+                })?
+                .map_err(|_| SandboxError::CleanupIncomplete {
+                    message: "scratch cleanup failed".into(),
+                })?;
+            cleanup.run_dir = None;
         }
         Ok(SandboxExecutionResult {
             run_id,
@@ -226,8 +234,11 @@ async fn run_command(
         ))),
     };
     let status = child.wait().await;
-    if let Some(pid) = cleanup.pid.take() {
-        kill_process_group(pid);
+    if let Some(pid) = cleanup.pid {
+        cleanup::signal_group(pid)?;
+        // The signal completed; cancellation during observation must not signal a reused PGID.
+        cleanup.pid = None;
+        cleanup::wait_group_stopped(pid).await?;
     }
     let status = status.map_err(|error| SandboxError::SpawnFailed {
         command: command.into(),

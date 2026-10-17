@@ -63,6 +63,22 @@ class BackupTests(unittest.TestCase):
         return self.run_script("restore", "--backup", self.backup,
                                "--destination", self.restored, ok=ok)
 
+    def test_unconfirmed_execution_blocks_backup_even_after_service_lock_is_released(self):
+        fences = self.common / "gitust-active-executions"
+        fences.mkdir(mode=0o700)
+        (fences / "incomplete.json").write_text("incomplete or corrupt evidence")
+        self.create(ok=False)
+        self.assertFalse(self.backup.exists())
+        (fences / "incomplete.json").unlink()
+        self.create()
+
+    def test_symlinked_execution_fence_directory_is_never_treated_as_empty(self):
+        target = self.root / "empty-fences"
+        target.mkdir(mode=0o700)
+        (self.common / "gitust-active-executions").symlink_to(target, target_is_directory=True)
+        self.create(ok=False)
+        self.assertFalse(self.backup.exists())
+
     def test_relocation_preserves_dirty_work_and_never_repoints_original(self):
         original_pointer = (self.wt / ".git").read_bytes()
         admin = Path(original_pointer.decode().strip().removeprefix("gitdir: "))

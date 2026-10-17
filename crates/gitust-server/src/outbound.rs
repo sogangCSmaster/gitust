@@ -45,7 +45,13 @@ pub(crate) async fn publish_worktree_handler(
         ) {
             return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
         }
-        check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
+        check_repo_bola(
+            &state.auth_store,
+            state.repo_id,
+            state.repo_access,
+            &caller,
+            state.repo_id,
+        )?;
         let _publish_guard = state
             .outbound_sync_lock
             .clone()
@@ -70,7 +76,13 @@ pub(crate) async fn publish_worktree_handler(
             .find(|w| w.id.0 == id)
             .cloned()
             .ok_or_else(|| (StatusCode::NOT_FOUND, "worktree not found".to_owned()))?;
-        check_repo_bola(&state.auth_store, state.repo_id, &caller, wt.repo_id)?;
+        check_repo_bola(
+            &state.auth_store,
+            state.repo_id,
+            state.repo_access,
+            &caller,
+            wt.repo_id,
+        )?;
         if wt.status != WorktreeStatus::Merged
             || !state
                 .sync_config

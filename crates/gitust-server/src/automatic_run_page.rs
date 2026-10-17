@@ -198,7 +198,13 @@ pub(crate) async fn list(
         if current.user_id != caller.user_id || current.role != EnterpriseRole::SiteAdmin {
             return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
         }
-        check_repo_bola(&state.auth_store, state.repo_id, &current, state.repo_id)?;
+        check_repo_bola(
+            &state.auth_store,
+            state.repo_id,
+            state.repo_access,
+            &current,
+            state.repo_id,
+        )?;
         Ok(Page {
             repo_id: state.repo_id,
             order: "worktree_id_asc",

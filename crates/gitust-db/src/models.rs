@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, Duration, Utc};
 use gitust_core::{
     AccountStatus, AuthenticatedPrincipal, EnterpriseRole, EnterpriseSecurityPolicy, InviteId,
-    InvitePublicView, InviteTokenPurpose, PatId, PersonalAccessTokenView, RepoId, RepositoryRecord,
-    SessionId, SshKeyId, SshPublicKeyView, TeamId, UserId, UserPublicProfile,
+    InvitePublicView, InviteTokenPurpose, PatId, PersonalAccessTokenView, RepoId, SessionId,
+    SshKeyId, SshPublicKeyView, TeamId, UserId, UserPublicProfile,
 };
 use serde::{Deserialize, Serialize};
 
@@ -155,7 +155,7 @@ pub(crate) struct PersistedSnapshot {
     pub(crate) sessions: Vec<StoredSession>,
     pub(crate) pats: Vec<StoredPat>,
     pub(crate) ssh_keys: Vec<StoredSshKey>,
-    pub(crate) repositories: Vec<RepositoryRecord>,
+    pub(crate) repositories: Vec<crate::repository_registration::StoredRepository>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -172,7 +172,7 @@ pub(crate) struct AuthState {
     pub(crate) pat_hash_index: HashMap<[u8; 32], PatId>,
     pub(crate) ssh_keys_by_id: HashMap<SshKeyId, StoredSshKey>,
     pub(crate) ssh_fingerprint_index: HashMap<String, SshKeyId>,
-    pub(crate) repositories: HashMap<RepoId, RepositoryRecord>,
+    pub(crate) repositories: HashMap<RepoId, crate::repository_registration::StoredRepository>,
     pub(crate) failed_logins: HashMap<String, Vec<DateTime<Utc>>>,
 }
 
@@ -218,7 +218,7 @@ impl AuthState {
         }
 
         for repo in snap.repositories {
-            state.repositories.insert(repo.id, repo);
+            state.repositories.insert(repo.metadata.id, repo);
         }
 
         state

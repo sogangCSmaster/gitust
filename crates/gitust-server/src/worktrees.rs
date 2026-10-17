@@ -39,9 +39,10 @@ pub(crate) async fn git_head_handler(
 ) -> Result<Json<RepoHeadSnapshot>, (StatusCode, String)> {
     let store = state.auth_store.clone();
     let repo_id = state.repo_id;
+    let repo_access = state.repo_access;
     let engine = state.git_engine.clone();
     let head = tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, repo_id, &caller, repo_id)?;
+        check_repo_bola(&store, repo_id, repo_access, &caller, repo_id)?;
         engine
             .inspect_head_zero_copy()
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))

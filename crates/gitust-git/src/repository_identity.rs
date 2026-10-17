@@ -23,7 +23,7 @@ struct Identity {
 }
 
 #[cfg(unix)]
-mod storage {
+pub(crate) mod storage {
     use std::{
         ffi::{CStr, CString},
         fs::{self, File},
@@ -37,11 +37,11 @@ mod storage {
 
     use super::*;
 
-    fn name(value: &str) -> Result<CString, GitEngineError> {
+    pub(crate) fn name(value: &str) -> Result<CString, GitEngineError> {
         CString::new(value).map_err(|_| invalid("invalid identity metadata name"))
     }
 
-    fn private_directory(file: &File) -> Result<(), GitEngineError> {
+    pub(crate) fn private_directory(file: &File) -> Result<(), GitEngineError> {
         let meta = file
             .metadata()
             .map_err(|_| invalid("identity directory is unreadable"))?;
@@ -55,7 +55,7 @@ mod storage {
         Ok(())
     }
 
-    fn open_at(
+    pub(crate) fn open_at(
         parent: &File,
         name: &CStr,
         flags: libc::c_int,
@@ -81,12 +81,12 @@ mod storage {
         Ok(Some(unsafe { File::from_raw_fd(fd) }))
     }
 
-    fn sync(file: &File) -> Result<(), GitEngineError> {
+    pub(crate) fn sync(file: &File) -> Result<(), GitEngineError> {
         file.sync_all()
             .map_err(|_| invalid("identity metadata could not be synchronized"))
     }
 
-    fn validate_file(file: &File) -> Result<fs::Metadata, GitEngineError> {
+    pub(crate) fn validate_file(file: &File) -> Result<fs::Metadata, GitEngineError> {
         let meta = file
             .metadata()
             .map_err(|_| invalid("identity file is unreadable"))?;
@@ -106,7 +106,7 @@ mod storage {
         Ok(meta)
     }
 
-    fn read(directory: &File) -> Result<RepoId, GitEngineError> {
+    pub(crate) fn read(directory: &File) -> Result<RepoId, GitEngineError> {
         let mut file = open_at(directory, &name(IDENTITY)?, libc::O_RDONLY)?
             .ok_or_else(|| invalid("existing identity directory has no identity file"))?;
         let before = validate_file(&file)?;
@@ -127,7 +127,11 @@ mod storage {
         Ok(record.repo_id)
     }
 
-    fn publish(directory: &File, pending: &CStr, identity: &CStr) -> Result<(), GitEngineError> {
+    pub(crate) fn publish(
+        directory: &File,
+        pending: &CStr,
+        identity: &CStr,
+    ) -> Result<(), GitEngineError> {
         // SAFETY: both names are fixed, NUL-terminated leaf names within the pinned directory.
         // No-replace publication never overwrites an identity created by another writer.
         #[cfg(target_os = "macos")]

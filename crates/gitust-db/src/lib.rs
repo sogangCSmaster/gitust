@@ -18,12 +18,16 @@ mod invites;
 mod models;
 mod oauth_session;
 mod persistence;
+mod repository_registration;
+pub use repository_registration::RegisteredRepository;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_automatic_actor;
 #[cfg(test)]
 mod tests_persistence;
+#[cfg(test)]
+mod tests_repository_registration;
 #[cfg(test)]
 mod tests_review_regressions;
 #[cfg(test)]
@@ -294,7 +298,7 @@ impl AuthStore {
                 is_private,
                 created_at: Utc::now(),
             };
-            guard.repositories.insert(repo.id, repo.clone());
+            guard.repositories.insert(repo.id, repo.clone().into());
             let snap = self.maybe_snapshot(guard);
             (repo, snap)
         };
@@ -326,14 +330,16 @@ impl AuthStore {
             return Err(AuthError::InvalidInput("repository not found".to_owned()));
         };
 
-        if repo.is_private
+        if repo.metadata.is_private
             && active_caller.role != EnterpriseRole::SiteAdmin
-            && !active_caller.team_ids.contains(&repo.owner_team_id)
+            && !active_caller
+                .team_ids
+                .contains(&repo.metadata.owner_team_id)
         {
             return Err(AuthError::ForbiddenRepositoryAccess);
         }
 
-        Ok(repo.clone())
+        Ok(repo.metadata.clone())
     }
 
     /// Verifies that `caller` is an active user in the store and returns their refreshed principal.

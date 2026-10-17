@@ -33,9 +33,13 @@ directory is indistinguishable from a legacy repository and causes new initializ
 do not use directory deletion as a repair procedure. Old transient server IDs have no
 compatibility aliases.
 
-The UUID is an identifier, not authorization. The auth store's repository records do not
-yet bind a Git path to an ACL. A matching configured UUID in that metadata is refused at
-startup and on later access, even for a SiteAdmin; it is never adopted by matching a name,
-path or upstream URL. The existing access policy for the unregistered configured
-repository remains in effect. Short-lived CLI operations that use temporary task IDs are
-outside this configured-server identity contract.
+The UUID is an identifier, not authorization. Metadata-only auth records never bind a Git
+repository to an ACL: matching UUIDs still collide. Explicit offline registration pairs a
+private Git receipt with a typed auth record using the same registration nonce. Only an
+exact pair enables registered access; neither anchor and no matching auth metadata retain
+legacy sharing. Partial, unsafe or conflicting evidence fails startup. The server pins that
+mode and rechecks the current binding and account/team ACL together on each resource access.
+No name, host path or upstream URL establishes ownership. See the
+[registration procedure and recovery limits](../operations/repository-registration.md).
+Short-lived CLI operations that use temporary task IDs remain outside this configured-server
+identity contract.

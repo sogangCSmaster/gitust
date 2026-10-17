@@ -13,6 +13,11 @@ enum BoundedLine {
     InvalidUtf8,
 }
 
+fn registered_stdio_unsupported() -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::PermissionDenied,
+        "registered repositories require authenticated HTTP /mcp; local stdio operator access is not supported")
+}
+
 async fn read_bounded_line<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,
     max_bytes: usize,
@@ -81,6 +86,9 @@ where
 {
     use tokio::io::AsyncWriteExt;
 
+    if state.repo_access.registration.is_some() {
+        return Err(registered_stdio_unsupported());
+    }
     let automatic_checks = crate::automatic_checks::start(&state).await?;
 
     let caller = AuthenticatedPrincipal {
@@ -138,6 +146,19 @@ pub async fn serve_mcp_stdio(
         let lock = engine
             .lock_worktree_service()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::WouldBlock, e))?;
+        let id = engine
+            .load_or_create_repository_id()
+            .map_err(std::io::Error::other)?;
+        match engine
+            .repository_registration_state(id)
+            .map_err(std::io::Error::other)?
+        {
+            gitust_git::RegistrationReceipt::Absent => {},
+            gitust_git::RegistrationReceipt::Complete(_) => return Err(registered_stdio_unsupported()),
+            gitust_git::RegistrationReceipt::Pending(_) => return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "repository registration evidence is incomplete; inspect trusted stopped-writer metadata")),
+        }
         let state = AppState::with_engine_and_auth_store(
             engine,
             github_mirror_url,

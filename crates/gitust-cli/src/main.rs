@@ -18,6 +18,7 @@ use gitust_sandbox::builtin_mcp_tools;
 use gitust_sync::BiDirectionalSyncConfig;
 
 use crate::admin_cmd::{handle_admin_command, AdminCommands};
+mod repository_cmd;
 use crate::sandbox_cmd::{recover_cli_sandbox, run_cli_sandbox};
 use crate::triage_cmd::{
     run_triage_approve, run_triage_discard, run_triage_list, run_triage_publish, TriageSubcommands,
@@ -67,6 +68,11 @@ enum SandboxSubcommands {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Explicitly register the configured local Git repository with its authorization store
+    Repository {
+        #[command(subcommand)]
+        action: repository_cmd::RepositoryCommands,
+    },
     /// Site Administrator CLI management (`gitust admin create | invite | reset-password | deactivate`)
     Admin {
         #[command(subcommand)]
@@ -103,7 +109,7 @@ enum Commands {
         sync_timeout: Option<u64>,
     },
 
-    /// Start or inspect the built-in MCP (Model Context Protocol) stdio server for Claude Code / Cursor
+    /// Local stdio MCP for unregistered repositories; registered repositories use authenticated HTTP /mcp
     Mcp {
         /// Print registered MCP tools as JSON and exit
         #[arg(long)]
@@ -189,6 +195,9 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Repository { action } => {
+            tokio::task::spawn_blocking(move || repository_cmd::handle(action)).await??;
+        }
         Commands::Admin { action } => {
             tokio::task::spawn_blocking(move || handle_admin_command(action)).await??;
         }

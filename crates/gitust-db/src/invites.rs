@@ -22,6 +22,16 @@ impl AuthStore {
         team_ids: Vec<TeamId>,
         ttl_hours: Option<i64>,
     ) -> Result<IssuedInviteLink, AuthError> {
+        let mut unique_teams = std::collections::HashSet::new();
+        if team_ids.len() > 32
+            || team_ids
+                .iter()
+                .any(|id| id.0.is_nil() || !unique_teams.insert(*id))
+        {
+            return Err(AuthError::InvalidInput(
+                "invite teams must contain at most 32 distinct nonnil group UUIDs".into(),
+            ));
+        }
         // fail-open-ok: omitted TTL uses the documented bounded default; supplied values are validated below.
         let hours = ttl_hours.unwrap_or(DEFAULT_INVITE_EXPIRY_HOURS);
         if !(1..=720).contains(&hours) {

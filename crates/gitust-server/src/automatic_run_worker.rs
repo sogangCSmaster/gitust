@@ -144,8 +144,14 @@ async fn run_worker(
                             .authorize_automatic_checks_actor(job.user_id)
                             .map_err(|_| Reason::AuthorityUnavailable)?
                     };
-                    check_repo_bola(&snapshot.auth_store, snapshot.repo_id, &caller, wt.repo_id)
-                        .map_err(|_| Reason::AuthorityUnavailable)?;
+                    check_repo_bola(
+                        &snapshot.auth_store,
+                        snapshot.repo_id,
+                        snapshot.repo_access,
+                        &caller,
+                        wt.repo_id,
+                    )
+                    .map_err(|_| Reason::AuthorityUnavailable)?;
                     if !snapshot.trusted_sandbox_exec {
                         return Err(Reason::ExecutionDisabled);
                     }

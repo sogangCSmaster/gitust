@@ -32,7 +32,13 @@ pub(crate) async fn list(
         if current.role != EnterpriseRole::SiteAdmin {
             return Err(map_auth_err(gitust_core::AuthError::AdminPrivilegeRequired));
         }
-        check_repo_bola(&state.auth_store, state.repo_id, &current, wt.repo_id)?;
+        check_repo_bola(
+            &state.auth_store,
+            state.repo_id,
+            state.repo_access,
+            &current,
+            wt.repo_id,
+        )?;
         Ok(([(header::CACHE_CONTROL, "no-store")], Json(records)))
     })
     .await

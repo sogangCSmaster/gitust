@@ -22,6 +22,8 @@ mod mirror_init;
 mod outbound;
 mod process;
 mod repository_identity;
+mod repository_registration;
+pub use repository_registration::RegistrationReceipt;
 mod service_lock;
 mod smart_http;
 #[cfg(test)]
@@ -32,6 +34,8 @@ mod tests_execution_fence;
 mod tests_outbound;
 #[cfg(test)]
 mod tests_repository_identity;
+#[cfg(all(test, unix))]
+mod tests_repository_registration;
 mod verification;
 mod worktree;
 mod worktree_commit;

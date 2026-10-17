@@ -124,12 +124,15 @@ jobs:
               raise SystemExit("The runtime source differs from the tested commit")
           if report["sandbox_backends"] != [expected_backend]:
               raise SystemExit("The rehearsal did not execute the required OS sandbox")
+          if report["registered_repository_acl_and_restore"] is not True:
+              raise SystemExit("The rehearsal did not verify registered repository access and restore")
           if (len(report["tasks"]) != 10
               or {task["task"] for task in report["tasks"]} != set(range(1, 11))
               or not all(task["passed"] is True for task in report["tasks"])):
               raise SystemExit("The ten-task rehearsal is incomplete")
           public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
-                    "sandbox_backends", "mcp_clients", "external_github_publication", "git_fsck"]}
+                    "sandbox_backends", "mcp_clients", "external_github_publication", "git_fsck",
+                    "registered_repository_acl_and_restore"]}
           public["completed_tasks"] = len(report["tasks"])
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
               output.write("### Real operating rehearsal\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")

@@ -43,9 +43,16 @@ pub(crate) async fn spawn_worktree_core(
     let clean_base = GitEngine::validate_outbound_branch(&base_branch).map_err(map_git_err)?;
     let store = state.auth_store.clone();
     let default_repo = state.repo_id;
+    let repo_access = state.repo_access;
     let caller_owned = caller.clone();
     tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, default_repo, &caller_owned, target_repo_id)
+        check_repo_bola(
+            &store,
+            default_repo,
+            repo_access,
+            &caller_owned,
+            target_repo_id,
+        )
     })
     .await
     .map_err(internal_err)??;

@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+mod repository_access;
+pub use repository_access::{RepoAccess, RepositoryRegistration};
+
 // ============================================================================
 // Strongly-Typed Domain Identifiers (Newtype Pattern)
 // ============================================================================

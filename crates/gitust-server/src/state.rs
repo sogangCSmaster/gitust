@@ -122,6 +122,7 @@ pub(crate) use crate::quota::{RunStatusGuard, SpawnLifecycle, SpawnReservation};
 pub struct AppState {
     pub(crate) automatic_checks: Arc<crate::automatic_checks::AutomaticChecks>,
     pub repo_id: RepoId,
+    pub(crate) repo_access: gitust_core::RepoAccess,
     #[cfg(test)]
     pub(crate) automatic_run_page_hook: Arc<Mutex<Option<crate::automatic_run_page::TestHook>>>,
     pub auth_store: AuthStore,
@@ -170,15 +171,24 @@ impl AppState {
             Err(GitEngineError::OpenRepo { .. }) if cfg!(test) => RepoId::new(),
             Err(error) => return Err(error),
         };
-        if auth_store.repository_exists(repo_id).map_err(|_| {
-            GitEngineError::RepositoryIdentity(
-                "authorization metadata could not be inspected".into(),
-            )
-        })? {
-            return Err(GitEngineError::RepositoryIdentity(
-                "configured repository ID collides with unbound authorization metadata".into(),
-            ));
-        }
+        let receipt = match git_engine.repository_registration_state(repo_id) {
+            Ok(gitust_git::RegistrationReceipt::Absent) => None,
+            Ok(gitust_git::RegistrationReceipt::Complete(receipt)) => Some(receipt),
+            Ok(gitust_git::RegistrationReceipt::Pending(_)) => {
+                return Err(GitEngineError::RepositoryIdentity(
+                    "repository registration evidence is incomplete or conflicting".into(),
+                ))
+            }
+            Err(GitEngineError::OpenRepo { .. }) if cfg!(test) => None,
+            Err(error) => return Err(error),
+        };
+        let repo_access = auth_store
+            .configured_repository_access(repo_id, receipt)
+            .map_err(|_| {
+                GitEngineError::RepositoryIdentity(
+                    "repository registration evidence is incomplete or conflicting".into(),
+                )
+            })?;
         let mut worktrees = VecDeque::new();
         let mut worktree_runtime = HashMap::new();
         match git_engine.recover_agent_worktrees(repo_id) {
@@ -227,6 +237,7 @@ impl AppState {
         Ok(Self {
             automatic_checks: Arc::new(crate::automatic_checks::AutomaticChecks::default()),
             repo_id,
+            repo_access,
             #[cfg(test)]
             automatic_run_page_hook: Arc::new(Mutex::new(None)),
             auth_store,
@@ -422,33 +433,21 @@ pub(crate) fn internal_err(e: impl std::fmt::Display) -> (StatusCode, String) {
 }
 
 /// Enforces team repository BOLA access (fail-closed):
-/// The configured repository has no registry/ACL binding yet: an equal registered UUID is a
-/// collision, never implicit ownership. Other metadata repositories retain their team checks.
+/// A configured service pins legacy sharing or an exact explicit registration at startup.
+/// Current binding/account/ACL checks share one auth snapshot; other metadata IDs keep team checks.
 pub(crate) fn check_repo_bola(
     auth_store: &AuthStore,
     default_repo_id: RepoId,
+    repo_access: gitust_core::RepoAccess,
     caller: &AuthenticatedPrincipal,
     repo_id: RepoId,
 ) -> Result<(), (StatusCode, String)> {
+    if default_repo_id != repo_access.repo_id {
+        return Err(map_auth_err(AuthError::ForbiddenRepositoryAccess));
+    }
     auth_store
-        .verify_active_principal(caller)
-        .map_err(map_auth_err)?;
-    let registered = auth_store
-        .repository_exists(repo_id)
-        .map_err(map_auth_err)?;
-    if repo_id == default_repo_id {
-        if registered {
-            return Err(map_auth_err(AuthError::ForbiddenRepositoryAccess));
-        }
-        return Ok(());
-    }
-    if registered {
-        auth_store
-            .authorize_repository_access(caller, repo_id)
-            .map_err(map_auth_err)?;
-        return Ok(());
-    }
-    Err(map_auth_err(AuthError::ForbiddenRepositoryAccess))
+        .authorize_service_repository(caller, repo_access, repo_id)
+        .map_err(map_auth_err)
 }
 
 /// Looks up a worktree and enforces repository access off the async worker threads.
@@ -466,10 +465,11 @@ pub(crate) async fn find_authorized_worktree(
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("worktree {id} not found")))?;
     let store = state.auth_store.clone();
     let default_repo = state.repo_id;
+    let repo_access = state.repo_access;
     let caller_owned = caller.clone();
     let repo_id = wt.repo_id;
     tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, default_repo, &caller_owned, repo_id)
+        check_repo_bola(&store, default_repo, repo_access, &caller_owned, repo_id)
     })
     .await
     .map_err(internal_err)??;
@@ -485,19 +485,31 @@ pub(crate) async fn filter_authorized_worktrees(
     let candidates: Vec<AgentWorktree> = state.worktrees.read().iter().cloned().collect();
     let store = state.auth_store.clone();
     let default_repo = state.repo_id;
+    let repo_access = state.repo_access;
     let caller_owned = caller.clone();
     tokio::task::spawn_blocking(move || {
         // Reject a configured-ID collision even with no rows; filtering it into an empty list
         // would conceal the broken binding. Cache the already checked default once per list.
-        check_repo_bola(&store, default_repo, &caller_owned, default_repo)?;
+        check_repo_bola(
+            &store,
+            default_repo,
+            repo_access,
+            &caller_owned,
+            default_repo,
+        )?;
         let mut access_cache = HashMap::from([(default_repo, true)]);
         let mut authorized = Vec::with_capacity(candidates.len());
         for wt in candidates {
             let allowed = match access_cache.get(&wt.repo_id).copied() {
                 Some(cached) => cached,
                 None => {
-                    let ok = match check_repo_bola(&store, default_repo, &caller_owned, wt.repo_id)
-                    {
+                    let ok = match check_repo_bola(
+                        &store,
+                        default_repo,
+                        repo_access,
+                        &caller_owned,
+                        wt.repo_id,
+                    ) {
                         Ok(()) => true,
                         Err((StatusCode::FORBIDDEN, _)) => false,
                         Err(err) => return Err(err),

@@ -50,6 +50,10 @@ pub enum AdminCommands {
         #[arg(long)]
         ttl_hours: Option<i64>,
 
+        /// Opaque group UUID membership; repeat up to 32 times (there is no named-team registry)
+        #[arg(long = "team-id")]
+        team_ids: Vec<gitust_core::TeamId>,
+
         /// Path to the persistent on-premise Auth Database file
         #[arg(long, default_value = ".gitust/auth-db.json")]
         auth_db: PathBuf,
@@ -133,13 +137,14 @@ pub fn handle_admin_command(action: AdminCommands) -> Result<()> {
             email,
             role,
             ttl_hours,
+            team_ids,
             auth_db,
         } => {
             let assigned_role = parse_enterprise_role(&role)?;
             let store = AuthStore::open_persistent(&auth_db)?;
             with_admin_session(&store, &admin_username, &admin_password, |caller| {
                 let issued =
-                    store.create_invite_link(caller, &email, assigned_role, vec![], ttl_hours)?;
+                    store.create_invite_link(caller, &email, assigned_role, team_ids, ttl_hours)?;
                 println!(
                     "✓ Issued single-use invite link for {} ({:?}, expires {}):\n  URL path: {}\n  Token:    {}",
                     issued.invite.target_email,
@@ -197,7 +202,7 @@ pub fn handle_admin_command(action: AdminCommands) -> Result<()> {
 /// Runs `op` with a short-lived admin session and ALWAYS revokes it afterwards.
 /// A failed revocation is surfaced as an error (never silently ignored), so the operator learns
 /// that a persisted admin session may still be live until its expiry.
-fn with_admin_session<T>(
+pub(crate) fn with_admin_session<T>(
     store: &AuthStore,
     admin_username: &str,
     admin_password: &str,

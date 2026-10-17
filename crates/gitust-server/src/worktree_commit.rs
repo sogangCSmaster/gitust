@@ -105,7 +105,7 @@ pub(super) async fn commit_worktree(
             matches!(authority, CommitAuthority::LocalOperator),
         )?;
         let result = (|| {
-            check_repo_bola(&state.auth_store, state.repo_id, &caller, wt.repo_id)?;
+            check_repo_bola(&state.auth_store, state.repo_id, state.repo_access, &caller, wt.repo_id)?;
             policy::check(&runtime, &request.paths)?;
             let prepared = state
                 .git_engine
@@ -135,7 +135,7 @@ pub(super) async fn commit_worktree(
                 .finish_worktree_commit_with_gate(prepared, || {
                     let authority = active_caller(&state, &caller, &authority)
                         .and_then(|fresh| {
-                            check_repo_bola(&state.auth_store, state.repo_id, &fresh, wt.repo_id)
+                            check_repo_bola(&state.auth_store, state.repo_id, state.repo_access, &fresh, wt.repo_id)
                         })
                         .and_then(|_| policy::check(&runtime, &request.paths));
                     if let Err(error) = authority {

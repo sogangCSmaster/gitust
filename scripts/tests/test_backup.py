@@ -99,6 +99,18 @@ class BackupTests(unittest.TestCase):
         identity_bytes = b'{"version":1,"repo_id":"22222222-2222-4222-8222-222222222222"}'
         identity.write_bytes(identity_bytes)
         identity.chmod(0o600)
+        registration = identity_dir / "registration.json"
+        registration_bytes = json.dumps({"version": 1, "repo_id": "22222222-2222-4222-8222-222222222222",
+            "registration_nonce": "33333333-3333-4333-8333-333333333333"}).encode()
+        registration.write_bytes(registration_bytes)
+        registration.chmod(0o600)
+        auth_state = json.loads(self.auth.read_text())
+        auth_state["repositories"] = [{"metadata": {
+            "id": "22222222-2222-4222-8222-222222222222", "name": "backup-fixture",
+            "owner_team_id": "44444444-4444-4444-8444-444444444444", "is_private": True,
+            "created_at": "2026-10-17T00:00:00Z"}, "binding": json.loads(registration_bytes)}]
+        self.auth.write_text(json.dumps(auth_state))
+        auth_before = self.auth.read_bytes()
         self.create()
         self.restore()
         destination = self.restored / "repository"
@@ -112,6 +124,10 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(restored_identity.read_bytes(), identity_bytes)
         self.assertEqual(restored_identity.stat().st_mode & 0o777, 0o600)
         self.assertEqual(restored_identity.parent.stat().st_mode & 0o777, 0o700)
+        restored_registration = restored_identity.with_name("registration.json")
+        self.assertEqual(restored_registration.read_bytes(), registration_bytes)
+        self.assertEqual(restored_registration.stat().st_mode & 0o777, 0o600)
+        self.assertEqual((self.restored / "auth/auth-db.json").read_bytes(), auth_before)
         restored_admin = Path((wt / ".git").read_text().strip().removeprefix("gitdir: "))
         self.assertEqual((restored_admin / "gitust-origin.json").read_bytes(), origin_bytes)
         self.assertEqual((restored_admin / "gitust-origin.json").stat().st_mode & 0o777, 0o600)

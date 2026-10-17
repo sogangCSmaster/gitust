@@ -154,6 +154,7 @@ fn read_snapshot_with_stamp(
     }
     let snap: PersistedSnapshot = serde_json::from_slice(&bytes)
         .map_err(|e| AuthError::StorageError(format!("corrupt auth db json: {e}")))?;
+    snap.validate_repository_records()?;
     Ok((Some(snap), stamp))
 }
 
@@ -348,6 +349,7 @@ fn write_snapshot_atomically(
         fs::rename(&tmp_path, target_path).map_err(|e| {
             AuthError::StorageError(format!("failed to atomically replace auth db: {e}"))
         })?;
+        sync_parent_directory(target_path)?;
         let meta = file.metadata().map_err(|e| {
             AuthError::StorageError(format!("failed to stat persisted auth db: {e}"))
         })?;
@@ -358,4 +360,31 @@ fn write_snapshot_atomically(
         let _ = fs::remove_file(&tmp_path);
     }
     written
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static FAIL_DIRECTORY_SYNC: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+fn sync_parent_directory(target: &Path) -> Result<(), AuthError> {
+    #[cfg(test)]
+    if FAIL_DIRECTORY_SYNC.with(|path| path.borrow().as_deref() == Some(target)) {
+        return Err(AuthError::StorageError(
+            "injected auth directory synchronization failure".into(),
+        ));
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| AuthError::StorageError("auth database has no parent directory".into()))?;
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| {
+            AuthError::StorageError("auth database directory synchronization failed".into())
+        })
 }

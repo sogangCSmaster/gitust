@@ -41,7 +41,8 @@ In progress. Implemented portions:
 - A SiteAdmin-only read-only Actions view and bounded repository API for current tracked worktrees. Pages follow worktree ID order and link to the exact retained run in Activity; they do not provide a global newest-run feed or workflow execution controls.
 - A live worktree-to-diff review entry that pins head/base commits across file switches, refuses unknown targets and keeps tree/blob snapshots consistent. The follow-up passed local checks and Gate A; its Gate B exception was approved before automatic Gate B reviews were stopped by the user.
 - Bounded task display labels in creation metadata, preserved on restart and relocation for new tasks. Legacy records retain a generic recovered label; labels do not restore verification authority.
-- Stable configured repository IDs across restart and complete offline relocation, with bounded private metadata and collision rejection. This does not implement repository routing or team ACL binding.
+- Stable configured repository IDs across restart and complete offline relocation, with bounded private metadata and collision rejection. Identity alone does not bind access permissions or implement repository routing.
+- Explicit offline ACL registration of the configured repository, with matching private Git/auth-store anchors, current team access checks and conservative partial-registration recovery. This still serves one repository; registered repositories currently use authenticated HTTP MCP rather than local stdio.
 - A stopped-installation backup/relocated-restore utility, regression tests and recorded Linux/macOS rehearsals at `42bae69`, including MCP commits after relocation. Final-candidate acceptance remains open.
 
 Remaining work:

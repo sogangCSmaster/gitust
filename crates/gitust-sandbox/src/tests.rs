@@ -85,6 +85,12 @@ async fn gate_7_4_sandbox_isolation() {
         .expect("stable repository ID");
     let identity_path = repo_dir.join(".git/gitust-repository/identity.json");
     let identity_bytes = fs::read(&identity_path).expect("read private identity");
+    let registration = gitust_core::RepositoryRegistration::new(repository_id);
+    engine
+        .complete_repository_registration(registration)
+        .expect("registration receipt");
+    let registration_path = repo_dir.join(".git/gitust-repository/registration.json");
+    let registration_bytes = fs::read(&registration_path).expect("private registration");
     let mk = |branch: &str| {
         engine
             .materialize_agent_worktree(
@@ -160,6 +166,7 @@ async fn gate_7_4_sandbox_isolation() {
         format!("cat '{common}/logs/HEAD'"),
         format!("cat '{common}/gitust-active-executions/private.json'"),
         format!("cat '{common}/gitust-repository/identity.json'"),
+        format!("cat '{common}/gitust-repository/registration.json'"),
         format!("cat '{common}/gitust-automatic-runs/private.json'"),
         format!("cat '{}/index'", sibling.worktree_admin_dir.display()),
     ] {
@@ -173,6 +180,9 @@ async fn gate_7_4_sandbox_isolation() {
         assert!(!res.stdout.contains("PRIVATE_EXECUTION_FENCE"));
         assert!(!res.stdout.contains("PRIVATE_AUTOMATIC_ATTEMPT"));
         assert!(!res.stdout.contains(&repository_id.0.to_string()));
+        assert!(!res
+            .stdout
+            .contains(&registration.registration_nonce.to_string()));
     }
     let write_attempt = run(format!(
         "printf changed > '{common}/gitust-automatic-runs/private.json'"
@@ -198,6 +208,12 @@ async fn gate_7_4_sandbox_isolation() {
         fs::read(identity_path).expect("identity remains"),
         identity_bytes
     );
+    let write_registration = run(format!(
+        "printf changed > '{common}/gitust-repository/registration.json'"
+    ))
+    .await;
+    assert_ne!(write_registration.exit_code, 0);
+    assert!(fs::read(registration_path).expect("registration remains") == registration_bytes);
 
     let admin_listing = run(format!("ls '{common}/worktrees'")).await;
     assert!(

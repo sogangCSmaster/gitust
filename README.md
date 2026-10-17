@@ -102,7 +102,7 @@ These examples assume `gitust` is on your `PATH`; you can also use the built bin
 # Inspect the agent-facing tools.
 gitust mcp --list-tools
 
-# Connect an MCP client using stdio.
+# Connect an MCP client using stdio for an unregistered local repository.
 gitust mcp --repo /absolute/path/to/repository
 
 # Run against a fresh worktree of the current committed revision.
@@ -116,6 +116,7 @@ gitust triage list --repo /absolute/path/to/repository
 ```
 
 One worktree service owns a repository at a time. When `serve` is running, connect agents to its `/mcp` HTTP endpoint instead of starting another stdio service on the same repository.
+Explicitly ACL-registered repositories require authenticated HTTP `/mcp`; local stdio operator access is currently unsupported for them. See [local repository registration](docs/operations/repository-registration.md).
 
 The configured repository keeps its ID across server restarts and complete offline restoration. Keep its private Git metadata in backups; an incomplete identity record stops startup. This ID does not register a repository or bind team permissions. See the [identity and recovery contract](docs/architecture/repository-identity.md).
 

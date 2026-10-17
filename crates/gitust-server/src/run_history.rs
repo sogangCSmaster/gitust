@@ -322,9 +322,10 @@ pub(crate) async fn list_handler(
         .get_worktree_runtime(wt.id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, "worktree not found".into()))?;
     let repo_id = state.repo_id;
+    let repo_access = state.repo_access;
     tokio::task::spawn_blocking(move || {
         let records = read(&runtime.common_git_dir, wt.id, &wt.branch)?;
-        check_repo_bola(&state.auth_store, repo_id, &caller, wt.repo_id)?;
+        check_repo_bola(&state.auth_store, repo_id, repo_access, &caller, wt.repo_id)?;
         let current = state
             .auth_store
             .verify_active_principal(&caller)

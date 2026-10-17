@@ -18,6 +18,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 
 def require(condition, message):
@@ -106,6 +107,7 @@ class Rehearsal:
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.tasks, self.results, self.backends, self.edit_windows = {}, [], set(), {}
         self.mcp_commits = []
+        self.registration_receipt_sha = None
 
     def record(self, number, scenario, **evidence):
         self.results.append({"task": number, "scenario": scenario, "passed": True, **evidence})
@@ -155,6 +157,12 @@ class Rehearsal:
             require(repository_id == self.repository_id,
                     "configured repository ID changed after restart or relocation")
         self.repository_id = repository_id
+        if self.registration_receipt_sha is not None:
+            require(sha256(self.repo / "gitust-repository/registration.json")
+                    == self.registration_receipt_sha,
+                    "registered repository receipt changed after restart or relocation")
+            self.acl_outsider.url = self.url
+            self.acl_outsider.request("GET", "/api/v1/repo", expected=403)
 
     def setup(self):
         seed = self.scratch / "seed"
@@ -436,6 +444,7 @@ class Rehearsal:
         self.record(8, "discard checkout while preserving committed private work",
                     discarded_commit=discarded_commit)
 
+        self.register_repository_acl()
         self.backup_restore_task()
         self.http_git_task()
         for repo in [self.repo, self.upstream, self.scratch / "http-client"]:
@@ -450,11 +459,37 @@ class Rehearsal:
                 "fixture": "committed Gitust main cloned locally; task commits only in scratch",
                 "mcp_clients": 2, "mcp_only_commit_demonstrated": True,
                 "repository_identity_preserved_after_restart_and_restore": True,
+                "registered_repository_acl_and_restore": self.registration_receipt_sha is not None,
                 "tasks_1_to_9_commit_actor": "gitust_worktree_commit via HTTP MCP",
                 "mcp_commits": self.mcp_commits,
                 "task_10_commit_actor": "separate Git Smart HTTP client clone",
                 "external_github_publication": False, "tasks": self.results,
                 "git_fsck": "server, local upstream and HTTP client passed --full --strict"}
+
+    def register_repository_acl(self):
+        password = secrets.token_urlsafe(24)
+        issued = self.operator.request("POST", "/api/v1/admin/invites", {
+            "target_email": "alpha-outsider@company.internal", "assigned_role": "Developer",
+            "team_ids": []}, expected=201)
+        anonymous = Client(self.url)
+        anonymous.request("POST", "/api/v1/auth/invites/redeem", {
+            "raw_token": issued["raw_token"], "username": "alpha-outsider",
+            "password": password}, expected=201)
+        login = anonymous.request("POST", "/api/v1/auth/login", {
+            "identifier": "alpha-outsider", "password": password})
+        self.acl_outsider = Client(self.url, login["raw_session_token"])
+        require(self.acl_outsider.request("GET", "/api/v1/repo")["id"] == self.repository_id,
+                "legacy sharing was not available before explicit registration")
+        self.stop()
+        command([str(self.binary), "repository", "register", "--repo", str(self.repo),
+                 "--auth-db", str(self.auth), "--admin-username", "alpha-operator",
+                 "--name", "alpha-registered", "--owner-team-id", str(uuid.uuid4()),
+                 "--private", "true"], env={"GITUST_ADMIN_PASSWORD": self.password})
+        self.registration_receipt_sha = sha256(self.repo / "gitust-repository/registration.json")
+        self.start()
+        self.login()
+        for client in self.clients:
+            client.url = self.url
 
     def backup_restore_task(self):
         self.spawn(9)

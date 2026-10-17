@@ -144,6 +144,7 @@ pub(crate) async fn approve_worktree_handler(
         check_repo_bola(
             &state_for_merge.auth_store,
             state_for_merge.repo_id,
+            state_for_merge.repo_access,
             &current,
             wt.repo_id,
         )?;

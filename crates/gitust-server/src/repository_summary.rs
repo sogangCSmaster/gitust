@@ -23,7 +23,13 @@ pub(crate) async fn handler(
     caller: AuthenticatedPrincipal,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let summary = tokio::task::spawn_blocking(move || {
-        check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
+        check_repo_bola(
+            &state.auth_store,
+            state.repo_id,
+            state.repo_access,
+            &caller,
+            state.repo_id,
+        )?;
         let path = state.git_engine.repo_path();
         let path = if path.file_name().is_some_and(|name| name == ".git") {
             path.parent()
@@ -40,7 +46,13 @@ pub(crate) async fn handler(
             .git_engine
             .inspect_head_identity()
             .map_err(map_git_err)?;
-        check_repo_bola(&state.auth_store, state.repo_id, &caller, state.repo_id)?;
+        check_repo_bola(
+            &state.auth_store,
+            state.repo_id,
+            state.repo_access,
+            &caller,
+            state.repo_id,
+        )?;
         Ok::<_, (StatusCode, String)>(ConnectedRepository {
             id: state.repo_id,
             name,

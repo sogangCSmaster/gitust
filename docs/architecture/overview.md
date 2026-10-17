@@ -29,7 +29,7 @@ See [MCP commits and recovery](mcp-commits.md), [verification and Checks](worktr
 
 ## Persistence and recovery
 
-- Auth state uses a configured JSON file with cross-process locking and atomic replacement. Both reading and writing enforce a 64MiB snapshot ceiling; a rejected write preserves the previous file and rolls back memory. Email input is limited to 254 UTF-8 bytes.
+- Auth state uses a configured JSON file with cross-process locking, atomic replacement and file/directory synchronization. Both reading and writing enforce a 64MiB snapshot ceiling; pre-publication failures preserve the previous file and failed writes roll back memory. An error after rename can leave a newer disk snapshot, so callers must treat that outcome as uncertain. Email input is limited to 254 UTF-8 bytes.
 - Git objects, refs, and linked-worktree metadata remain in Git storage.
 - The configured repository ID is persisted in private `gitust-repository/identity.json` under the common Git directory. Restart and complete offline relocation retain it; incomplete records and unbound auth-metadata collisions fail closed. See [repository identity and recovery](repository-identity.md).
 - Each managed worktree has a bounded, immutable `gitust-origin.json` in its Git administration directory. It binds the worktree ID/branch to the creation target and SHA independently of reflog retention. Valid legacy creation entries are migrated; missing evidence leaves the target unknown, and verification/approval refuse it. Corrupt new metadata fails recovery rather than falling back to `main`. Restore trusted metadata or discard and recreate an unknown-target task; retargeting is not implemented.

@@ -228,6 +228,7 @@ async fn execute(
     let store = state.auth_store.clone();
     let active_caller = caller.clone();
     let default_repo = state.repo_id;
+    let repo_access = state.repo_access;
     let execution_guard = tokio::task::spawn_blocking(move || {
         let guard = run_guard;
         let current = if strict_automatic {
@@ -239,7 +240,7 @@ async fn execute(
         if current.role != EnterpriseRole::SiteAdmin {
             return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
         }
-        check_repo_bola(&store, default_repo, &current, target.repo_id)?;
+        check_repo_bola(&store, default_repo, repo_access, &current, target.repo_id)?;
         let fence = engine.begin_execution_fence(&target).map_err(map_git_err)?;
         // A cancelled await drops the fence before releasing the worktree operation guard.
         Ok::<_, (StatusCode, String)>((fence, guard))
@@ -328,6 +329,7 @@ async fn execute(
             let active_caller = caller.clone();
             let repo_id = wt.repo_id;
             let default_repo = state.repo_id;
+            let repo_access = state.repo_access;
             tokio::task::spawn_blocking(move || {
                 let current = if strict_automatic {
                     store.authorize_automatic_checks_actor(active_caller.user_id)
@@ -338,7 +340,7 @@ async fn execute(
                 if current.role != EnterpriseRole::SiteAdmin {
                     return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
                 }
-                check_repo_bola(&store, default_repo, &current, repo_id)
+                check_repo_bola(&store, default_repo, repo_access, &current, repo_id)
             })
             .await
             .map_err(internal_err)??;

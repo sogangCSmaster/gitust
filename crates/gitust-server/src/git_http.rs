@@ -213,9 +213,16 @@ async fn resolve_and_authorize_repo(
 
     let store = state.auth_store.clone();
     let default_repo = state.repo_id;
+    let repo_access = state.repo_access;
     let caller_owned = caller.clone();
     tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, default_repo, &caller_owned, target_repo_id)
+        check_repo_bola(
+            &store,
+            default_repo,
+            repo_access,
+            &caller_owned,
+            target_repo_id,
+        )
     })
     .await
     .map_err(|e| internal_err(e).into_response())?
@@ -478,7 +485,7 @@ pub(crate) async fn git_receive_pack_handler(
             if fresh.user_id != caller.user_id || fresh.role != caller.role {
                 return Err((StatusCode::FORBIDDEN, "Git push authority changed".into()));
             }
-            check_repo_bola(&automatic_state.auth_store, automatic_state.repo_id, &fresh, automatic_state.repo_id)
+            check_repo_bola(&automatic_state.auth_store, automatic_state.repo_id, automatic_state.repo_access, &fresh, automatic_state.repo_id)
         })();
         if let Err(original) = authorized {
             crate::git_http_automatic::reject_all(&automatic_state, intents);

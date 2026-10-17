@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "source_commit": "f424969f021682647918f0cada818325b36d4e9b",
+  "scope": "fixed-source GitHub-hosted CI using local fixture upstreams and protocol MCP clients",
+  "run": {
+    "id": 39013527741,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39013527741",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "evidence_basis": [
+    "GitHub Actions run and job API terminal results for the exact source commit",
+    "Job logs: sandbox results, late-host regression, PASS 01/10 through PASS 10/10 and crash-rehearsal completion",
+    "Job logs: Git 105 passed with two existing comparative benchmarks ignored, DB 29 passed, server 106 passed, sandbox 30 passed and durable automatic-run regressions passed",
+    "Successful workflow assertions against the private runtime reports; only allowlisted outcomes are recorded here",
+    "Both rehearsal scripts require git fsck --full --strict to succeed before reporting completion",
+    "The fixed-source operating helper requires the repository ID to match after restart and relocated restore before recording repository_identity_preserved_after_restart_and_restore=true",
+    "The new crash lifecycle booleans follow the executed fixed script require -> report path; raw private report JSON was not collected and those fields were not copied into the public workflow summary"
+  ],
+  "jobs": [
+    {
+      "id": 117340834479,
+      "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39013527741/job/117340834479",
+      "runner_image": "ubuntu-22.04",
+      "platform": "Linux",
+      "os_version": "Ubuntu 22.04.5",
+      "backend": "linux_bubblewrap",
+      "started_at": "2026-10-17T07:24:46Z",
+      "completed_at": "2026-10-17T07:28:35Z",
+      "conclusion": "success",
+      "mechanical_gates": "passed",
+      "sandbox_tests": {
+        "passed": 30,
+        "failed": 0,
+        "ignored": 0,
+        "late_host_metadata_and_symlink_aliases": "passed",
+        "auth_state_hidden_read_write_denial": "passed"
+      },
+      "operating_rehearsal": {
+        "completed_tasks": 10,
+        "task_numbers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "all_tasks_passed": true,
+        "mcp_clients": 2,
+        "external_github_publication": false,
+        "git_fsck": "server, local upstream and HTTP client passed --full --strict",
+        "repository_identity_preserved_after_restart_and_restore": true
+      },
+      "report_assertions": {
+        "source_matches_tested_commit": true,
+        "runtime_source_clean": true,
+        "expected_os_backend": true,
+        "ten_distinct_successful_tasks": true
+      },
+      "execution_crash": {
+        "passed": true,
+        "source_matches_tested_commit": true,
+        "runtime_source_clean": true,
+        "expected_os_backend": true,
+        "fresh_service_rejected": true,
+        "explicit_recovery_required": true,
+        "verification_restored": false,
+        "post_recovery_execution_passed": true,
+        "git_fsck": "passed --full --strict",
+        "automatic_attempt_retained_as_interrupted": true,
+        "interrupted_automatic_attempt_replayed": false,
+        "new_lifecycle_boolean_evidence": "fixed script require -> report path; raw private report JSON not collected"
+      },
+      "git_tests": {
+        "passed": 105,
+        "failed": 0,
+        "ignored_comparative_benchmarks": 2
+      },
+      "server_tests": {
+        "passed": 106,
+        "failed": 0,
+        "ignored": 0
+      },
+      "repository_identity": {
+        "atomic_publication_primitive": "renameat2(RENAME_NOREPLACE)",
+        "atomic_publication_preserves_existing_identity": "passed",
+        "process_restart": "passed",
+        "concurrent_initialization_and_service_ownership": "passed",
+        "linked_worktree_and_relocated_repository": "passed",
+        "independent_git_clones": "passed",
+        "invalid_identity_and_incomplete_migration_rejected": "passed",
+        "unsafe_permissions_symlinks_and_hardlinks_rejected": "passed",
+        "configured_identity_collision_rejected_at_startup": "passed"
+      },
+      "db_tests": {
+        "passed": 29,
+        "failed": 0,
+        "ignored": 0
+      },
+      "durable_automatic_run_tests": {
+        "active_account_and_disk_revocation": "passed",
+        "fresh_scratch_for_assigned_logical_run_ids": "passed",
+        "completed_history_idempotency_and_conflict_rejection": "passed",
+        "queued_and_accepted_prepared_restart_recovery": "passed",
+        "uncertain_running_interrupted_without_replay_or_approval": "passed",
+        "recorded_result_reconciled_by_same_run_id_without_reexecution": "passed",
+        "empty_auth_store_rejected_for_persisted_account_jobs": "passed",
+        "timeout_lifecycle_retains_execution_fence": "passed",
+        "private_scheduling_metadata_read_write_denial": "passed",
+        "revoked_git_credential_rejected_before_ref_publication": "passed",
+        "later_http_preflight_failure_rejects_earlier_intents": "passed",
+        "malformed_misbound_oversized_or_unsafe_metadata_rejected": "passed"
+      }
+    },
+    {
+      "id": 117340834291,
+      "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39013527741/job/117340834291",
+      "runner_image": "macos-15",
+      "platform": "macOS",
+      "os_version": "macOS 15.7.9",
+      "backend": "macos_seatbelt",
+      "started_at": "2026-10-17T07:24:53Z",
+      "completed_at": "2026-10-17T07:30:20Z",
+      "conclusion": "success",
+      "mechanical_gates": "passed",
+      "sandbox_tests": {
+        "passed": 30,
+        "failed": 0,
+        "ignored": 0,
+        "late_host_metadata_and_symlink_aliases": "passed",
+        "auth_state_hidden_read_write_denial": "passed"
+      },
+      "operating_rehearsal": {
+        "completed_tasks": 10,
+        "task_numbers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "all_tasks_passed": true,
+        "mcp_clients": 2,
+        "external_github_publication": false,
+        "git_fsck": "server, local upstream and HTTP client passed --full --strict",
+        "repository_identity_preserved_after_restart_and_restore": true
+      },
+      "report_assertions": {
+        "source_matches_tested_commit": true,
+        "runtime_source_clean": true,
+        "expected_os_backend": true,
+        "ten_distinct_successful_tasks": true
+      },
+      "execution_crash": {
+        "passed": true,
+        "source_matches_tested_commit": true,
+        "runtime_source_clean": true,
+        "expected_os_backend": true,
+        "fresh_service_rejected": true,
+        "explicit_recovery_required": true,
+        "verification_restored": false,
+        "post_recovery_execution_passed": true,
+        "git_fsck": "passed --full --strict",
+        "automatic_attempt_retained_as_interrupted": true,
+        "interrupted_automatic_attempt_replayed": false,
+        "new_lifecycle_boolean_evidence": "fixed script require -> report path; raw private report JSON not collected"
+      },
+      "git_tests": {
+        "passed": 105,
+        "failed": 0,
+        "ignored_comparative_benchmarks": 2
+      },
+      "server_tests": {
+        "passed": 106,
+        "failed": 0,
+        "ignored": 0
+      },
+      "repository_identity": {
+        "atomic_publication_primitive": "renameatx_np(RENAME_EXCL)",
+        "atomic_publication_preserves_existing_identity": "passed",
+        "process_restart": "passed",
+        "concurrent_initialization_and_service_ownership": "passed",
+        "linked_worktree_and_relocated_repository": "passed",
+        "independent_git_clones": "passed",
+        "invalid_identity_and_incomplete_migration_rejected": "passed",
+        "unsafe_permissions_symlinks_and_hardlinks_rejected": "passed",
+        "configured_identity_collision_rejected_at_startup": "passed"
+      },
+      "db_tests": {
+        "passed": 29,
+        "failed": 0,
+        "ignored": 0
+      },
+      "durable_automatic_run_tests": {
+        "active_account_and_disk_revocation": "passed",
+        "fresh_scratch_for_assigned_logical_run_ids": "passed",
+        "completed_history_idempotency_and_conflict_rejection": "passed",
+        "queued_and_accepted_prepared_restart_recovery": "passed",
+        "uncertain_running_interrupted_without_replay_or_approval": "passed",
+        "recorded_result_reconciled_by_same_run_id_without_reexecution": "passed",
+        "empty_auth_store_rejected_for_persisted_account_jobs": "passed",
+        "timeout_lifecycle_retains_execution_fence": "passed",
+        "private_scheduling_metadata_read_write_denial": "passed",
+        "revoked_git_credential_rejected_before_ref_publication": "passed",
+        "later_http_preflight_failure_rejects_earlier_intents": "passed",
+        "malformed_misbound_oversized_or_unsafe_metadata_rejected": "passed"
+      }
+    }
+  ],
+  "boundaries": {
+    "earlier_failed_run_outcomes_unchanged": true,
+    "later_uncommitted_changes_covered": false,
+    "standalone_installation_established_by_this_run": false,
+    "actual_ide_agent_session": false,
+    "external_github_publication": false,
+    "automatic_orphan_termination_asserted": false,
+    "private_runtime_reports_published": false,
+    "later_ui_activity_changes_covered": false,
+    "github_product_publication": "deferred_by_user",
+    "native_agent_proof": "incomplete"
+  }
+}

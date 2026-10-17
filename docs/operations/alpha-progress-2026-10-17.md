@@ -219,3 +219,14 @@ IDE sessions or actual GitHub publication.
 The user explicitly deferred actual GitHub publication testing on 2026-10-17 while
 requesting continued development elsewhere in the roadmap. Local fixture upstreams
 remain the publication evidence boundary; this deferral does not close acceptance A4.
+
+The [durable automatic-run evidence](evidence/alpha-ci-f424969-2026-10-17.json) records
+[CI run 39013527741](https://github.com/sogangCSmaster/gitust/actions/runs/39013527741),
+attempt 1, for `f424969f021682647918f0cada818325b36d4e9b`. Ubuntu 22.04 and macOS 15
+both passed all mechanical gates, 105 Git tests (two comparative benchmarks ignored),
+29 DB tests, 106 server tests, 30 sandbox tests, all ten operating tasks and the updated
+crash rehearsal. Same-run-ID Interrupted retention and no-replay booleans follow the
+fixed script's successful `require` -> report path; raw private report JSON was not
+collected. Exact-source/backend checks and strict Git `fsck` passed. This fixed-checkpoint
+record excludes later activity UI changes. Actual GitHub product publication remains
+deferred by the user, and native agent-client proof remains incomplete.

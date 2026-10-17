@@ -35,7 +35,9 @@ it("accepts automatic diagnostics and rejects mixed approval metadata", () => {
 beforeEach(() => {
   token = "session-a";
   vi.stubGlobal("window", { localStorage: { getItem: () => token } });
-  fetchMock = vi.fn().mockResolvedValue(response([historyRecord()]));
+  fetchMock = vi.fn(async (url: string) =>
+    response(url.endsWith("/automatic-runs") ? [] : [historyRecord()]),
+  );
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -67,19 +69,23 @@ it("drops responses after replacement, close or account changes", async () => {
   const c = client();
   const first = c.load(worktreeId);
   const second = c.load(worktreeId);
-  pending[1](response([]));
+  pending[2](response([]));
+  pending[3](response([]));
   await second;
   pending[0](response([historyRecord()]));
+  pending[1](response([]));
   await first;
   expect(state.records).toEqual([]);
   const third = c.load(worktreeId);
   c.clear();
-  pending[2](response([historyRecord()]));
+  pending[4](response([historyRecord()]));
+  pending[5](response([]));
   await third;
   expect(state.status).toBe("idle");
   const fourth = c.load(worktreeId);
   token = "session-b";
-  pending[3](response([historyRecord()]));
+  pending[6](response([historyRecord()]));
+  pending[7](response([]));
   await fourth;
   expect(state.records).toEqual([]);
 });

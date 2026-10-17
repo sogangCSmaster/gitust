@@ -4,30 +4,42 @@ import { Alert, AlertDescription } from "../components/ui/alert";
 import { EmptyState, StatusBadge } from "../components/workspace/presentation";
 import { Icon } from "../components/workspace/icon";
 import { VerificationResultDetails } from "./VerificationResultDetails";
+import {
+  activityCommit,
+  activityTime,
+  mergeRunActivity,
+} from "./run-activity-model";
+import {
+  activityExplanation,
+  activityLabel,
+  activityTone,
+} from "./run-activity-presentation";
 import type { RunHistoryDialogProps } from "./RunHistoryDialog";
 
 export const RunHistoryContent: Component<RunHistoryDialogProps> = (props) => {
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  const activity = createMemo(() =>
+    props.state.status === "ready"
+      ? mergeRunActivity(props.state.records, props.state.jobs)
+      : [],
+  );
   const selected = createMemo(
     () =>
-      props.state.records.find((record) => record.runId === selectedId()) ??
-      props.state.records[0],
+      activity().find((entry) => entry.runId === selectedId()) ?? activity()[0],
   );
   return (
-    <div class="min-w-0 space-y-4">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <p class="text-xs text-muted-foreground">
-          Completed runs only. Timeouts and interrupted attempts are not stored.
-        </p>
+    <div class="min-w-0 space-y-3">
+      <div class="flex min-w-0 items-center justify-between gap-3">
+        <p class="min-w-0 text-xs text-muted-foreground">Diagnostics only</p>
         <Button size="sm" variant="outline" onClick={props.onRefresh}>
-          <Icon name="rotate-ccw" /> Refresh history
+          <Icon name="rotate-ccw" /> Refresh activity
         </Button>
       </div>
       <Show
         when={props.state.status === "idle" || props.state.status === "loading"}
       >
         <p role="status" class="text-sm text-muted-foreground">
-          Loading stored runs…
+          Loading activity…
         </p>
       </Show>
       <Show when={props.state.status === "error"}>
@@ -35,98 +47,171 @@ export const RunHistoryContent: Component<RunHistoryDialogProps> = (props) => {
           <AlertDescription>{props.state.error}</AlertDescription>
         </Alert>
       </Show>
-      <Show
-        when={props.state.status === "ready" && !props.state.records.length}
-      >
+      <Show when={props.state.status === "ready" && !activity().length}>
         <EmptyState
-          title="No stored runs"
-          description="Completed runs appear here after execution. Older runs from before history storage was added are unavailable."
+          title="No activity yet"
+          description="Completed runs and automatic attempts appear here. Retained history is limited."
         />
       </Show>
-      <Show when={props.state.status === "ready" && props.state.records.length}>
-        <div class="grid min-w-0 gap-4 sm:grid-cols-[12rem_minmax(0,1fr)]">
+      <Show when={activity().length}>
+        <div class="grid min-w-0 gap-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
           <ol
-            aria-label="Stored runs"
-            class="max-h-60 space-y-2 overflow-y-auto sm:max-h-[60svh]"
+            aria-label="Run activity"
+            class="max-h-44 min-w-0 space-y-1 overflow-y-auto sm:max-h-[60svh]"
           >
-            <For each={props.state.records}>
-              {(record) => (
-                <li>
+            <For each={activity()}>
+              {(entry) => (
+                <li class="min-w-0">
                   <Button
                     variant={
-                      selected()?.runId === record.runId
-                        ? "secondary"
-                        : "outline"
+                      selected()?.runId === entry.runId ? "secondary" : "ghost"
                     }
-                    class="h-auto w-full min-w-0 flex-col items-start gap-1 whitespace-normal p-3 text-left"
-                    aria-pressed={selected()?.runId === record.runId}
-                    aria-label={`View run ${record.runId}`}
-                    onClick={() => setSelectedId(record.runId)}
+                    class="grid h-11 w-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] gap-2 px-2 text-left sm:h-9"
+                    aria-pressed={selected()?.runId === entry.runId}
+                    aria-label={`${activityLabel(entry)} ${activityCommit(entry)?.slice(0, 7) ?? "command"} · ${new Date(activityTime(entry)).toLocaleString()}`}
+                    title={`${activityLabel(entry)} · ${new Date(activityTime(entry)).toLocaleString()}`}
+                    onClick={() => setSelectedId(entry.runId)}
                   >
-                    <span class="text-xs">
-                      {record.result.exitCode === 0
-                        ? "Passed"
-                        : `Failed · exit ${record.result.exitCode}`}
+                    <span class="min-w-0 truncate text-xs">
+                      {activityLabel(entry)}
                     </span>
-                    <time
-                      dateTime={record.completedAt}
-                      class="text-xs font-normal text-muted-foreground"
+                    <code
+                      class="shrink-0 text-[10px] font-normal text-muted-foreground"
+                      title={activityCommit(entry) ?? undefined}
                     >
-                      {new Date(record.completedAt).toLocaleString()}
+                      {activityCommit(entry)?.slice(0, 7) ?? "command"}
+                    </code>
+                    <time
+                      dateTime={activityTime(entry)}
+                      class="shrink-0 whitespace-nowrap text-[10px] font-normal text-muted-foreground"
+                    >
+                      {new Date(activityTime(entry)).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hourCycle: "h23",
+                      })}
                     </time>
-                    <span class="text-xs font-normal">
-                      {record.automatic
-                        ? "Automatic checks"
-                        : record.verificationRequested
-                          ? "Verification run"
-                          : "Command run"}{" "}
-                      · {record.result.durationMs}ms
-                    </span>
                   </Button>
                 </li>
               )}
             </For>
           </ol>
           <Show when={selected()} keyed>
-            {(record) => (
+            {(entry) => (
               <section
-                aria-label="Stored run details"
-                class="min-w-0 space-y-4"
+                aria-label="Run activity details"
+                class="min-w-0 space-y-3"
               >
-                <div class="space-y-2 rounded-lg border p-3 text-xs">
+                <div class="min-w-0 space-y-2 rounded-lg border p-3 text-xs">
                   <div class="flex flex-wrap items-center gap-2">
-                    <StatusBadge
-                      tone={record.result.exitCode === 0 ? "success" : "danger"}
-                    >
-                      Stored result · exit {record.result.exitCode}
+                    <StatusBadge tone={activityTone(entry)}>
+                      {activityLabel(entry)}
                     </StatusBadge>
-                    <span>Diagnostic record</span>
+                    <span class="text-muted-foreground">
+                      {entry.job || entry.history?.automatic
+                        ? "Automatic checks"
+                        : entry.history?.verificationRequested
+                          ? "Verification run"
+                          : "Command run"}
+                      <Show when={entry.history}>
+                        {" "}
+                        · {entry.history?.result.durationMs}ms
+                      </Show>
+                    </span>
                   </div>
-                  <p class="break-all font-mono">Run: {record.runId}</p>
-                  <p class="break-all font-mono">Run by: {record.userId}</p>
-                  <Show when={record.automatic}>
-                    <p>
-                      Automatic checks do not grant approval. Run manual
-                      verification before approving.
-                    </p>
+                  <Show when={entry.job}>
+                    <p>{activityExplanation(entry)}</p>
                   </Show>
-                  <Show when={record.checkedCommit}>
-                    <p class="break-all font-mono">
-                      Checked commit at execution: {record.checkedCommit}
-                    </p>
+                  <Show when={entry.job || entry.history?.automatic}>
+                    <p>Run manual verification before approving.</p>
                   </Show>
-                  <Show when={record.checksBlobOid}>
-                    <p class="break-all font-mono">
-                      Checks policy: {record.checksBlobOid}
-                    </p>
-                  </Show>
+                  <p>
+                    <time dateTime={activityTime(entry)}>
+                      {new Date(activityTime(entry)).toLocaleString()}
+                    </time>
+                  </p>
+                  <details class="min-w-0 text-muted-foreground">
+                    <summary class="min-h-touch cursor-pointer py-3.5 sm:min-h-8 sm:py-2">
+                      Run details
+                    </summary>
+                    <div class="space-y-1 pt-2">
+                      <p class="break-all font-mono">Run: {entry.runId}</p>
+                      <p class="break-all font-mono">
+                        Run by: {entry.job?.userId ?? entry.history?.userId}
+                      </p>
+                      <Show when={activityCommit(entry)}>
+                        <p class="break-all font-mono">
+                          {entry.history
+                            ? "Checked commit at execution"
+                            : "Target commit"}
+                          : {activityCommit(entry)}
+                        </p>
+                      </Show>
+                      <Show
+                        when={
+                          entry.job?.checksOid ?? entry.history?.checksBlobOid
+                        }
+                      >
+                        <p class="break-all font-mono">
+                          Checks policy:{" "}
+                          {entry.job?.checksOid ?? entry.history?.checksBlobOid}
+                        </p>
+                      </Show>
+                      <Show when={entry.job} keyed>
+                        {(job) => (
+                          <>
+                            <p>
+                              Source:{" "}
+                              {job.origin === "git_http"
+                                ? "Git HTTP"
+                                : job.origin === "local_operator"
+                                  ? "Local operator"
+                                  : "MCP"}
+                            </p>
+                            <p>
+                              Created:{" "}
+                              <time dateTime={job.createdAt}>
+                                {new Date(job.createdAt).toLocaleString()}
+                              </time>
+                            </p>
+                            <Show when={job.previous}>
+                              <p class="break-all font-mono">
+                                Previous commit: {job.previous}
+                              </p>
+                            </Show>
+                            <Show when={job.reason}>
+                              <p class="break-all">Reason: {job.reason}</p>
+                            </Show>
+                          </>
+                        )}
+                      </Show>
+                    </div>
+                  </details>
                 </div>
-                <Show when={record.historyTruncated}>
-                  <StatusBadge tone="warning">
-                    Stored command or output was shortened
-                  </StatusBadge>
+                <Show
+                  when={entry.history}
+                  fallback={
+                    <EmptyState
+                      title="No stored output"
+                      description="This activity has no retained command result. Its lifecycle status does not imply a passing test."
+                    />
+                  }
+                  keyed
+                >
+                  {(record) => (
+                    <>
+                      <p class="text-xs text-muted-foreground">
+                        Stored command result · exit {record.result.exitCode}
+                      </p>
+                      <Show when={record.historyTruncated}>
+                        <StatusBadge tone="warning">
+                          Stored command or output was shortened
+                        </StatusBadge>
+                      </Show>
+                      <VerificationResultDetails result={record.result} />
+                    </>
+                  )}
                 </Show>
-                <VerificationResultDetails result={record.result} />
               </section>
             )}
           </Show>

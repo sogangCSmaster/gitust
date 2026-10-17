@@ -25,6 +25,14 @@ in the existing bounded run history; matching run IDs make history writes
 idempotent. The lifecycle endpoint is SiteAdmin-only:
 `GET /api/v1/swarm/worktrees/{id}/automatic-runs`.
 
+The selected worktree's Activity dialog combines those lifecycle records with the
+latest five completed results from `/runs`. It shows at most thirteen distinct
+run IDs and joins output only when the automatic-run marker, actor, commit and Checks
+blob agree. A lifecycle-only completion is neutral, and queued, interrupted or
+cancelled attempts never imply a passing command. Both reads belong to the same
+session and selection; either failure clears the combined view. This is a
+worktree diagnostic viewer, not the repository-wide Actions screen.
+
 On restart, prepared intents are reconciled against actual Git state. Never-started
 queued jobs may resume after current account existence, active SiteAdmin role,
 ownership, repository access, trusted execution, clean exact SHA and committed

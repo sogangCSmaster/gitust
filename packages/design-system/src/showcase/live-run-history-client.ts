@@ -3,6 +3,13 @@ import type {
   RunHistoryEntry,
   RunHistoryState,
 } from "../patterns/run-history-types";
+import {
+  parseAutomaticRuns,
+  isUuid,
+  isOid,
+  isUtcTime,
+} from "./live-automatic-runs";
+import { mergeRunActivity } from "../patterns/run-activity-model";
 import { getLiveToken } from "./live-repo-client";
 import { parseCommandOutput } from "./live-command-output";
 export type {
@@ -10,8 +17,6 @@ export type {
   RunHistoryState,
 } from "../patterns/run-history-types";
 
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const oid = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const invalid = (): never => {
   throw new Error("Invalid run history response from server");
 };
@@ -28,25 +33,22 @@ const code = (value: unknown): value is number =>
   (value as number) >= -2_147_483_648 &&
   (value as number) <= 2_147_483_647;
 const nullableOid = (value: unknown): value is string | null =>
-  value === null || (typeof value === "string" && oid.test(value));
+  value === null || isOid(value);
 
 /** Historical command prefixes may be truncated; they are display text, never retry inputs. */
 export function parseRunHistory(
   value: unknown,
   worktreeId: string,
 ): RunHistoryEntry[] {
-  if (!uuid.test(worktreeId) || !Array.isArray(value) || value.length > 5)
+  if (!isUuid(worktreeId) || !Array.isArray(value) || value.length > 5)
     return invalid();
   const ids = new Set<string>();
   return value.map((entry): RunHistoryEntry => {
     if (
       !object(entry) ||
-      typeof entry.completed_at !== "string" ||
-      entry.completed_at.length > 64 ||
-      !/^\d{4}-\d\d-\d\dT/.test(entry.completed_at) ||
-      !Number.isFinite(Date.parse(entry.completed_at)) ||
+      !isUtcTime(entry.completed_at) ||
       typeof entry.user_id !== "string" ||
-      !uuid.test(entry.user_id) ||
+      !isUuid(entry.user_id) ||
       typeof entry.verification_requested !== "boolean" ||
       (entry.automatic !== undefined && typeof entry.automatic !== "boolean") ||
       typeof entry.history_truncated !== "boolean" ||
@@ -66,8 +68,8 @@ export function parseRunHistory(
       !object(result) ||
       result.worktree_id !== worktreeId ||
       typeof result.run_id !== "string" ||
-      !uuid.test(result.run_id) ||
-      ids.has(result.run_id) ||
+      !isUuid(result.run_id) ||
+      ids.has(result.run_id.toLowerCase()) ||
       !text(result.command, 4096) ||
       !text(result.stdout, 16384) ||
       !text(result.stderr, 16384) ||
@@ -79,7 +81,7 @@ export function parseRunHistory(
       result.steps.length > 9
     )
       return invalid();
-    ids.add(result.run_id);
+    ids.add(result.run_id.toLowerCase());
     let failed: number | undefined;
     const steps = result.steps.map((step, index): AgentVerificationStep => {
       if (
@@ -111,7 +113,7 @@ export function parseRunHistory(
     });
     if (result.exit_code !== (failed ?? 0)) return invalid();
     return {
-      runId: result.run_id,
+      runId: result.run_id.toLowerCase(),
       completedAt: entry.completed_at,
       userId: entry.user_id,
       verificationRequested: entry.verification_requested,
@@ -144,21 +146,23 @@ export function createLiveRunHistoryClient(
   };
   const clear = () => {
     invalidate();
-    update({ status: "idle", records: [] });
+    update({ status: "idle", records: [], jobs: [] });
   };
   const load = async (worktreeId: string) => {
     invalidate();
     const request = generation;
     const token = getLiveToken();
-    if (!token || !uuid.test(worktreeId)) {
+    if (!token || !isUuid(worktreeId)) {
       update({
         status: "error",
         records: [],
+        jobs: [],
         error: "Sign in as a SiteAdmin to view this worktree's history.",
       });
       return;
     }
-    controller = new AbortController();
+    const pending = new AbortController();
+    controller = pending;
     const current = () => {
       if (generation !== request) return false;
       if (token !== getLiveToken()) {
@@ -167,42 +171,55 @@ export function createLiveRunHistoryClient(
       }
       return true;
     };
-    update({ status: "loading", records: [] });
+    update({ status: "loading", records: [], jobs: [] });
     try {
-      const response = await fetch(
-        `/api/v1/swarm/worktrees/${encodeURIComponent(worktreeId)}/runs`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-          signal: controller.signal,
-        },
-      );
-      if (!current()) return;
-      if (!response.ok)
-        throw new Error(
-          `Unable to load run history (HTTP ${response.status}). Refresh after checking your session and access.`,
+      const read = async (path: string, limit: number): Promise<unknown> => {
+        const response = await fetch(
+          `/api/v1/swarm/worktrees/${encodeURIComponent(worktreeId)}/${path}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+            signal: pending.signal,
+          },
         );
-      const body = await response.text();
+        if (!current()) return;
+        if (!response.ok)
+          throw new Error(
+            `Unable to load activity (HTTP ${response.status}). Check your session and access.`,
+          );
+        const body = await response.text();
+        if (!current()) return;
+        if (new TextEncoder().encode(body).length > limit) return invalid();
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          return invalid();
+        }
+        return current() ? parsed : undefined;
+      };
+      const [history, automatic] = await Promise.all([
+        read("runs", 3 * 1024 * 1024),
+        read("automatic-runs", 64 * 1024),
+      ]);
       if (!current()) return;
-      if (body.length > 3 * 1024 * 1024) return invalid();
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(body);
-      } catch {
-        return invalid();
-      }
-      const records = parseRunHistory(parsed, worktreeId);
-      if (current()) update({ status: "ready", records });
+      const records = parseRunHistory(history, worktreeId);
+      const jobs = parseAutomaticRuns(automatic, worktreeId);
+      mergeRunActivity(records, jobs);
+      if (current()) update({ status: "ready", records, jobs });
     } catch (error) {
-      if (current())
+      if (current()) {
+        pending.abort();
         update({
           status: "error",
           records: [],
+          jobs: [],
           error:
             error instanceof Error
               ? error.message
               : "Unable to load run history.",
         });
+      }
     }
   };
   return { load, clear };

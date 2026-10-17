@@ -24,10 +24,13 @@ export const LiveRunHistoryDialog: Component<{
   createEffect(() => {
     void client.load(props.worktreeId);
   });
+  const close = () => {
+    client.clear();
+    props.onClose();
+  };
   const sessionChanged = (event: StorageEvent) => {
     if (event.key === "gitust_token" || event.key === null) {
-      client.clear();
-      props.onClose();
+      close();
     }
   };
   onMount(() => window.addEventListener("storage", sessionChanged));
@@ -40,7 +43,7 @@ export const LiveRunHistoryDialog: Component<{
       branch={props.branch}
       state={state()}
       onRefresh={() => void client.load(props.worktreeId)}
-      onClose={props.onClose}
+      onClose={close}
     />
   );
 };

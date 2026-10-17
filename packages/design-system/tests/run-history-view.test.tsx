@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@solidjs/testing-library";
 import { RunHistoryDialog } from "../src/patterns/RunHistoryDialog";
 import { LiveRunHistoryDialog } from "../src/showcase/LiveRunHistoryDialog";
@@ -97,7 +98,7 @@ it("shows historical SHA and output without approval actions and blocks backgrou
         onClose={vi.fn()}
       />
     ));
-    const dialog = screen.getByRole("dialog", { name: "Run history" });
+    const dialog = screen.getByRole("dialog", { name: "Activity" });
     dialog.dispatchEvent(
       new KeyboardEvent("keydown", { key: "a", bubbles: true }),
     );
@@ -149,7 +150,7 @@ it("selects older failures and renders shortened commands and markup as plain di
     />
   ));
   await fireEvent.click(
-    await screen.findByRole("button", { name: `View run ${old.runId}` }),
+    await screen.findByRole("button", { name: /^Failed aaaaaaa/ }),
   );
   expect(screen.getByText("Skipped", { exact: true })).toBeTruthy();
   expect(
@@ -182,13 +183,20 @@ it("clears stored details during refresh or errors and presents an explicit empt
   });
   expect(screen.getByRole("alert").textContent).toContain("403");
   setState({ status: "ready", records: [] });
-  expect(screen.getByText("No stored runs")).toBeTruthy();
+  expect(screen.getByText("No activity yet")).toBeTruthy();
 });
 
 it("binds the live refresh and closes on browser account replacement", async () => {
   const fetchMock = vi
     .fn()
-    .mockResolvedValue(new Response(JSON.stringify([historyRecord()])));
+    .mockImplementation(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.endsWith("/automatic-runs") ? [] : [historyRecord()],
+          ),
+        ),
+    );
   vi.stubGlobal("fetch", fetchMock);
   const close = vi.fn();
   render(() => (
@@ -201,7 +209,7 @@ it("binds the live refresh and closes on browser account replacement", async () 
   await screen.findByText("checked", { exact: true });
   fetchMock.mockResolvedValue(new Response("denied", { status: 403 }));
   await fireEvent.click(
-    screen.getByRole("button", { name: "Refresh history" }),
+    screen.getByRole("button", { name: "Refresh activity" }),
   );
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toContain("403"),
@@ -265,4 +273,99 @@ it("exposes live admin history even for merged rows and omits it for demo/non-ad
     <AgentSwarmView {...props} liveMode={false} canRunVerification />
   ));
   expect(screen.queryByRole("button", { name: "Run history" })).toBeNull();
+});
+
+it("selects lifecycle-only attempts without fabricating passed results or losing exact target details", async () => {
+  const { parseAutomaticRuns } =
+    await import("../src/showcase/live-automatic-runs");
+  const { automaticJob } = await import("./run-history-fixture");
+  const raw = [
+    {
+      ...automaticJob("55555555-5555-4555-8555-555555555555"),
+      phase: "completed",
+    },
+    {
+      ...automaticJob("66666666-6666-4666-8666-666666666666"),
+      phase: "interrupted",
+      reason: "unconfirmed_execution",
+    },
+  ];
+  render(() => (
+    <RunHistoryDialog
+      branch="agent/test/activity"
+      state={{
+        status: "ready",
+        records: [],
+        jobs: parseAutomaticRuns(raw, worktreeId),
+      }}
+      onRefresh={vi.fn()}
+      onClose={vi.fn()}
+    />
+  ));
+  await screen.findByText("No stored output");
+  expect(screen.queryByText("Passed", { exact: true })).toBeNull();
+  expect(screen.getByText(`Target commit: ${"a".repeat(40)}`)).toBeTruthy();
+  expect(screen.queryByText(/Checked commit at execution/)).toBeNull();
+  await fireEvent.click(
+    screen.getByRole("button", { name: /^Interrupted aaaaaaa/ }),
+  );
+  expect(screen.getByText(/will never replay automatically/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Approve|Retry/ })).toBeNull();
+  expect(
+    within(screen.getByRole("list", { name: "Run activity" })).getAllByRole(
+      "button",
+    ),
+  ).toHaveLength(2);
+});
+it("deduplicates a running snapshot with stored output and reports a later lifecycle failure honestly", async () => {
+  const { parseAutomaticRuns } =
+    await import("../src/showcase/live-automatic-runs");
+  const { automaticJob } = await import("./run-history-fixture");
+  const history = {
+    ...historyRecord(),
+    automatic: true,
+    verification_requested: false,
+  };
+  const [state, setState] = createSignal<RunHistoryState>({
+    status: "ready",
+    records: parseRunHistory([history], worktreeId),
+    jobs: parseAutomaticRuns(
+      [{ ...automaticJob(history.result.run_id), phase: "running" }],
+      worktreeId,
+    ),
+  });
+  render(() => (
+    <RunHistoryDialog
+      branch="agent/test/activity"
+      state={state()}
+      onRefresh={vi.fn()}
+      onClose={vi.fn()}
+    />
+  ));
+  await screen.findByText("checked", { exact: true });
+  expect(
+    within(screen.getByRole("list", { name: "Run activity" })).getAllByRole(
+      "button",
+    ),
+  ).toHaveLength(1);
+  expect(
+    screen.getByText(/Stored output is available.*snapshot still says running/),
+  ).toBeTruthy();
+  expect(screen.queryByText(/No completed output is stored yet/)).toBeNull();
+  setState({
+    ...state(),
+    jobs: parseAutomaticRuns(
+      [
+        {
+          ...automaticJob(history.result.run_id),
+          phase: "failed",
+          reason: "authority_unavailable",
+        },
+      ],
+      worktreeId,
+    ),
+  });
+  expect(screen.getByText(/account, administrator role/)).toBeTruthy();
+  expect(screen.getByText("Stored command result · exit 0")).toBeTruthy();
+  expect(screen.getByText("checked", { exact: true })).toBeTruthy();
 });

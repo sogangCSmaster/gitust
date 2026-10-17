@@ -30,16 +30,19 @@ export const RunHistoryDialog: Component<RunHistoryDialogProps> = (props) => (
   >
     <DialogContent class="max-h-[90svh] w-[calc(100%-2rem)] max-w-4xl rounded-lg">
       <DialogHeader class="pr-10 text-left">
-        <DialogTitle>Run history</DialogTitle>
+        <DialogTitle>Activity</DialogTitle>
         <DialogDescription>
-          The latest five completed runs, including saved results from before a
-          server restart. Past results do not grant approval.
+          Recent runs and automatic attempts. Past results do not grant
+          approval.
         </DialogDescription>
       </DialogHeader>
-      <code class="min-w-0 break-all text-xs text-muted-foreground">
+      <code
+        class="block min-w-0 truncate text-xs text-muted-foreground"
+        title={props.branch}
+      >
         {props.branch}
       </code>
-      <DeferredView label="Run history" onCancel={props.onClose}>
+      <DeferredView label="Activity" onCancel={props.onClose}>
         <Content {...props} />
       </DeferredView>
     </DialogContent>

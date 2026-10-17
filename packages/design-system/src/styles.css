@@ -92,6 +92,7 @@
     button[class],
     input[class]:not([type="checkbox"]):not([type="radio"]),
     select[class],
+    summary[class],
     [role="button"][class],
     [role="tab"][class],
     [role="option"][class],

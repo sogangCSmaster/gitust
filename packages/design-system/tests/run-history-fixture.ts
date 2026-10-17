@@ -27,3 +27,19 @@ export const historyRecord = (
     ],
   },
 });
+
+export const automaticJob = (
+  runId = "55555555-5555-4555-8555-555555555555",
+) => ({
+  run_id: runId,
+  user_id: historyRecord().user_id,
+  origin: "mcp",
+  purpose: "automatic_checks",
+  expected: "a".repeat(40),
+  previous: "c".repeat(40),
+  checks_oid: "b".repeat(40),
+  phase: "queued",
+  reason: null as string | null,
+  created_at: "2026-10-17T02:00:00Z",
+  changed_at: "2026-10-17T02:00:00Z",
+});

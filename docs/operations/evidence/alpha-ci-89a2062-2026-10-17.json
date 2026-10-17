@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "source_commit": "89a2062dda66a25356ab54c178afe3b20e01fae9",
+  "scope": "fixed-source hosted CI for the bounded repository Actions page and long-ref fixes",
+  "run": {
+    "id": 39017215962,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39017215962",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "evidence_basis": [
+    "Exact-source GitHub run/job terminal metadata and decoded job logs",
+    "Frontend 212 passed; all mechanical gates, six repository-page regressions, PASS01..10 and actual crash-rehearsal completion in both jobs",
+    "Lifecycle assertions follow the fixed script require -> private report -> CI validator success path; raw private runtime reports were not collected"
+  ],
+  "jobs": [
+    {
+      "id": 117351708614,
+      "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39017215962/job/117351708614",
+      "runner_image": "macos-15",
+      "started_at": "2026-10-17T08:24:08Z",
+      "completed_at": "2026-10-17T08:27:41Z",
+      "conclusion": "success",
+      "frontend_tests_passed": 212,
+      "git_tests_passed": 105,
+      "git_benchmarks_ignored": 2,
+      "db_tests_passed": 29,
+      "server_tests_passed": 112,
+      "sandbox_tests_passed": 30,
+      "mechanical_gates": "passed",
+      "repository_page_regressions_passed": 6,
+      "operating_tasks_passed": 10,
+      "execution_crash_rehearsal": "passed",
+      "automatic_attempt_retained_as_interrupted": true,
+      "repository_actions_running_and_interrupted": true,
+      "same_attempt_id_binding_checked": true,
+      "interrupted_automatic_attempt_replayed": false,
+      "verification_restored": false
+    },
+    {
+      "id": 117351709392,
+      "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39017215962/job/117351709392",
+      "runner_image": "ubuntu-22.04",
+      "started_at": "2026-10-17T08:24:06Z",
+      "completed_at": "2026-10-17T08:28:04Z",
+      "conclusion": "success",
+      "frontend_tests_passed": 212,
+      "git_tests_passed": 105,
+      "git_benchmarks_ignored": 2,
+      "db_tests_passed": 29,
+      "server_tests_passed": 112,
+      "sandbox_tests_passed": 30,
+      "mechanical_gates": "passed",
+      "repository_page_regressions_passed": 6,
+      "operating_tasks_passed": 10,
+      "execution_crash_rehearsal": "passed",
+      "automatic_attempt_retained_as_interrupted": true,
+      "repository_actions_running_and_interrupted": true,
+      "same_attempt_id_binding_checked": true,
+      "interrupted_automatic_attempt_replayed": false,
+      "verification_restored": false
+    }
+  ],
+  "source_files": {
+    "scripts/execution-crash-rehearsal.py": "a59581087b2936af7e3305e8fbdd69d8cab4f41ee47954ab64e60f9133ea92ea",
+    ".github/workflows/ci.yml": "61d94696553977089aea91fecebe44352dfa6b39bf7e578dc17b84378db5dc3d"
+  },
+  "boundaries": {
+    "later_changes_covered": false,
+    "actual_ide_agent_session": false,
+    "github_product_publication": "deferred_by_user",
+    "private_runtime_reports_published": false
+  }
+}

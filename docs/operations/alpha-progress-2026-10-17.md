@@ -1,5 +1,13 @@
 # Alpha acceptance progress — 2026-10-17
 
+The repository Actions checkpoint `89a2062dda66a25356ab54c178afe3b20e01fae9`
+passed [exact-source Linux/macOS CI](evidence/alpha-ci-89a2062-2026-10-17.json),
+including all mechanical gates, six repository-page regressions, ten operating tasks
+and actual execution-crash recovery. The same automatic attempt was visible through
+the repository API as Running and then Interrupted after explicit recovery, without
+replay or restored verification authority. GitHub product publication remains deferred
+by the user; this evidence does not cover later changes or intended IDE-agent sessions.
+
 The alpha goal remains **open**, with [nine acceptance conditions](alpha-acceptance.md).
 The user changed A8's review policy on 2026-10-17 as recorded below. This report records
 local operational evidence, not release approval. Base

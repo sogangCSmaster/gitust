@@ -64,7 +64,13 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
    administrator and owner, and verify scope changes, revoked credentials and
    inactive accounts. Require unchanged primary refs, stable registration and
    strict server/client `fsck`, then remove private fixtures before success.
-9. Kill a disposable fixture service during an actual automatic Check and require
+9. Run committed ordinary-branch Checks through the real CLI in normal and bare
+   repositories. Require exact SHA/configuration binding, actual required-step
+   results, failure/skipping, pre-execution rejection of invalid or stale requests,
+   preserved dirty files, refs, approved tasks and raw annotated tags, and removal
+   of temporary checkout directories and fences. Require the actual OS sandbox,
+   matching source/binary hashes, strict Git `fsck` and removed private fixtures.
+10. Kill a disposable fixture service during an actual automatic Check and require
    a fresh service to refuse the unresolved execution fence. Stop only the
    fixture's authenticated process groups, require explicit operator recovery,
    and prove ordinary execution resumes without restoring verification authority.

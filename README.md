@@ -124,6 +124,9 @@ gitust mcp --repo /absolute/path/to/repository
 # Run against a fresh worktree of the current committed revision.
 gitust sandbox run "cargo test --offline" --repo /absolute/path/to/repository
 
+# Run the current branch's committed Checks against its exact full commit ID.
+gitust sandbox checks --repo /absolute/path/to/repository --expected-commit FULL_COMMIT_SHA
+
 # Import an upstream into a new local mirror.
 gitust sync https://github.com/YOUR_ORG/YOUR_REPO.git --repo /absolute/path/to/new-mirror.git
 
@@ -143,6 +146,7 @@ The [ten-task rehearsal](docs/operations/alpha-rehearsal.md) passed with real MC
 In the workbench, run verification, inspect the result, select **Approve & Merge**, then **Publish to GitHub**. Publication sends the approved SHA and its reachable history, not every local branch. A failed push preserves the local merge for explicit retry.
 
 - [Verification and required Checks](docs/architecture/worktree-verification.md)
+- [Explicit local Checks and machine-readable results](docs/operations/local-checks.md)
 - [MCP commits, supported Git normalization, and interrupted-commit recovery](docs/architecture/mcp-commits.md)
 - [Approval, publication, recovery, and CLI examples](docs/architecture/outbound-sync.md)
 - [Offline installation backup and relocated restoration](docs/operations/backup-restore.md)

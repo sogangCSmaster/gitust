@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "base_commit": "a63ebf2d789b05c8b18e888ab4bccf7282e2615d",
+  "scope": "Explicit local ordinary-branch Repository Checks at an expected full commit, without verification or publication authority",
+  "source_manifest_sha256": "cf738a87ea2cfea524e7b629230f214e9371bf2db98ba97829b86313d4e1745f",
+  "source_sha256": [
+    {
+      "path": "crates/gitust-cli/src/checks_cmd.rs",
+      "sha256": "25a3e856d9262d5f084b50d8eb9135a9b3a82b4aeb86aa49f4c633c782851ada"
+    },
+    {
+      "path": "crates/gitust-cli/src/main.rs",
+      "sha256": "c9b6fb93fed2b30dbb71a03e9403d39c6e0c07df9e642913a66a15522707c6f9"
+    },
+    {
+      "path": "crates/gitust-cli/src/sandbox_cmd.rs",
+      "sha256": "435aeeb29adc4022912f58d4ac1f577e9b9e22cc885630759635721e301df232"
+    },
+    {
+      "path": "crates/gitust-cli/tests/cli_checks.rs",
+      "sha256": "df55eac06f6de5ac19cdb28ea2cf8c08b59d1c156110568496ebb98564297ee2"
+    },
+    {
+      "path": "crates/gitust-git/src/checks.rs",
+      "sha256": "681ccd055df810ceb09e786cc18d6408b42ef3d4eafc0c305921e430ecb29f54"
+    },
+    {
+      "path": "crates/gitust-sandbox/src/execution.rs",
+      "sha256": "61a4983c28824849ae66f41a7fb834057ab67f4fa96d82db9e24bb3ff4042733"
+    },
+    {
+      "path": "scripts/cli-checks-rehearsal.py",
+      "sha256": "af475bd3155dd5fcf60f4dc7ec3baab084ae2cfbbbca602f0ae9916f651a505a"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "4d2bb521308858cf2347abb5a04e7ec014883d4d1a5d276e7a4b6c0faba0c1e8"
+    },
+    {
+      "path": "README.md",
+      "sha256": "ee569ebce78a173dc93e500740c1b043e097a246cf50d4adedbd89e4c376cd78"
+    },
+    {
+      "path": "docs/operations/local-checks.md",
+      "sha256": "81d08b2367ce75e2c8471a21f15db3003cf76b38819a9bc8dec6777c722ea997"
+    },
+    {
+      "path": "docs/operations/repository-ci.md",
+      "sha256": "2bd87fd5df1fc5ea8cd7325b34a6fd21cdf218de7791e8f76f38f91bfe88f2f2"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "sha256": "9d21537613ae8b8a258a7dc4f72ddd8a3ea68c3fc09a988582f1189228d6cee6"
+    }
+  ],
+  "binary_sha256": "70e8ec80425a845545b95e2caa88adf17df6d0028b24012877e9c43a597ad99f",
+  "binary_provenance": "Locally built base commit plus the listed candidate source; not a clean committed-candidate build",
+  "verification": {
+    "command": "scripts/verify.sh",
+    "exit": 0,
+    "log_sha256": "93227304b72720777dde54d54e5a31f601b213f9096b9954c933fdd1bada5647",
+    "rust_passed": 433,
+    "git_ignored": 2,
+    "frontend_passed": 298,
+    "frontend_files": 39,
+    "python_passed": 20
+  },
+  "focused_verification": {
+    "evidence_sha256": "7193ff9a23f6ebc590e77c504eb53d000cbfd65273083dfb7d1777d1b45b6f56",
+    "new_cli_before_passed": 0,
+    "new_cli_after_passed": 2,
+    "before_failure": "Command absent on unchanged baseline; not a vulnerability reproduction",
+    "existing_parser_executor_and_cli_passed": 11
+  },
+  "independent_source_review": {
+    "verdict": "SOURCE CLEAR",
+    "p0": 0,
+    "p1": 0,
+    "p2": 0,
+    "record_sha256": "8fc3b07aae65a7d3527507b3ba803492a2ad1d774a1286e3c18813bd8cf81276",
+    "scope": "12 integrated source, operator, CI and contract paths; final public metadata reviewed separately"
+  },
+  "operating": {
+    "report_sha256": "99faa039069b351dd2c785916d8b8c0c07feb3d266c1c556be69c049f76087f1",
+    "actual_repositories": 2,
+    "platform": "Darwin",
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "runtime_worktree_dirty": true,
+    "checks": {
+      "passed": true,
+      "committed_config_and_sha_match": true,
+      "dirty_working_copy_preserved": true,
+      "manual_checks_ignore_auto_run": true,
+      "failed_and_skipped_steps_match": true,
+      "invalid_missing_and_stale_requests_not_executed": true,
+      "original_refs_and_worktrees_preserved": true,
+      "approval_and_origins_preserved": true,
+      "temporary_worktrees_and_fences_removed": true,
+      "bare_repository_supported": true,
+      "annotated_tags_preserved": true,
+      "git_fsck": true,
+      "private_fixture_removed": true
+    },
+    "runtime_source_sha256": {
+      "scripts/cli-checks-rehearsal.py": "af475bd3155dd5fcf60f4dc7ec3baab084ae2cfbbbca602f0ae9916f651a505a",
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c"
+    }
+  },
+  "preceding_hosted_ci": {
+    "head_sha": "a63ebf2d789b05c8b18e888ab4bccf7282e2615d",
+    "run_id": 39074438384,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39074438384",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "Verify and rehearse (macos-15)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify and rehearse (ubuntu-22.04)",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "report_sha256": "d37559810431c4253a2a29234a20fb7b5a490884e00db70f3a14182cf8102dc2"
+  },
+  "limits": [
+    "The candidate requires its own hosted Linux/macOS CI run after push.",
+    "CLI output is diagnostic only: no server history, manual verification, approval, automatic trigger or secondary HTTP execution authority is added.",
+    "Initial operator setup incorrectly requested approval without a new commit. The final fixture creates and approves a real task change; this was a fixture correction, not a product defect.",
+    "Actual GitHub product publication remains user-deferred. Gate B and previously interrupted procedures were not resumed."
+  ]
+}

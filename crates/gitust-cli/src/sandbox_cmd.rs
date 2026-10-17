@@ -3,9 +3,24 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use gitust_core::{AgentKind, RepoId, WorktreeId};
+use gitust_core::{AgentKind, CommitSha, RepoId, WorktreeId};
 use gitust_git::{GitEngine, MaterializedWorktree, WorktreeServiceLock};
-use gitust_sandbox::{LocalSandboxExecutor, SandboxSpec};
+use gitust_sandbox::{LocalSandboxExecutor, SandboxExecutionResult, SandboxSpec};
+
+pub(crate) enum RunCommands {
+    Command(String),
+    Checks {
+        expected: CommitSha,
+        commands: Vec<String>,
+    },
+}
+pub(crate) struct RunOutcome {
+    pub result: Option<SandboxExecutionResult>,
+    pub cleanup_confirmed: bool,
+    pub fence_confirmed: bool,
+    pub interrupted: bool,
+    materialize_micros: u64,
+}
 
 struct CliWorktreeGuard {
     engine: GitEngine,
@@ -16,7 +31,7 @@ struct CliWorktreeGuard {
 }
 
 impl CliWorktreeGuard {
-    async fn finish(self) {
+    async fn finish(self) -> Result<bool> {
         self.cancelled.store(true, Ordering::SeqCst);
         let taken = self
             .materialized
@@ -25,7 +40,7 @@ impl CliWorktreeGuard {
             .unwrap_or_else(|e| e.into_inner())
             .take();
         let Some(m) = taken else {
-            return;
+            return Ok(true);
         };
         if self.keep {
             eprintln!(
@@ -33,24 +48,23 @@ impl CliWorktreeGuard {
                 m.worktree_dir.display(),
                 m.worktree.branch
             );
-            return;
+            return Ok(true);
         }
         let engine = self.engine.clone();
         let service_lock = self._service_lock.clone();
-        match tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let _held_service = service_lock;
             engine.remove_agent_worktree(
                 &m.worktree_dir,
                 &m.worktree.branch,
                 &m.worktree.base_commit,
+            )?;
+            Ok::<_, anyhow::Error>(
+                !m.worktree_dir.try_exists()?
+                    && engine.resolve_branch_oid(&m.worktree.branch)?.is_none(),
             )
         })
-        .await
-        {
-            Ok(Ok(_)) => {}
-            Ok(Err(e)) => eprintln!("[gitust sandbox] warning: cleanup failed: {e}"),
-            Err(e) => eprintln!("[gitust sandbox] warning: cleanup task failed: {e}"),
-        }
+        .await?
     }
 }
 
@@ -102,6 +116,51 @@ pub(crate) async fn run_cli_sandbox(
         anyhow::bail!("HEAD is detached; check out a branch first");
     }
 
+    let outcome = run_prepared_sandbox(
+        engine,
+        service_lock,
+        head.branch_name,
+        RunCommands::Command(cmd.to_owned()),
+        keep,
+        timeout_secs,
+    )
+    .await?;
+    if outcome.interrupted {
+        eprintln!("[gitust sandbox] interrupted");
+        return Ok(130);
+    }
+    if !outcome.fence_confirmed {
+        anyhow::bail!(
+            "sandbox execution completion is unconfirmed; explicit recovery may be required"
+        );
+    }
+    if !outcome.cleanup_confirmed {
+        eprintln!("[gitust sandbox] warning: cleanup is unconfirmed");
+    }
+    let res = outcome
+        .result
+        .ok_or_else(|| anyhow::anyhow!("sandbox result is unavailable"))?;
+    if !res.stdout.is_empty() {
+        print!("{}", res.stdout);
+    }
+    if !res.stderr.is_empty() {
+        eprint!("{}", res.stderr);
+    }
+    eprintln!(
+        "[gitust sandbox] backend={:?} worktree_setup={}µs run={}ms exit={}",
+        res.backend, outcome.materialize_micros, res.duration_ms, res.exit_code
+    );
+    Ok(res.exit_code)
+}
+
+pub(crate) async fn run_prepared_sandbox(
+    engine: GitEngine,
+    service_lock: WorktreeServiceLock,
+    base_branch: String,
+    commands: RunCommands,
+    keep: bool,
+    timeout_secs: u64,
+) -> Result<RunOutcome> {
     // Register the OS interrupt handler before materializing the worktree so Ctrl-C during
     // checkout does not terminate the process mid-checkout without cleaning up.
     #[cfg(unix)]
@@ -121,7 +180,10 @@ pub(crate) async fn run_cli_sandbox(
     let id_str = worktree_id.0.to_string();
     let branch = format!("agent/cli/sandbox-{}", &id_str[..8]);
     let engine_for_spawn = engine.clone();
-    let base_branch = head.branch_name.clone();
+    let label = match &commands {
+        RunCommands::Command(_) => "CLI sandbox command",
+        RunCommands::Checks { .. } => "Repository Checks",
+    };
     let spawn_service_lock = service_lock.clone();
     let m = tokio::task::spawn_blocking(move || {
         let _held_service = spawn_service_lock;
@@ -131,7 +193,7 @@ pub(crate) async fn run_cli_sandbox(
             AgentKind::InternalBot,
             &branch,
             &base_branch,
-            "CLI sandbox command",
+            label,
         );
         // fail-open-ok: poison recovery retains the cleanup slot; materialization errors are still returned to the caller.
         let mut slot = materialized_slot.lock().unwrap_or_else(|e| e.into_inner());
@@ -148,13 +210,29 @@ pub(crate) async fn run_cli_sandbox(
                     );
                 }
             }
-        // fail-open-ok: records materialized worktree in `CliWorktreeGuard` slot when `res` is `Ok`; `res??` propagates `Err` on line 143.
+        // fail-open-ok: records a successful checkout in the cleanup guard; materialization errors are still propagated to the caller.
         } else if let Ok(ref m) = res {
             *slot = Some(m.clone());
         }
         res
     })
     .await??;
+    if let RunCommands::Checks { expected, .. } = &commands {
+        let check_engine = engine.clone();
+        let checkout = m.worktree.clone();
+        let expected = expected.clone();
+        let check_service = service_lock.clone();
+        tokio::task::spawn_blocking(move || {
+            let _service = check_service;
+            if checkout.base_commit != expected
+                || check_engine.clean_worktree_commit(checkout.id, &checkout.branch)? != expected
+            {
+                anyhow::bail!("Checks checkout does not match the expected commit");
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    }
     let spec = SandboxSpec::for_linked_worktree(
         &m.worktree_dir,
         &m.worktree_admin_dir,
@@ -172,6 +250,16 @@ pub(crate) async fn run_cli_sandbox(
     .await??;
 
     let executor = LocalSandboxExecutor::new(1).with_timeout_secs(timeout_secs);
+    let execute = async {
+        match &commands {
+            RunCommands::Command(command) => executor.execute(m.worktree.id, &spec, command).await,
+            RunCommands::Checks { commands, .. } => {
+                executor
+                    .execute_required_checks(m.worktree.id, &spec, commands)
+                    .await
+            }
+        }
+    };
     // Biased select checks for a pending Ctrl-C (including one received during checkout) before
     // polling execution; dropping the execution future kills the sandboxed process group, and
     // An uncertain interruption retains the execution fence and preserves the checkout.
@@ -180,11 +268,11 @@ pub(crate) async fn run_cli_sandbox(
         biased;
         // fail-open-ok: an interrupt always cancels execution and enters checkout cleanup; no success is inferred.
         _ = sigint.recv() => None,
-        res = executor.execute(m.worktree.id, &spec, cmd) => Some(res),
+        res = execute => Some(res),
     };
     #[cfg(not(unix))]
     let outcome = tokio::select! {
-        res = executor.execute(m.worktree.id, &spec, cmd) => Some(res),
+        res = execute => Some(res),
         // fail-open-ok: signal completion cancels execution and cleans up instead of authorizing the worktree.
         _ = tokio::signal::ctrl_c() => None,
     };
@@ -192,35 +280,40 @@ pub(crate) async fn run_cli_sandbox(
     let Some(outcome) = outcome else {
         let (fence, guard) = execution_guard;
         drop(fence);
-        guard.finish().await;
-        eprintln!("[gitust sandbox] interrupted");
-        return Ok(130);
+        let cleanup_confirmed = guard.finish().await.is_ok_and(|confirmed| confirmed);
+        return Ok(RunOutcome {
+            result: None,
+            cleanup_confirmed,
+            fence_confirmed: false,
+            interrupted: true,
+            materialize_micros: m.worktree.materialize_micros,
+        });
     };
     let (fence, guard) = execution_guard;
     let materialize_micros = m.worktree.materialize_micros;
-    let res = match outcome {
+    let (res, fence_confirmed) = match outcome {
         Ok(res) => {
-            tokio::task::spawn_blocking(move || fence.complete()).await??;
-            res
+            let confirmed = tokio::task::spawn_blocking(move || fence.complete())
+                .await
+                .is_ok_and(|result| result.is_ok());
+            (res, confirmed)
         }
         Err(error) => {
             drop(fence);
-            guard.finish().await;
+            if !guard.finish().await.is_ok_and(|confirmed| confirmed) {
+                eprintln!("[gitust sandbox] warning: cleanup is unconfirmed");
+            }
             return Err(error.into());
         }
     };
-    guard.finish().await;
-    if !res.stdout.is_empty() {
-        print!("{}", res.stdout);
-    }
-    if !res.stderr.is_empty() {
-        eprint!("{}", res.stderr);
-    }
-    eprintln!(
-        "[gitust sandbox] backend={:?} worktree_setup={}µs run={}ms exit={}",
-        res.backend, materialize_micros, res.duration_ms, res.exit_code
-    );
-    Ok(res.exit_code)
+    let cleanup_confirmed = guard.finish().await.is_ok_and(|confirmed| confirmed);
+    Ok(RunOutcome {
+        result: Some(res),
+        cleanup_confirmed,
+        fence_confirmed,
+        interrupted: false,
+        materialize_micros,
+    })
 }
 
 pub(crate) async fn recover_cli_sandbox(repo: &Path, acknowledged: bool) -> Result<()> {

@@ -1,6 +1,7 @@
 //! `gitust`: The All-in-One Pure Rust Git + Container-Use Worktree + Microsandbox CLI & Server.
 
 mod admin_cmd;
+mod checks_cmd;
 mod sandbox_cmd;
 #[cfg(test)]
 mod tests_cli_review;
@@ -49,6 +50,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum SandboxSubcommands {
+    /// Run the exact current ordinary commit's configured Checks without granting approval
+    Checks {
+        #[arg(long)]
+        repo: PathBuf,
+        #[arg(long)]
+        expected_commit: String,
+        #[arg(long, default_value_t = 600)]
+        timeout: u64,
+    },
     /// Run a command inside an isolated agent worktree and OS sandbox (`gitust sandbox run "<cmd>"`)
     Run {
         /// Command string to run inside the sandbox
@@ -267,6 +277,19 @@ async fn main() -> Result<()> {
             timeout,
         } => {
             let (run_cmd, run_repo, run_keep, run_timeout) = match sub {
+                Some(SandboxSubcommands::Checks {
+                    repo,
+                    expected_commit,
+                    timeout,
+                }) => {
+                    let report = checks_cmd::run_cli_checks(&repo, &expected_commit, timeout).await;
+                    let exit_code = report.exit_code();
+                    println!("{}", serde_json::to_string(&report)?);
+                    if exit_code != 0 {
+                        std::process::exit(exit_code);
+                    }
+                    return Ok(());
+                }
                 Some(SandboxSubcommands::Recover {
                     repo,
                     acknowledge_stopped_processes,

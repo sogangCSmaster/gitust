@@ -26,7 +26,18 @@ impl LocalSandboxExecutor {
         requested: &str,
         required: &[String],
     ) -> Result<SandboxExecutionResult, SandboxError> {
-        self.execute_check_run(None, worktree_id, spec, requested, required)
+        self.execute_check_run(None, worktree_id, spec, Some(requested), required)
+            .await
+    }
+
+    /// Execute only configured Checks: every actual step is required, including the first.
+    pub async fn execute_required_checks(
+        &self,
+        worktree_id: WorktreeId,
+        spec: &SandboxSpec,
+        commands: &[String],
+    ) -> Result<SandboxExecutionResult, SandboxError> {
+        self.execute_check_run(None, worktree_id, spec, None, commands)
             .await
     }
 
@@ -46,7 +57,7 @@ impl LocalSandboxExecutor {
                 message: "execution attempt ID must not be nil".into(),
             });
         }
-        self.execute_check_run(Some(run_id), worktree_id, spec, requested, required)
+        self.execute_check_run(Some(run_id), worktree_id, spec, Some(requested), required)
             .await
     }
 
@@ -55,10 +66,22 @@ impl LocalSandboxExecutor {
         attempt: Option<SandboxRunId>,
         worktree_id: WorktreeId,
         spec: &SandboxSpec,
-        requested: &str,
+        requested: Option<&str>,
         required: &[String],
     ) -> Result<SandboxExecutionResult, SandboxError> {
-        let command_str = command::display(requested, required);
+        let command_str = match requested {
+            Some(requested) => command::display(requested, required),
+            None => {
+                let (first, rest) =
+                    required
+                        .split_first()
+                        .ok_or_else(|| SandboxError::Prepare {
+                            path: spec.workdir.display().to_string(),
+                            message: "at least one required Check is necessary".into(),
+                        })?;
+                command::display(first, rest)
+            }
+        };
         let _permit = self
             .semaphore
             .acquire()
@@ -99,12 +122,13 @@ impl LocalSandboxExecutor {
         })??;
         cleanup.run_dir = Some(prepared.run_dir.clone());
         let deadline = tokio::time::Instant::now() + Duration::from_secs(self.timeout_secs.max(1));
-        let mut steps: Vec<_> = std::iter::once(requested)
+        let mut steps: Vec<_> = requested
+            .into_iter()
             .chain(required.iter().map(String::as_str))
             .enumerate()
             .map(|(index, command)| SandboxCommandResult {
                 command: command.to_owned(),
-                required: index != 0,
+                required: requested.is_none() || index != 0,
                 exit_code: None,
                 duration_ms: None,
                 output: None,

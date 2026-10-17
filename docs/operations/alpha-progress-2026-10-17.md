@@ -901,7 +901,35 @@ binary, operating, browser and measurement records.
 
 The preceding `74b271b` [CI run](https://github.com/sogangCSmaster/gitust/actions/runs/39073344548)
 succeeded on Ubuntu and macOS, including all 20 named required steps (the Linux
-prerequisite step is intentionally skipped on macOS). The later default-branch
-candidate still needs its own hosted run. Actual GitHub product publication stays
+prerequisite step is intentionally skipped on macOS). The later `a63ebf2` default-branch
+checkpoint also passed both hosts in [run 39074438384](https://github.com/sogangCSmaster/gitust/actions/runs/39074438384).
+Actual GitHub product publication stays
 user-deferred; automatic Gate B and previously interrupted procedures were not
 resumed. Full alpha acceptance and deployment are not claimed.
+
+### Explicit local Repository Checks, 2026-10-18
+
+Based on `a63ebf2d789b05c8b18e888ab4bccf7282e2615d`, `sandbox checks` runs the
+current ordinary branch's committed configuration at an explicit full SHA.
+Configuration and checkout must match that commit; working-copy edits stay out of
+the run. Every configured command is required, later commands are skipped after
+failure, and versioned JSON distinguishes completion, rejection, interruption and
+uncertain cleanup. See the [CLI contract](local-checks.md).
+
+The integrated candidate passed full verification: Rust 433, frontend 298 across
+39 files and Python 20, with two existing ignored Git tests. Two new real CLI
+tests failed on the baseline's missing command and passed after implementation;
+11 existing parser, executor and CLI regressions also passed. The normal-use
+rehearsal passed 13 checks across ordinary and bare repositories on Seatbelt,
+including actual approval/origin preservation, independent Git SHA/blob/ref/tag
+checks, dirty-file preservation, failed/skipped steps, checkout/scratch cleanup
+and strict fsck. The initial fixture attempted to approve an unchanged task; the
+final fixture commits a real change before approval. Private fixtures were removed.
+
+Independent source review found no outstanding P0/P1/P2. The rehearsal's actual
+directory cleanup check was strengthened following review. [Candidate evidence](evidence/local-checks-2026-10-18.json)
+records exact source, binary, log and review hashes. The CLI result is not persisted
+to server history and grants no verification, approval or publication authority.
+The new CLI rehearsal is required in repository CI, but this candidate still needs
+its own hosted run. GitHub product publication remains deferred; Gate B and
+previously interrupted procedures were not resumed. Full alpha acceptance remains open.

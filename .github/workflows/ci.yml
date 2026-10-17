@@ -402,6 +402,39 @@ jobs:
               output.write("### Owning-group invitations\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY
 
+      - name: Run committed ordinary-branch Checks through the actual CLI
+        run: |
+          python3 scripts/cli-checks-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-cli-checks.json"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-cli-checks.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          binary_sha = hashlib.sha256(Path("target/debug/gitust").read_bytes()).hexdigest()
+          platform = {"Linux": "Linux", "macOS": "Darwin"}[os.environ["RUNNER_OS"]]
+          backend = {"Linux": "linux_bubblewrap", "macOS": "macos_seatbelt"}[os.environ["RUNNER_OS"]]
+          if (report["source_commit"] != expected or report["runtime_worktree_dirty"] is not False
+              or report["binary_sha256"] != binary_sha or report["actual_repositories"] != 2
+              or report["platform"] != platform or report["sandbox_backends"] != [backend]
+              or report["external_github_publication"] is not False or report["version"] != 1):
+              raise SystemExit("The CLI Checks rehearsal has invalid source or scope evidence")
+          checks = ["passed", "committed_config_and_sha_match", "dirty_working_copy_preserved",
+                    "manual_checks_ignore_auto_run", "failed_and_skipped_steps_match",
+                    "invalid_missing_and_stale_requests_not_executed", "original_refs_and_worktrees_preserved",
+                    "approval_and_origins_preserved", "temporary_worktrees_and_fences_removed",
+                    "bare_repository_supported", "annotated_tags_preserved", "git_fsck", "private_fixture_removed"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("The CLI Checks rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "sandbox_backends", "actual_repositories", "external_github_publication", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### Explicit committed CLI Checks\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
       - name: Reject unsafe service restart after an interrupted command
         run: |
           python3 scripts/execution-crash-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-execution-crash.json"

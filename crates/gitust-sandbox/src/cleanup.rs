@@ -7,6 +7,7 @@ use crate::SandboxError;
 
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_PROCESS_TABLE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_OBSERVATION_FAILURES: usize = 3;
 
 fn incomplete(message: impl Into<String>) -> SandboxError {
     SandboxError::CleanupIncomplete {
@@ -36,14 +37,32 @@ pub(crate) fn signal_group(pid: u32) -> Result<(), SandboxError> {
 
 pub(crate) async fn wait_group_stopped(pid: u32) -> Result<(), SandboxError> {
     let group = i32::try_from(pid).map_err(|_| incomplete("invalid host process group"))?;
+    wait_with_observer(|| {
+        tokio::task::spawn_blocking(move || observe_group(Path::new("/bin/ps"), group))
+    })
+    .await
+}
+
+async fn wait_with_observer<F>(mut observe: F) -> Result<(), SandboxError>
+where
+    F: FnMut() -> tokio::task::JoinHandle<Result<bool, SandboxError>>,
+{
     tokio::time::timeout(CLEANUP_TIMEOUT, async move {
+        let mut failures = 0;
         loop {
-            let running =
-                tokio::task::spawn_blocking(move || observe_group(Path::new("/bin/ps"), group))
-                    .await
-                    .map_err(|_| incomplete("host process observer did not complete"))??;
-            if !running {
-                return Ok(());
+            match observe()
+                .await
+                .map_err(|_| incomplete("host process observer did not complete"))?
+            {
+                // Only a fresh valid stopped observation can confirm cleanup.
+                Ok(false) => return Ok(()),
+                Ok(true) => {}
+                Err(error) => {
+                    failures += 1;
+                    if failures >= MAX_OBSERVATION_FAILURES {
+                        return Err(error);
+                    }
+                }
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -129,5 +148,66 @@ mod tests {
         for group in [0, 1, u32::MAX] {
             assert!(signal_group(group).is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn cleanup_observer_retries_transient_error_before_valid_stopped_table() {
+        let mut calls = 0;
+        let result = wait_with_observer(|| {
+            calls += 1;
+            let table = if calls == 1 { "" } else { "15 1 15 S\n" };
+            tokio::spawn(async move { group_is_running(table, 12) })
+        })
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn cleanup_observer_rejects_after_three_failed_observations() {
+        let mut calls = 0;
+        let result = wait_with_observer(|| {
+            calls += 1;
+            let table = match calls {
+                2 | 4 => "12 1 12 S\n",
+                _ => "",
+            };
+            tokio::spawn(async move { group_is_running(table, 12) })
+        })
+        .await;
+        assert!(matches!(
+            result,
+            Err(SandboxError::CleanupIncomplete { .. })
+        ));
+        assert_eq!(calls, 5);
+    }
+
+    #[tokio::test]
+    async fn cleanup_observer_waits_for_running_group_to_stop() {
+        let mut calls = 0;
+        let result = wait_with_observer(|| {
+            calls += 1;
+            let table = if calls == 1 {
+                "12 1 12 S\n15 1 15 R\n"
+            } else {
+                "12 1 12 Z\n15 1 15 R\n"
+            };
+            tokio::spawn(async move { group_is_running(table, 12) })
+        })
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn cleanup_observer_running_group_keeps_existing_deadline() {
+        let result =
+            wait_with_observer(|| tokio::spawn(async { group_is_running("12 1 12 S\n", 12) }))
+                .await;
+        assert!(matches!(
+            result,
+            Err(SandboxError::CleanupIncomplete { message })
+                if message == "sandbox process-group shutdown was not confirmed"
+        ));
     }
 }

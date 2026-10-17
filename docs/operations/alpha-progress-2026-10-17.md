@@ -997,3 +997,29 @@ passed Ubuntu and macOS, including the local-history relocation rehearsal and al
 web-history rehearsal is required in CI; this candidate needs its own hosted run.
 GitHub product publication remains user-deferred, automatic Gate B stays stopped,
 and full alpha acceptance and deployment are not claimed.
+
+### Bounded cleanup re-observation, 2026-10-18
+
+The `cf747917` [hosted run](https://github.com/sogangCSmaster/gitust/actions/runs/39078870521)
+passed macOS, including the web-history rehearsal, but Ubuntu failed the mechanical
+gate with `CleanupIncomplete: invalid host process table`. Downstream Ubuntu
+rehearsals did not run. The log does not identify the invalid row, field, command
+or OS cause; it does not establish that the error was transient.
+
+Cleanup now permits two additional observations after errors within the same
+five-second deadline. Only a fresh, wholly valid, nonempty process table confirming
+shutdown succeeds. Errors remain cumulative even between valid running snapshots;
+the third error, an observer task failure or the deadline still fails closed.
+The parser, signal-once ordering and execution ownership are unchanged.
+
+Full verification passed: Rust 445, frontend 303 across 41 files and Python 20,
+with two existing ignored Git tests. The six cleanup unit tests include four new
+deterministic observation sequences. The same transient-error test failed against
+the original loop after a mechanical observer-helper extraction and passed after
+the change. The normal CLI Checks rehearsal passed 13 checks across ordinary and
+bare repositories on Seatbelt, preserving Git state and approval records and
+removing its private fixtures. Independent source Gate A found no open P0/P1/P2.
+[Candidate evidence](evidence/cleanup-observer-2026-10-18.json) records hashes and
+limits. Hosted validation of this change remains pending; the existing blocking
+process-observer cancellation limitation is not claimed fixed. External product
+publication remains deferred, and automatic Gate B remains stopped.

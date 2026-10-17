@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "base_commit": "cf747917e76f9a7887eab0e9dd04792bd9a871a9",
+  "scope": "Bounded process-table re-observation during sandbox cleanup; parser, signaling and execution authority unchanged",
+  "source_sha256": {
+    "crates/gitust-sandbox/src/cleanup.rs": "8e5df677feff876fbd19246a34a65817cf89ebb185a00639b16abb7bd010eb1b"
+  },
+  "source_manifest_sha256": "fcdbf38ce169cb8391f6afde84d3cb9cfa77b08e2ae2ab35b1521f8e15d1b66e",
+  "preceding_hosted_ci": {
+    "run_id": 39078870521,
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39078870521",
+    "head": "cf747917e76f9a7887eab0e9dd04792bd9a871a9",
+    "conclusion": "failure",
+    "macos_15": "success including local Checks web rehearsal",
+    "ubuntu_22_04": "Run every mechanical gate failed; downstream operating steps skipped",
+    "observed_error": "CleanupIncomplete: invalid host process table",
+    "status_sha256": "e42ec55212fb4df999d53d9e4985e960bf76d7cbcd103dba07a68486facbd23a",
+    "ubuntu_log_sha256": "296e00cefe36db6ff335124440e3b07379479a0d7fbfd54d554338731b32322f",
+    "unknown": "Exact invalid row, field, command and OS cause are absent from the log; transience is not established."
+  },
+  "contract": [
+    "An observation-result error may be retried at most twice: three errors total, including when valid running snapshots appear between them.",
+    "Only a new successful observation returning stopped completes cleanup. The existing whole-table parser, nonempty requirement, byte cap, UTF-8, I/O and exit-status checks are unchanged.",
+    "The same single outer five-second deadline wraps all observations and ten-millisecond delays. Persistent running fails with the unchanged shutdown-not-confirmed error.",
+    "JoinError is mapped to immediate CleanupIncomplete before the observation-result retry branch; this boundary is source-reviewed, not a new task-abort runtime test.",
+    "The normal fixed-table fixtures cover error then valid stopped, errors interleaved with running failing on the third error/fifth call, valid running then stopped, and persistent running reaching the existing deadline."
+  ],
+  "unit_evidence": {
+    "author_evidence_sha256": "2330f54fd63d8622c7d9fd81d7650cb3f2c75f94362fe86c6e7e2c2fc21cd967",
+    "test_first": {
+      "before_source": {
+        "path": "/private/tmp/gitust-cleanup-observer-1mflceeu/cleanup-before-retry.rs",
+        "sha256": "44c01c8e550883eed27e18999bfd279e087170df8021bdae94fe85ace0e41298",
+        "scope": "Original timeout/loop behavior mechanically extracted behind a private observer JoinHandle injection helper, plus four new ordinary unit tests; not an unmodified baseline source file."
+      },
+      "final_transient_test_body_exactly_matches_before": true,
+      "transient_test_body_sha256": "d68f7df74cdfe5fcb28c7c5490f35b96ad68c4dbee4f3e2b992e840d84f538b1",
+      "before_behavior": "Immediate observer-result error in the original loop, with only a mechanical injection-helper extraction for deterministic testing. The first transient-error test fails.",
+      "after_behavior": "The same first transient test passes in the final six-test cleanup suite. The existing error-budget test was strengthened to interleave valid running tables between errors, without adding tests."
+    },
+    "before_log_sha256": "35ba586cbfbf1d8f798e758fc60615f8e71cda59a97b47eeca8daf120122a7d6",
+    "before_exit": 101,
+    "after_log_sha256": "af8c06cf977d0c143c6ef1b41df705fc7b2a15f05ba9bf386c706f3368722538",
+    "after_exit": 0,
+    "cleanup_tests_passed": 6,
+    "new_tests": 4
+  },
+  "verification": {
+    "command": "scripts/verify.sh",
+    "exit": 0,
+    "log_sha256": "f0bf8e862a2f2cdf539120984fed36d68ad0f16973e7c0290515d1654c4e781a",
+    "rust_passed": 445,
+    "git_ignored": 2,
+    "frontend_passed": 303,
+    "frontend_files": 41,
+    "python_passed": 20
+  },
+  "source_review": {
+    "gate": "A",
+    "verdict": "SOURCE SCOPE CLEAR",
+    "open_P0": 0,
+    "open_P1": 0,
+    "open_P2": 0,
+    "report_sha256": "d82f9324ffca36c2a2a009d1223fdb84921d80b74eb969dff56771bda38ab6ac"
+  },
+  "operating": {
+    "binary_sha256": "55b33bd0c393511e9e4a56c0751d773a0834b9865a7fe368e02463ce2e68dde7",
+    "binary_provenance": "Local build of base plus the one listed source change; not a clean committed-candidate build",
+    "report_sha256": "dd3b48c1f0a3e248e33d94647424502163b10b97152dcff6f1e7cd203254eb5b",
+    "report": {
+      "version": 1,
+      "passed": true,
+      "actual_repositories": 2,
+      "committed_config_and_sha_match": true,
+      "dirty_working_copy_preserved": true,
+      "manual_checks_ignore_auto_run": true,
+      "failed_and_skipped_steps_match": true,
+      "invalid_missing_and_stale_requests_not_executed": true,
+      "original_refs_and_worktrees_preserved": true,
+      "approval_and_origins_preserved": true,
+      "temporary_worktrees_and_fences_removed": true,
+      "bare_repository_supported": true,
+      "annotated_tags_preserved": true,
+      "git_fsck": true,
+      "platform": "Darwin",
+      "sandbox_backends": [
+        "macos_seatbelt"
+      ],
+      "external_github_publication": false,
+      "source_commit": "cf747917e76f9a7887eab0e9dd04792bd9a871a9",
+      "runtime_worktree_dirty": true,
+      "binary_sha256": "55b33bd0c393511e9e4a56c0751d773a0834b9865a7fe368e02463ce2e68dde7",
+      "runtime_source_sha256": {
+        "scripts/cli-checks-rehearsal.py": "af475bd3155dd5fcf60f4dc7ec3baab084ae2cfbbbca602f0ae9916f651a505a",
+        "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c"
+      },
+      "private_fixture_removed": true
+    }
+  },
+  "limits": [
+    "Candidate hosted CI remains pending. This is bounded resilience, not proof of the original OS cause or a completed hosted CI repair.",
+    "The preexisting synchronous ps subprocess/blocking task may outlive a cancelled await; the five-second deadline bounds the caller wait.",
+    "No new isolation, race, escape or special-file probe was added. Automatic Gate B remains stopped; previously interrupted procedures were not resumed.",
+    "Existing user services were not restarted. Actual GitHub product publication remains user-deferred."
+  ]
+}

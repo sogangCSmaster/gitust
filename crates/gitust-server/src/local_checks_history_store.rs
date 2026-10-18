@@ -14,6 +14,7 @@ use std::{
 };
 const TARGET: &str = "history.json";
 const STAGING: &str = "history.pending";
+static HISTORY_IO_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct History {
@@ -52,6 +53,10 @@ impl LocalChecksHistoryStore {
         })
     }
     pub fn list(&self) -> Result<Vec<LocalChecksRecord>, HistoryError> {
+        let _guard = HISTORY_IO_LOCK.lock();
+        self.list_inner()
+    }
+    fn list_inner(&self) -> Result<Vec<LocalChecksRecord>, HistoryError> {
         let Some(directory) = self.directory(false)? else {
             return Ok(Vec::new());
         };
@@ -95,7 +100,8 @@ impl LocalChecksHistoryStore {
         if !record.valid() {
             return Err(HistoryError::InvalidRecord);
         }
-        let mut records = self.list()?;
+        let _guard = HISTORY_IO_LOCK.lock();
+        let mut records = self.list_inner()?;
         if let Some(existing) = records
             .iter()
             .find(|saved| saved.result.run_id == record.result.run_id)

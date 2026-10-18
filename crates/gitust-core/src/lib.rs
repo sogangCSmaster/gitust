@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+pub mod enterprise_identity;
+pub use enterprise_identity::*;
 mod pull_request;
 pub use pull_request::*;
 mod repository_access;
@@ -254,6 +256,12 @@ pub enum AuthError {
 
     #[error("username or email already exists")]
     DuplicateUser,
+
+    #[error("two-factor authentication code is required")]
+    TotpRequired,
+
+    #[error("invalid or replayed two-factor authentication code")]
+    InvalidTotpCode,
 
     #[error("invalid input: {0}")]
     InvalidInput(String),

@@ -10,6 +10,7 @@
 //! - Account deactivation immediately invalidates all sessions, PATs, SSH keys, and pending tokens.
 //! - Strict BOLA/IDOR ownership checks on all user resources and team repositories.
 
+pub mod audit_trail;
 mod automatic_checks;
 mod credential_mutations;
 mod credentials;
@@ -40,6 +41,15 @@ mod repository_registration;
 mod repository_visibility;
 pub use repository_registration::{AuthorizedRepository, RegisteredRepository};
 pub use repository_visibility::RepositoryVisibilityError;
+pub mod sso_audit;
+pub use sso_audit::{
+    compute_audit_entry_hash, compute_sso_assertion_signature, RegisterSsoProviderInput,
+    SsoAssertionLoginInput, GENESIS_AUDIT_HASH,
+};
+pub mod totp;
+pub use totp::{
+    base32_decode, base32_encode, compute_totp_code_at, compute_totp_code_for_step, hmac_sha256,
+};
 mod workflow_secrets;
 pub use workflow_secrets::{validate_workflow_secret_name, WorkflowSecretMetadata};
 #[cfg(test)]
@@ -194,8 +204,15 @@ impl AuthStore {
             guard
                 .username_index
                 .insert(clean_username.to_ascii_lowercase(), user.id);
-            guard.email_index.insert(clean_email, user.id);
+            guard.email_index.insert(clean_email.clone(), user.id);
             guard.users.insert(user.id, user);
+            sso_audit::append_audit_event_locked(
+                &mut guard,
+                Some(profile.id),
+                &profile.username,
+                "admin.bootstrap",
+                &format!("user:{}", profile.username),
+            );
             let snap = self.maybe_snapshot(guard);
             (profile, snap)
         };
@@ -263,7 +280,13 @@ impl AuthStore {
     ) -> Result<UserPublicProfile, AuthError> {
         let (profile, snapshot) = {
             let mut guard = self.write_state()?;
-            authority.verify(&guard)?;
+            let admin_id = authority.verify(&guard)?;
+            let admin_username = guard
+                .users
+                .get(&admin_id)
+                .map(|u| u.username.clone())
+                // fail-open-ok: verified active admin exists in guard.users.
+                .unwrap_or_default();
 
             let active_admin_count = guard
                 .users
@@ -316,6 +339,14 @@ impl AuthStore {
                     inv.revoked_at = Some(now);
                 }
             }
+            guard.totp_enrollments.remove(&target_user_id);
+            sso_audit::append_audit_event_locked(
+                &mut guard,
+                Some(admin_id),
+                &admin_username,
+                "user.deactivate",
+                &format!("user:{}", profile.username),
+            );
 
             let snap = self.maybe_snapshot(guard);
             (profile, snap)

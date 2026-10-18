@@ -19,6 +19,7 @@ mod automatic_run_page;
 mod automatic_run_recovery;
 mod automatic_run_store;
 mod branch_protection;
+pub mod enterprise_security;
 mod ephemeral_checkout;
 pub mod ephemeral_sandbox;
 pub mod git_http;
@@ -210,7 +211,40 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/auth/ssh-keys/{id}",
             delete(auth::revoke_ssh_key_handler),
         )
+        .route(
+            "/api/v1/auth/totp/status",
+            get(enterprise_security::totp_status_handler),
+        )
+        .route(
+            "/api/v1/auth/totp/enroll",
+            post(enterprise_security::totp_enroll_handler),
+        )
+        .route(
+            "/api/v1/auth/totp/verify",
+            post(enterprise_security::totp_verify_handler),
+        )
+        .route(
+            "/api/v1/auth/totp",
+            delete(enterprise_security::totp_disable_handler),
+        )
+        .route(
+            "/api/v1/auth/sso/login",
+            post(enterprise_security::sso_login_handler),
+        )
         // SiteAdmin Routes (BFLA protected)
+        .route(
+            "/api/v1/admin/sso/providers",
+            get(enterprise_security::list_sso_providers_handler)
+                .post(enterprise_security::register_sso_provider_handler),
+        )
+        .route(
+            "/api/v1/admin/sso/providers/{id}",
+            delete(enterprise_security::delete_sso_provider_handler),
+        )
+        .route(
+            "/api/v1/admin/audit-log",
+            get(enterprise_security::audit_log_handler),
+        )
         .route(
             "/api/v1/admin/invites",
             get(auth::list_invites_handler).post(auth::create_invite_handler),

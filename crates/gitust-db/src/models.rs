@@ -134,6 +134,12 @@ pub(crate) struct PersistedSnapshot {
     #[serde(default)]
     pub(crate) workflow_secrets:
         HashMap<RepoId, Vec<crate::workflow_secrets::StoredWorkflowSecret>>,
+    #[serde(default)]
+    pub(crate) totp_enrollments: HashMap<UserId, crate::totp::StoredTotpEnrollment>,
+    #[serde(default)]
+    pub(crate) sso_providers: Vec<crate::sso_audit::StoredSsoProvider>,
+    #[serde(default)]
+    pub(crate) audit_log: Vec<gitust_core::AuditEventRecord>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -155,6 +161,9 @@ pub(crate) struct AuthState {
     pub(crate) branch_protection_rules: HashMap<RepoId, Vec<gitust_core::BranchProtectionRule>>,
     pub(crate) workflow_secrets:
         HashMap<RepoId, Vec<crate::workflow_secrets::StoredWorkflowSecret>>,
+    pub(crate) totp_enrollments: HashMap<UserId, crate::totp::StoredTotpEnrollment>,
+    pub(crate) sso_providers: Vec<crate::sso_audit::StoredSsoProvider>,
+    pub(crate) audit_log: Vec<gitust_core::AuditEventRecord>,
     pub(crate) failed_logins: HashMap<String, Vec<DateTime<Utc>>>,
 }
 
@@ -166,6 +175,9 @@ impl AuthState {
             pull_requests: snap.pull_requests,
             branch_protection_rules: snap.branch_protection_rules,
             workflow_secrets: snap.workflow_secrets,
+            totp_enrollments: snap.totp_enrollments,
+            sso_providers: snap.sso_providers,
+            audit_log: snap.audit_log,
             ..Self::default()
         };
 
@@ -238,6 +250,9 @@ impl AuthState {
             pull_requests: self.pull_requests.clone(),
             branch_protection_rules: self.branch_protection_rules.clone(),
             workflow_secrets: self.workflow_secrets.clone(),
+            totp_enrollments: self.totp_enrollments.clone(),
+            sso_providers: self.sso_providers.clone(),
+            audit_log: self.audit_log.clone(),
         }
     }
 }

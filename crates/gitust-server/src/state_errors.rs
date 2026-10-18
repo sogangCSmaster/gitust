@@ -7,7 +7,10 @@ use gitust_sandbox::SandboxError;
 
 pub(crate) fn map_auth_err(err: AuthError) -> (StatusCode, String) {
     let code = match err {
-        AuthError::Unauthenticated | AuthError::InvalidCredentials => StatusCode::UNAUTHORIZED,
+        AuthError::Unauthenticated
+        | AuthError::InvalidCredentials
+        | AuthError::TotpRequired
+        | AuthError::InvalidTotpCode => StatusCode::UNAUTHORIZED,
         AuthError::AccountDeactivated
         | AuthError::AdminPrivilegeRequired
         | AuthError::ForbiddenResourceOwnership

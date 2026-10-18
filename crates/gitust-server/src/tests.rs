@@ -22,6 +22,8 @@ mod tests_automatic_http_revocation;
 mod tests_automatic_store;
 #[path = "tests_check_steps.rs"]
 mod tests_check_steps;
+#[path = "tests_enterprise_security.rs"]
+mod tests_enterprise_security;
 #[path = "tests_external_review.rs"]
 mod tests_external_review;
 #[path = "tests_git_http.rs"]

@@ -86,6 +86,18 @@ impl AuthStore {
         password: &str,
         client_scope: Option<&str>,
     ) -> Result<LoginSessionResponse, AuthError> {
+        self.login_with_totp(identifier, password, None, client_scope)
+    }
+
+    /// Authenticates a user by username or email + password (+ optional RFC 6238 TOTP code when
+    /// 2FA is verified for the user), scoping brute-force rate-limit buckets by `client_scope`.
+    pub fn login_with_totp(
+        &self,
+        identifier: &str,
+        password: &str,
+        totp_code: Option<&str>,
+        client_scope: Option<&str>,
+    ) -> Result<LoginSessionResponse, AuthError> {
         let trimmed_id = identifier.trim();
         if trimmed_id.is_empty() || trimmed_id.len() > 254 || password.len() > 256 {
             return Err(AuthError::InvalidCredentials);
@@ -181,6 +193,23 @@ impl AuthStore {
             if user.status != AccountStatus::Active {
                 return Err(AuthError::AccountDeactivated);
             }
+            // fail-open-ok: UTC epoch timestamp is non-negative.
+            let now_secs = u64::try_from(check_now.timestamp()).unwrap_or(0);
+            if let Err(err) =
+                crate::totp::verify_user_totp_locked(&mut guard, user_id, totp_code, now_secs)
+            {
+                if matches!(err, AuthError::InvalidTotpCode) {
+                    Self::record_failed_login_locked(&mut guard, id_key, check_now);
+                    if let Some(ak) = acct_key {
+                        Self::record_failed_login_locked(&mut guard, ak, check_now);
+                    }
+                }
+                return Err(err);
+            }
+            let user = guard
+                .users
+                .get(&user_id)
+                .ok_or(AuthError::InvalidCredentials)?;
             let profile = user.to_public_profile();
             let lower_username = user.username.to_ascii_lowercase();
             let lower_email = user.email.to_ascii_lowercase();
@@ -212,6 +241,13 @@ impl AuthStore {
                     revoked: false,
                     purpose: Some(SessionPurpose::Login),
                 },
+            );
+            crate::sso_audit::append_audit_event_locked(
+                &mut guard,
+                Some(user_id),
+                &profile.username,
+                "auth.login",
+                &format!("session:{session_id:?}"),
             );
             let snap = self.maybe_snapshot(guard);
             (

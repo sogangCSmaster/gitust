@@ -24,6 +24,14 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct LoginPayload {
+    pub identifier: String,
+    pub password: String,
+    #[serde(default)]
+    pub totp_code: Option<String>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct CreateInviteRequest {
     pub target_email: String,
@@ -171,14 +179,19 @@ pub(crate) async fn public_register_disabled_handler() -> (StatusCode, String) {
 pub(crate) async fn login_handler(
     State(state): State<AppState>,
     extensions: axum::http::Extensions,
-    Json(req): Json<LoginRequest>,
+    Json(req): Json<LoginPayload>,
 ) -> Result<Json<LoginSessionResponse>, (StatusCode, String)> {
     let client_scope = extensions
         .get::<axum::extract::ConnectInfo<SocketAddr>>()
         .map(|ci| ci.0.ip().to_string());
     let store = state.auth_store.clone();
     let res = tokio::task::spawn_blocking(move || {
-        store.login_with_client_scope(&req.identifier, &req.password, client_scope.as_deref())
+        store.login_with_totp(
+            &req.identifier,
+            &req.password,
+            req.totp_code.as_deref(),
+            client_scope.as_deref(),
+        )
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

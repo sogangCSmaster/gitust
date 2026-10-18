@@ -25,17 +25,24 @@ export function extendLiveAuthClient(session: LiveAuthSessionController) {
     syncStoredSession,
   } = session;
 
-  const signIn = async (identifier: string, password: string) => {
+  const signIn = async (
+    identifier: string,
+    password: string,
+    totpCode?: string,
+  ) => {
     if (!identifier || !password) {
       cb.showQuickFeedback("Please enter both username/email and password");
       return;
     }
     const epoch = nextEpoch();
     try {
+      const payload = totpCode?.trim()
+        ? { identifier, password, totp_code: totpCode.trim() }
+        : { identifier, password };
       const res = await fetch("/api/v1/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, password }),
+        body: JSON.stringify(payload),
       });
       if (epoch !== getEpoch()) return;
       if (!res.ok) {
@@ -472,7 +479,7 @@ export const buildAdminAuthProps = (
   return {
     liveMode: source.liveMode,
     liveSession: source.liveSession,
-    onSignIn: (id, pw) => void client.signIn(id, pw),
+    onSignIn: (id, pw, totp) => void client.signIn(id, pw, totp),
     onSignOut: () => void client.signOut(),
     redeemMode: source.redeemMode,
     onChangeRedeemMode: source.setRedeemMode,

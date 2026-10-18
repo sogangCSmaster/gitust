@@ -2,9 +2,11 @@ import {
   createEffect,
   createSignal,
   For,
+  lazy,
   mergeProps,
   on,
   Show,
+  Suspense,
   type Component,
 } from "solid-js";
 import { Button } from "../components/ui/button";
@@ -34,6 +36,10 @@ import {
   type LiveSshKeyItem,
 } from "./EnterpriseCredentialsPanel";
 
+const EnterpriseSecurityAndAuditPanel = lazy(
+  () => import("./EnterpriseSecurityAndAuditPanel"),
+);
+
 export interface EnterpriseUser {
   id: number;
   liveId?: string;
@@ -59,7 +65,7 @@ export interface EnterpriseAdminViewProps {
   onPolicyFeedback: (msg: string) => void;
   liveMode?: boolean;
   liveSession?: LiveAuthSessionInfo | null;
-  onSignIn?: (identifier: string, password: string) => void;
+  onSignIn?: (identifier: string, password: string, totpCode?: string) => void;
   onSignOut?: () => void;
   redeemMode?: "invite" | "reset";
   onChangeRedeemMode?: (mode: "invite" | "reset") => void;
@@ -91,6 +97,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
   const [tab, setTab] = createSignal("account");
   const [identifier, setIdentifier] = createSignal("");
   const [password, setPassword] = createSignal("");
+  const [totpCode, setTotpCode] = createSignal("");
   const [redeemMode, setRedeemMode] = createSignal<"invite" | "reset">(
     "invite",
   );
@@ -125,9 +132,18 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
         : setToken(value),
   });
   const signIn = () => {
-    if (props.onSignIn) props.onSignIn(identifier().trim(), password());
-    else props.onPolicyFeedback("Sign in requires a connected Gitust server.");
+    const code = totpCode().trim() || undefined;
+    if (props.onSignIn) {
+      if (code !== undefined) {
+        props.onSignIn(identifier().trim(), password(), code);
+      } else {
+        props.onSignIn(identifier().trim(), password());
+      }
+    } else {
+      props.onPolicyFeedback("Sign in requires a connected Gitust server.");
+    }
     setPassword("");
+    setTotpCode("");
   };
   return (
     <Tabs value={tab()} onChange={setTab} class="min-w-0">
@@ -143,6 +159,9 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
         </TabsTrigger>
         <TabsTrigger value="members" class="flex-1">
           Members
+        </TabsTrigger>
+        <TabsTrigger value="security" class="flex-1">
+          Security & Audit
         </TabsTrigger>
       </TabsList>
       <TabsContent
@@ -163,7 +182,7 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
             when={props.liveSession}
             fallback={
               <form
-                class="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_auto]"
+                class="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto]"
                 onSubmit={(event) => {
                   event.preventDefault();
                   signIn();
@@ -182,6 +201,13 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
                   value={password()}
                   onValueChange={setPassword}
                   autocomplete="current-password"
+                />
+                <Field
+                  label="2FA code (if enabled)"
+                  value={totpCode()}
+                  onValueChange={setTotpCode}
+                  placeholder="6-digit TOTP"
+                  autocomplete="one-time-code"
                 />
                 <Button type="submit">Sign in</Button>
               </form>
@@ -332,6 +358,21 @@ export const EnterpriseAdminView: Component<EnterpriseAdminViewProps> = (
           </Show>
         </Section>
         <EnterpriseCredentialsPanel {...credentials} view="invitations" />
+      </TabsContent>
+      <TabsContent
+        value="security"
+        forceMount
+        hidden={tab() !== "security"}
+        class="space-y-3"
+      >
+        <Show when={tab() === "security"}>
+          <Suspense>
+            <EnterpriseSecurityAndAuditPanel
+              role={props.liveSession?.role}
+              onPolicyFeedback={props.onPolicyFeedback}
+            />
+          </Suspense>
+        </Show>
       </TabsContent>
     </Tabs>
   );

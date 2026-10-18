@@ -80,6 +80,32 @@ impl LocalSandboxExecutor {
         .await
     }
 
+    /// A durable all-required attempt keeps a fresh independent scratch nonce.
+    pub async fn execute_required_checks_for_run_with_admission(
+        &self,
+        run_id: SandboxRunId,
+        worktree_id: WorktreeId,
+        spec: &SandboxSpec,
+        commands: &[String],
+        admission: SandboxAdmission,
+    ) -> Result<SandboxExecutionResult, SandboxError> {
+        if run_id.0.is_nil() {
+            return Err(SandboxError::Prepare {
+                path: spec.workdir.display().to_string(),
+                message: "execution attempt ID must not be nil".into(),
+            });
+        }
+        self.execute_check_run(
+            Some(run_id),
+            worktree_id,
+            spec,
+            None,
+            commands,
+            Some(admission),
+        )
+        .await
+    }
+
     async fn execute_check_run(
         &self,
         attempt: Option<SandboxRunId>,

@@ -461,3 +461,37 @@ it("requires an explicit typed local Checks execution hint while preserving old 
   await client.refresh();
   expect(states.at(-1)?.repositories).toEqual([]);
 });
+
+it("keeps automatic Local Checks reading independent from execution and rejects malformed hints", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        response([
+          {
+            ...repo,
+            can_view_local_checks_automatic: true,
+            can_run_local_checks: false,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(response([repo]))
+      .mockResolvedValueOnce(
+        response([{ ...repo, can_view_local_checks_automatic: "true" }]),
+      ),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]).toMatchObject({
+    canViewLocalChecksAutomatic: true,
+    canRunLocalChecks: false,
+  });
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]?.canViewLocalChecksAutomatic).toBe(
+    false,
+  );
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+  expect(states.at(-1)?.error).toContain("invalid repository metadata");
+});

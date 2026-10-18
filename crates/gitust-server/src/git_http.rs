@@ -263,11 +263,23 @@ pub(crate) async fn git_receive_pack_handler(
         let _held_repo = repo_guard;
         let _held_exec = held_exec_locks;
         let mut intents = Vec::new();
+        let mut local_intent = None;
         let mut preparation_error = None;
         let result = engine.smart_http_receive_pack_with_gate(&body, || {
             let authorized = (|| {
                 // Raw refs are validated before preparation can resolve them or persist intents.
                 intents = crate::git_http_automatic::prepare(&automatic_state, &caller, &matched_worktrees, &updates)?;
+                match crate::local_checks_automatic::prepare(&automatic_state, &caller, &updates)
+                    .map_err(|_| (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "automatic local Checks scheduling is unavailable".to_owned(),
+                    ))? {
+                    crate::local_checks_automatic::Eligibility::Prepared(intent) => local_intent = Some(intent),
+                    crate::local_checks_automatic::Eligibility::ConsentUnproven(reason) => tracing::warn!(
+                        ?reason, "automatic local Checks consent could not be established; no execution scheduled"
+                    ),
+                    crate::local_checks_automatic::Eligibility::Ineligible => {},
+                }
                 #[cfg(test)]
                 if let Some((entered, release)) = automatic_state.automatic_checks.pre_receive_hook.lock().take() {
                     entered.send(()).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "push observer closed".into()))?;
@@ -286,12 +298,22 @@ pub(crate) async fn git_receive_pack_handler(
         }).map_err(map_git_err);
         if let Some(original) = preparation_error {
             crate::git_http_automatic::reject_all(&automatic_state, intents);
+            if let Some(intent) = local_intent {
+                if crate::local_checks_automatic::reject(&automatic_state, intent).is_err() {
+                    tracing::warn!("automatic local Checks preparation recovery is required");
+                }
+            }
             return Err(original);
         }
         // A rejected ref may accompany HTTP 200, and an RPC error may follow an accepted ref.
         // Keep the Git response authoritative; durable Prepared intents survive inspection failure.
         if let Err((status, _)) = crate::git_http_automatic::reconcile(&automatic_state, intents) {
             tracing::warn!(%status, "push completed but automatic Checks scheduling is unavailable");
+        }
+        if let Some(intent) = local_intent {
+            if crate::local_checks_automatic::confirm(&automatic_state, intent).is_err() {
+                tracing::warn!("push completed but automatic local Checks scheduling is unavailable");
+            }
         }
         result
     })

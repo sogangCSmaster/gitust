@@ -87,6 +87,7 @@ pub(crate) async fn run_prepared_sandbox(
         commands,
         keep,
         gitust_server::ephemeral_sandbox::RunContext {
+            run_id: None,
             repo_id: gitust_core::RepoId::new(),
             executor: LocalSandboxExecutor::new(1).with_timeout_secs(timeout_secs),
             auth_store: None,

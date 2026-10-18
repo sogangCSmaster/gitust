@@ -578,3 +578,6 @@ mod tests_git_http_write_auth;
 
 #[path = "tests_repository_local_checks_exec.rs"]
 mod tests_repository_local_checks_exec;
+
+#[path = "tests_local_checks_automatic.rs"]
+mod tests_local_checks_automatic;

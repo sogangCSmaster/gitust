@@ -37,7 +37,7 @@ The current milestone is a trusted single-user self-hosted alpha: operate concur
 
 SSH Git serving, full pull-request collaboration, GitHub Actions compatibility, microVM execution, SSO, and multi-node scheduling are **planned**. Some additional workbench views are UI demonstrations. The [roadmap](docs/roadmap.md) separates implementation from plans.
 
-Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Durable queued jobs can resume after current authority and Git state are rechecked; uncertain running jobs become interrupted and are never automatically replayed. Local filesystem Git commits and untracked branches remain outside these triggers. See [verification behavior](docs/architecture/worktree-verification.md) and [automatic-run recovery](docs/architecture/automatic-checks.md).
+Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Durable queued jobs can resume after current authority and Git state are rechecked; uncertain running jobs become interrupted and are never automatically replayed. Local filesystem Git commits remain outside these triggers; the primary default branch has a separate [opt-in Git HTTP flow](docs/operations/default-branch-checks.md). See [verification behavior](docs/architecture/worktree-verification.md) and [automatic-run recovery](docs/architecture/automatic-checks.md).
 
 SiteAdmins can browse retained automatic attempts in the repository's read-only **Actions** view and open the exact run in **Activity**. This view does not start workflows.
 
@@ -107,7 +107,7 @@ For frontend development, keep the Rust server running on `127.0.0.1:3000` and s
 pnpm --filter @gitust/design-system dev
 ```
 
-Open [localhost:4200](http://127.0.0.1:4200). Vite forwards API, MCP, OAuth, discovery, and Git requests to the Rust server. Sign in through **Access** with the CLI-created account to use real repository data. Worktrees, repository browsing, account controls, and read-only Actions connect to the server; Issues remains a labelled interface demo, as does Actions when signed out. The Components view is a design reference. Use a separate clone for experiments when your development checkout has uncommitted work.
+Open [localhost:4200](http://127.0.0.1:4200). Vite forwards API, MCP, OAuth, discovery, and Git requests to the Rust server. Sign in through **Access** with the CLI-created account to use real repository data. Worktrees, repository browsing, account controls, and Actions connect to the server; Issues remains a labelled interface demo, as does Actions when signed out. The Components view is a design reference. Use a separate clone for experiments when your development checkout has uncommitted work.
 
 
 ## CLI and agent workflow
@@ -154,6 +154,7 @@ In the workbench, run verification, inspect the result, select **Approve & Merge
 
 - [Verification and required Checks](docs/architecture/worktree-verification.md)
 - [Explicit local Checks and machine-readable results](docs/operations/local-checks.md)
+- [Automatic primary default-branch Checks](docs/operations/default-branch-checks.md)
 - [MCP commits, supported Git normalization, and interrupted-commit recovery](docs/architecture/mcp-commits.md)
 - [Approval, publication, recovery, and CLI examples](docs/architecture/outbound-sync.md)
 - [Offline installation backup and relocated restoration](docs/operations/backup-restore.md)

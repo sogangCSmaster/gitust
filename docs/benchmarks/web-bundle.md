@@ -123,3 +123,14 @@ Overview (+180). Opening Actions uses 84,842 cumulative bytes; then opening Loca
 Checks uses 92,853 bytes. The execution client and local result view remain outside
 the initial and Overview closures. The initial 50,000-byte target remains unmet.
 These emitted-byte measurements do not establish startup or interaction timing.
+
+## Default-branch automatic status, 2026-10-18
+
+Based on `f1c2731ca40e3c75cc5d052b2f1613f040ab706b`, the same maintained command
+measures 70,791 initial gzip9 bytes (+56) and 75,558 cumulative bytes for first
+Overview (+56). The normal Overview → Actions → Local Checks path totals
+99,654 bytes, compared with 97,620 on that same path before this change (+2,034).
+The direct initial → Actions → Local Checks closure is 94,887 bytes; it excludes
+the previously visited Overview and is a different cohort. The new lifecycle
+client and panel remain outside the initial and Overview closures. The initial
+50,000-byte target remains unmet; these are emitted-byte totals, not latency claims.

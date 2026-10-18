@@ -269,6 +269,9 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
               0
             }
             canRunChecks={props.repository?.canRunLocalChecks === true}
+            canViewLocalChecksAutomatic={
+              props.repository?.canViewLocalChecksAutomatic === true
+            }
             defaultRef={
               props.repository
                 ? `refs/heads/${props.repository.branch}`

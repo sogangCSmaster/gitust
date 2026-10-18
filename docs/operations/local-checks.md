@@ -173,5 +173,7 @@ returns 409.
 The UI keeps execution outcome separate from saved-history status. Refresh only
 reads state and never retries execution. If the response is lost or uncertain,
 inspect stored results before starting another run: commands may have run already.
-There is no queue, automatic ordinary-branch trigger, replay or cancellation claim.
+Explicit execution does not queue, retry or replay requests, and has no cancellation control.
+Opt-in [default-branch automatic Checks](default-branch-checks.md) use the same
+executor and completed history with a separate bounded lifecycle.
 The existing stopped-service CLI and its v1/v2 contracts remain available.

@@ -23,6 +23,11 @@ import {
   createLocalChecksRunClient,
   type LocalChecksRunState,
 } from "./live-local-checks-run";
+import { LocalChecksAutomaticStatus } from "./LocalChecksAutomaticStatus";
+import {
+  createLocalChecksAutomaticClient,
+  type LocalChecksAutomaticState,
+} from "./live-local-checks-automatic";
 import type { RepositoryActionsProps } from "./LiveRepositoryActionsView";
 
 export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
@@ -46,6 +51,8 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
   const [refreshError, setRefreshError] = createSignal<string>();
   let refreshGeneration = 0;
   let disposed = false;
+  // A catalog refresh owns hint changes only while its original selection is current.
+  let automaticRefreshOwner: (() => boolean) | undefined;
   const canRun = () =>
     props.isPrimary &&
     props.role === "SiteAdmin" &&
@@ -59,6 +66,30 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
     canRun,
     sourceRef: () => props.defaultRef,
     commit: () => props.defaultCommit,
+  });
+  const [automaticState, setAutomaticState] =
+    createSignal<LocalChecksAutomaticState>({ status: "idle", runs: [] });
+  const canViewAutomatic = () =>
+    props.isPrimary &&
+    props.role === "SiteAdmin" &&
+    props.canViewLocalChecksAutomatic === true;
+  const automaticClient = createLocalChecksAutomaticClient(setAutomaticState, {
+    repositoryId: () => props.repositoryId,
+    selectionEpoch: () => props.selectionEpoch,
+    canRead: canViewAutomatic,
+    onDenied: () => {
+      client.clear();
+      runner.clear();
+      setSelectedId(null);
+      setSessionAvailable(false);
+    },
+  });
+  createEffect(() => {
+    props.repositoryId;
+    props.selectionEpoch;
+    const allowed = canViewAutomatic();
+    automaticClient.clear();
+    if (allowed && !automaticRefreshOwner?.()) void automaticClient.load();
   });
   const selected = createMemo(
     () =>
@@ -96,6 +127,7 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
       id === props.repositoryId &&
       epoch === props.selectionEpoch &&
       token === getLiveToken();
+    automaticRefreshOwner = current;
     setRefreshing(true);
     setRefreshError(undefined);
     try {
@@ -107,11 +139,15 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
         setRefreshError("Unable to refresh repository context. Try again.");
         return;
       }
-      await client.load();
+      await Promise.all([
+        client.load(),
+        canViewAutomatic() ? automaticClient.load() : Promise.resolve(),
+      ]);
     } catch {
       if (current())
         setRefreshError("Unable to refresh repository context. Try again.");
     } finally {
+      if (automaticRefreshOwner === current) automaticRefreshOwner = undefined;
       if (!disposed && key === refreshGeneration) setRefreshing(false);
     }
   };
@@ -136,6 +172,7 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
       setRefreshing(false);
       setRefreshError(undefined);
       setSessionAvailable(false);
+      automaticClient.clear();
       runner.clear();
       setSelectedId(null);
       client.clear();
@@ -146,6 +183,7 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
     disposed = true;
     refreshGeneration++;
     runner.clear();
+    automaticClient.clear();
     client.clear();
     window.removeEventListener("storage", sessionChanged);
   });
@@ -188,6 +226,17 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
           </Button>
         </div>
       </div>
+      <Show when={canViewAutomatic()}>
+        <LocalChecksAutomaticStatus
+          state={automaticState()}
+          records={state().records}
+          selectedId={selectedId()}
+          onSelect={(id) => {
+            if (automaticClient.isCurrent() && client.isCurrent())
+              setSelectedId(id);
+          }}
+        />
+      </Show>
       <Show when={runState().status === "running"}>
         <p role="status" class="text-sm text-muted-foreground">
           Running default branch Checks…

@@ -21,6 +21,7 @@ export interface ConnectedRepository {
   canInviteToGroup?: boolean;
   canManageGroupMembers?: boolean;
   canRunLocalChecks?: boolean;
+  canViewLocalChecksAutomatic?: boolean;
 }
 export const canCloneRepository = (repository: ConnectedRepository) =>
   repository.canClone ??
@@ -73,7 +74,8 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
           Number(Object.hasOwn(raw, "can_push")) +
           Number(Object.hasOwn(raw, "can_invite_to_group")) +
           Number(Object.hasOwn(raw, "can_manage_group_members")) +
-          Number(Object.hasOwn(raw, "can_run_local_checks")) ||
+          Number(Object.hasOwn(raw, "can_run_local_checks")) +
+          Number(Object.hasOwn(raw, "can_view_local_checks_automatic")) ||
       (Object.hasOwn(raw, "can_rename") &&
         typeof raw.can_rename !== "boolean") ||
       (Object.hasOwn(raw, "can_change_default_branch") &&
@@ -84,6 +86,8 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
         typeof raw.can_change_visibility !== "boolean") ||
       (Object.hasOwn(raw, "can_clone") && typeof raw.can_clone !== "boolean") ||
       (Object.hasOwn(raw, "can_push") && typeof raw.can_push !== "boolean") ||
+      (Object.hasOwn(raw, "can_view_local_checks_automatic") &&
+        typeof raw.can_view_local_checks_automatic !== "boolean") ||
       (Object.hasOwn(raw, "can_run_local_checks") &&
         typeof raw.can_run_local_checks !== "boolean") ||
       (Object.hasOwn(raw, "can_manage_group_members") &&
@@ -131,6 +135,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       canInviteToGroup: raw.can_invite_to_group === true,
       canManageGroupMembers: raw.can_manage_group_members === true,
       canRunLocalChecks: raw.can_run_local_checks === true,
+      canViewLocalChecksAutomatic: raw.can_view_local_checks_automatic === true,
     };
   });
 };

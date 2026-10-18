@@ -20,6 +20,7 @@ pub enum RunCommands {
     },
 }
 pub struct RunContext {
+    pub run_id: Option<gitust_core::SandboxRunId>,
     pub repo_id: RepoId,
     pub executor: LocalSandboxExecutor,
     pub auth_store: Option<AuthStore>,
@@ -40,6 +41,7 @@ pub enum RunError {
     Task,
     Cleanup,
     AdmissionDenied,
+    TargetChanged,
 }
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49,6 +51,7 @@ impl std::fmt::Display for RunError {
             Self::Task => f.write_str("sandbox preparation task did not complete"),
             Self::Cleanup => f.write_str("temporary checkout cleanup is unconfirmed"),
             Self::AdmissionDenied => f.write_str("sandbox admission was denied before execution"),
+            Self::TargetChanged => f.write_str("Checks source changed before execution"),
         }
     }
 }
@@ -150,13 +153,11 @@ pub async fn run_prepared_sandbox(
                     .clean_worktree_commit(target.worktree.id, &target.worktree.branch)?
                     != expected
             {
-                return Err(GitEngineError::VerificationInvalid(
-                    "Checks checkout does not match expected commit".into(),
-                ));
+                return Err(RunError::TargetChanged);
             }
         }
         match store {
-            Some(store) => crate::state::sandbox_spec_for(&target, &store),
+            Some(store) => crate::state::sandbox_spec_for(&target, &store).map_err(RunError::from),
             None => Ok(SandboxSpec::for_linked_worktree(
                 &target.worktree_dir,
                 &target.worktree_admin_dir,
@@ -167,7 +168,19 @@ pub async fn run_prepared_sandbox(
             )),
         }
     })
-    .await??;
+    .await?;
+    let spec = match spec {
+        Ok(spec) => spec,
+        Err(RunError::TargetChanged) => {
+            // No fence or command exists yet. Only confirmed cleanup permits superseding the attempt.
+            return Err(if guard.finish().await.is_ok_and(|confirmed| confirmed) {
+                RunError::TargetChanged
+            } else {
+                RunError::Cleanup
+            });
+        }
+        Err(error) => return Err(error),
+    };
     let fence_engine = engine.clone();
     let target = m.worktree.clone();
     let execution_guard = tokio::task::spawn_blocking(move || {
@@ -183,8 +196,20 @@ pub async fn run_prepared_sandbox(
                     .execute(m.worktree.id, &spec, command)
                     .await
             }
-            RunCommands::Checks { commands, .. } => match context.admission {
-                Some(admission) => {
+            RunCommands::Checks { commands, .. } => match (context.admission, context.run_id) {
+                (Some(admission), Some(run_id)) => {
+                    context
+                        .executor
+                        .execute_required_checks_for_run_with_admission(
+                            run_id,
+                            m.worktree.id,
+                            &spec,
+                            commands,
+                            admission,
+                        )
+                        .await
+                }
+                (Some(admission), None) => {
                     context
                         .executor
                         .execute_required_checks_with_admission(
@@ -195,7 +220,8 @@ pub async fn run_prepared_sandbox(
                         )
                         .await
                 }
-                None => {
+                (None, Some(_)) => Err(SandboxError::AdmissionDenied),
+                (None, None) => {
                     context
                         .executor
                         .execute_required_checks(m.worktree.id, &spec, commands)

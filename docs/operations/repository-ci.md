@@ -89,7 +89,14 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
     CLI queries. Require rejected requests to preserve history and Git state,
     unchanged dirty files, tasks and approvals, restart with execution disabled,
     strict fsck and cleanup of the owned fixture services and files.
-13. Kill a disposable fixture service during an actual automatic Check and require
+13. Push sequential ordinary default-branch updates through a real authenticated
+    Git client. Require prior committed opt-in, the accepted commit's changed
+    policy, actual success/failure and skipped steps, stable result identities,
+    opt-out without execution and ignored non-default/tag/no-op updates. Compare
+    native worktree registrations, checkout/scratch contents and authority state
+    after completion. Require bounded primary administrator reads, disabled
+    restart, stopped two-repository relocation, strict fsck and owned cleanup.
+14. Kill a disposable fixture service during an actual automatic Check and require
    a fresh service to refuse the unresolved execution fence. Stop only the
    fixture's authenticated process groups, require explicit operator recovery,
    and prove ordinary execution resumes without restoring verification authority.

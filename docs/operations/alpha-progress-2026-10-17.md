@@ -1093,3 +1093,54 @@ passed Linux and macOS; this candidate still needs its own hosted result.
 Ordinary-branch automatic triggers and GitHub Actions compatibility remain future
 work. Actual GitHub product publication remains deferred, automatic Gate B stays
 stopped, and existing preview servers have not been restarted or deployed.
+
+### Automatic default-branch Local Checks, 2026-10-18
+
+Based on `f1c2731ca40e3c75cc5d052b2f1613f040ab706b`, accepted Git HTTP updates
+to the active primary's ordinary default branch can run Checks automatically.
+Trusted single-user execution, current SiteAdmin access and a previously committed
+`auto_run: true` policy are required. First activation does not run; subsequent
+eligible pushes use the accepted new commit's policy. Private prepared intents,
+one running attempt, one latest queued attempt and five terminal records retain
+diagnostics across restart. Uncertain attempts are not replayed. Results confer
+no verification, approval or publication authority. See the
+[contract](default-branch-checks.md).
+
+Actions → Local Checks shows current work and the latest terminal attempt, with
+older attempts collapsed. Exact retained results can be opened independently of
+the lifecycle list. A known pre-command target change now retires the attempt
+only after confirmed cleanup, allowing the latest queue to continue. A duplicate
+status request during a catalog-changing Refresh was also fixed. Both corrections
+have failing-before and passing-after normal regression evidence.
+
+Full verification passed: Rust 456, frontend 311 across 44 files and Python 20,
+with two existing ignored Git tests. The normal operating rehearsal passed 16
+checks on Seatbelt with actual clone/push/fetch, committed consent and policy
+identity, success/failure/skipping, opt-out, non-triggering refs, disabled restart
+and offline relocated restoration. Full native refs, registrations, temporary
+checkout/scratch children and real task/approval records were compared after
+confirmed cleanup. Native Git fsck and owned-fixture cleanup passed.
+
+The integrated browser logged in and showed the actual completed, failed and
+policy-rejected attempts. View result selected the exact stored run, commit and
+policy output; Refresh retained the selection without changing either durable
+history document. Secondary repositories exposed no automatic execution panel.
+At 320/768/1440 CSS pixels, there was no horizontal overflow; paired buttons had
+equal heights of 44/32/32 pixels and branch labels stayed on one line. Test
+services, private credentials and browser overrides were removed afterward.
+
+Independent source reviews found no remaining P0/P1/P2. A private build stopped
+for lack of disk space before tests ran; removing generated compilation caches
+allowed the unchanged checks to pass. Initial gzip9 JavaScript is 70,791 bytes
+(+56), so the 50,000-byte goal remains unmet. The normal Overview → Actions →
+Local Checks path is 99,654 bytes, +2,034 against the same baseline path; this
+must not be compared with the older direct-navigation measurement.
+[Candidate evidence](evidence/default-automatic-checks-2026-10-18.json) separates
+source, regressions, actual operation, browser observations and review hashes.
+
+The preceding `f1c2731` [hosted run](https://github.com/sogangCSmaster/gitust/actions/runs/39082618798)
+passed Ubuntu and macOS; this candidate still needs its own hosted result.
+Other ordinary-branch triggers, secondary execution, SSH transport and GitHub
+Actions compatibility remain future work. GitHub product publication stays
+deferred, automatic Gate B stays stopped, and existing preview servers were not
+restarted or deployed.

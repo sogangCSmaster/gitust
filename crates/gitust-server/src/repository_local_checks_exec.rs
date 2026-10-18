@@ -196,6 +196,7 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Respons
         },
         false,
         RunContext {
+            run_id: None,
             repo_id,
             executor,
             auth_store: Some(state.auth_store.clone()),

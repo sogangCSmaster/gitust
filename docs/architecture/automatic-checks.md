@@ -3,8 +3,9 @@
 Automatic Checks are repository-policy jobs created by accepted managed-worktree
 MCP commits and Git HTTP pushes. They run only in the explicitly enabled trusted
 single-user sandbox. Success is diagnostic: it never restores verification,
-approval or publication authority. Non-managed branch triggers and a
-GitHub-compatible workflow engine remain separate work.
+approval or publication authority. The primary ordinary default branch has a
+separate [Git HTTP automatic Checks contract](../operations/default-branch-checks.md).
+Other branch triggers and a GitHub-compatible workflow engine remain separate work.
 
 Before publishing a tracked ref, Gitust writes a private `Prepared` intent bound
 to its stable repository ID, worktree, branch, expected commit and committed

@@ -25,6 +25,10 @@ mod git_http_automatic;
 mod git_http_read;
 mod git_http_write;
 pub mod listener;
+mod local_checks_automatic;
+mod local_checks_automatic_model;
+mod local_checks_automatic_store;
+mod local_checks_automatic_worker;
 pub mod local_checks_history;
 pub mod mcp;
 pub mod oauth;
@@ -35,6 +39,7 @@ mod repository_default_branch;
 mod repository_group_invites;
 mod repository_group_members;
 mod repository_local_checks;
+mod repository_local_checks_automatic;
 mod repository_local_checks_exec;
 mod repository_local_checks_result;
 mod repository_reads;
@@ -232,6 +237,10 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::patch(repository_visibility::change),
         )
         .route(
+            "/api/v1/repos/{id}/local-check-automatic-runs",
+            get(repository_local_checks_automatic::list),
+        )
+        .route(
             "/api/v1/repos/{id}/local-check-runs",
             get(repository_local_checks::list).post(repository_local_checks_exec::run),
         )
@@ -395,11 +404,14 @@ pub async fn serve_with_repository_modes(
         );
     }
     let automatic_checks = automatic_checks::start(&state).await?;
+    let local_checks_automatic = local_checks_automatic::start(&state).await?;
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Gitust All-in-One Server listening on http://{addr}");
     let result = listener::serve_hardened(listener, app).await;
+    let local_result = local_checks_automatic.shutdown().await;
     automatic_checks.shutdown().await?;
+    local_result?;
     result
 }
 

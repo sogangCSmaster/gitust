@@ -136,6 +136,7 @@ struct CatalogEntry {
     can_manage_group_members: bool,
     can_change_default_branch: bool,
     can_run_local_checks: bool,
+    can_view_local_checks_automatic: bool,
 }
 fn display_name(engine: &GitEngine, metadata: Option<&RepositoryRecord>) -> String {
     if let Some(metadata) = metadata {
@@ -211,6 +212,8 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 },
                 is_default: context.is_default,
                 can_run_local_checks,
+                can_view_local_checks_automatic: context.is_default
+                    && caller.role == gitust_core::EnterpriseRole::SiteAdmin,
                 can_rename: authorization.can_rename,
                 can_clone: true,
                 can_push: context.git_write && authorization.can_push_ordinary,
@@ -270,6 +273,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
             }
             entry.can_rename = current.can_rename;
             entry.can_run_local_checks &= can_execute;
+            entry.can_view_local_checks_automatic &= can_execute;
             entry.can_push &= current.can_push_ordinary;
             entry.is_private = current
                 .metadata

@@ -27,6 +27,7 @@ export interface RepositoryActionsProps {
   isPrimary: boolean;
   selectionEpoch: number;
   canRunChecks?: boolean;
+  canViewLocalChecksAutomatic?: boolean;
   defaultRef?: string;
   defaultCommit?: string | null;
   refreshRepository?: (isCurrent: () => boolean) => Promise<boolean>;
@@ -42,6 +43,9 @@ export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
   const primary = createMemo(() => props.isPrimary);
   const epoch = createMemo(() => props.selectionEpoch);
   const canRun = createMemo(() => props.canRunChecks === true);
+  const canViewAutomatic = createMemo(
+    () => props.canViewLocalChecksAutomatic === true,
+  );
   const defaultRef = createMemo(() => props.defaultRef);
   const defaultCommit = createMemo(() => props.defaultCommit);
   const canRead = () => primary() && role() === "SiteAdmin";
@@ -81,6 +85,7 @@ export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
               isPrimary={primary()}
               selectionEpoch={epoch()}
               canRunChecks={canRun()}
+              canViewLocalChecksAutomatic={canViewAutomatic()}
               defaultRef={defaultRef()}
               defaultCommit={defaultCommit()}
               refreshRepository={props.refreshRepository}

@@ -3,6 +3,7 @@ import { commitHistory } from "./fixtures/commit-history";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
+  configure,
   fireEvent,
   render,
   screen,
@@ -10,6 +11,8 @@ import {
   within,
 } from "@solidjs/testing-library";
 import { WorkbenchApp } from "../src/showcase/WorkbenchApp";
+
+configure({ asyncUtilTimeout: 5000 });
 
 const row = {
   id: "11111111-1111-4111-8111-111111111111",

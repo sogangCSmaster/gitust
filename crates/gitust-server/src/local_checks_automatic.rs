@@ -153,8 +153,16 @@ pub(crate) fn prepare_for_repo(
                 }
             }
         };
+        if actual.0 == update.new_oid {
+            continue;
+        }
         let policy = match repo.engine.required_checks_at_commit(&actual) {
-            Ok(Some(policy)) if policy.allows_auto_run_for_branch(short_branch) => policy,
+            Ok(Some(policy))
+                if (short_branch == base || policy.branches.is_some())
+                    && policy.allows_auto_run_for_branch(short_branch) =>
+            {
+                policy
+            }
             Ok(_) => continue,
             Err(GitEngineError::VerificationInvalid(_)) => {
                 return Ok(Eligibility::ConsentUnproven(ConsentFailure::PolicyInvalid))
@@ -247,7 +255,7 @@ pub(crate) fn confirm_for_repo(repo: &ReadRepository, intent: Intent) -> Result<
             .filter(|j| j.run_id == intent.run_id)
             .ok_or(Error)?;
         let outcome = (|| {
-            let _base = repo
+            let base = repo
                 .engine
                 .committed_default_branch()
                 .map_err(|_| Reason::DefaultChanged)?;
@@ -271,7 +279,9 @@ pub(crate) fn confirm_for_repo(repo: &ReadRepository, intent: Intent) -> Result<
                 .required_checks_at_commit(&job.expected_commit)
                 .map_err(|_| Reason::PolicyInvalid)?
                 .ok_or(Reason::PolicyMissing)?;
-            if !policy.allows_auto_run_for_branch(short_branch) {
+            if !(short_branch == base || policy.branches.is_some())
+                || !policy.allows_auto_run_for_branch(short_branch)
+            {
                 return Err(Reason::PolicyDisabled);
             }
             Ok(policy.blob_oid)

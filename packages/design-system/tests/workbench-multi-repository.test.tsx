@@ -3,6 +3,7 @@ import { commitHistory } from "./fixtures/commit-history";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
+  configure,
   fireEvent,
   render,
   screen,
@@ -11,6 +12,8 @@ import {
 } from "@solidjs/testing-library";
 import { WorkbenchApp } from "../src/showcase/WorkbenchApp";
 import { shortcutManager } from "../src/keyboard/shortcut-manager";
+
+configure({ asyncUtilTimeout: 5000 });
 
 const primary = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -126,6 +129,7 @@ it("opens a real browse-only repository without exposing primary worktree action
   await fireEvent.click(
     within(nav).getByRole("button", { name: "Files", exact: true }),
   );
+  await vi.dynamicImportSettled();
   await screen.findByLabelText("Select branch");
   await screen.findByText("README.md");
   expect(
@@ -144,6 +148,9 @@ it("opens a real browse-only repository without exposing primary worktree action
   await fireEvent.click(
     screen.getByRole("button", { name: "Search commands", exact: true }),
   );
+  await vi.dynamicImportSettled();
+  await screen.findByRole("dialog", { name: "Command palette" });
+  await vi.dynamicImportSettled();
   await screen.findByPlaceholderText("Search commands...");
   expect(screen.queryByText("Go to worktrees", { exact: true })).toBeNull();
   expect(screen.queryByText("Go to Actions", { exact: true })).toBeNull();

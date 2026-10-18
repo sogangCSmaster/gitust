@@ -48,7 +48,7 @@ fn admit(
     if !state.trusted_sandbox_exec {
         return Err(Reason::ExecutionDisabled);
     }
-    let _default_branch = repo
+    let default_branch = repo
         .engine
         .committed_default_branch()
         .map_err(|_| Reason::DefaultChanged)?;
@@ -69,7 +69,9 @@ fn admit(
         .required_checks_at_commit(&job.expected_commit)
         .map_err(|_| Reason::PolicyInvalid)?
         .ok_or(Reason::PolicyMissing)?;
-    if !checks.allows_auto_run_for_branch(short_branch) {
+    if !(short_branch == default_branch || checks.branches.is_some())
+        || !checks.allows_auto_run_for_branch(short_branch)
+    {
         return Err(Reason::PolicyDisabled);
     }
     if job.checks_blob_oid.as_ref() != Some(&checks.blob_oid) {

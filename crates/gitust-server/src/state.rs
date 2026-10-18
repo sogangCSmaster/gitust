@@ -12,7 +12,7 @@ use gitust_core::{
 };
 use gitust_db::AuthStore;
 use gitust_git::{GitEngine, GitEngineError};
-use gitust_sandbox::{LocalSandboxExecutor, SandboxError, SandboxSpec};
+use gitust_sandbox::{LocalSandboxExecutor, SandboxSpec};
 use gitust_sync::BiDirectionalSyncConfig;
 use parking_lot::{Mutex, RwLock};
 
@@ -55,6 +55,7 @@ pub struct AppState {
     #[cfg(test)]
     pub(crate) sync_after_fetch_hook: Arc<Mutex<Option<crate::repository_reads::TestHook>>>,
     pub(crate) repository_registry: Option<Arc<crate::repository_registry::RepositoryRegistry>>,
+    pub(crate) dynamic_registry: Arc<RwLock<crate::repository_registry::DynamicRepositoryRegistry>>,
     pub(crate) automatic_checks: Arc<crate::automatic_checks::AutomaticChecks>,
     pub repo_id: RepoId,
     pub(crate) repo_access: gitust_core::RepoAccess,
@@ -158,6 +159,13 @@ impl AppState {
             Err(GitEngineError::OpenRepo { .. }) if cfg!(test) => {}
             Err(err) => return Err(err),
         }
+        let dynamic_registry = crate::repository_registry::recover_dynamic_registry(
+            &git_engine,
+            repo_id,
+            &auth_store,
+            &mut worktrees,
+            &mut worktree_runtime,
+        )?;
         let mut oauth_store = OAuthMcpStore::default();
         // Pre-register a default local CLI/IDE public client so users/agents can also use
         // `client_id = "gitust-mcp-cli"` without an extra registration round-trip.
@@ -174,6 +182,7 @@ impl AppState {
         });
         Ok(Self {
             repository_registry: None,
+            dynamic_registry: Arc::new(RwLock::new(dynamic_registry)),
             #[cfg(test)]
             repository_read_hook: Arc::new(Mutex::new(None)),
             #[cfg(test)]
@@ -314,80 +323,7 @@ impl AppState {
     }
 }
 
-pub(crate) fn map_auth_err(err: AuthError) -> (StatusCode, String) {
-    let code = match err {
-        AuthError::Unauthenticated | AuthError::InvalidCredentials => StatusCode::UNAUTHORIZED,
-        AuthError::AccountDeactivated
-        | AuthError::AdminPrivilegeRequired
-        | AuthError::ForbiddenResourceOwnership
-        | AuthError::ForbiddenRepositoryAccess
-        | AuthError::PublicSignupDisabled
-        | AuthError::AdminAlreadyBootstrapped => StatusCode::FORBIDDEN,
-        AuthError::RateLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
-        AuthError::DuplicateUser | AuthError::CannotDeactivateLastAdmin => StatusCode::CONFLICT,
-        AuthError::InvalidToken
-        | AuthError::TokenAlreadyUsed
-        | AuthError::TokenExpired
-        | AuthError::TokenRevoked
-        | AuthError::TokenPurposeMismatch
-        | AuthError::InvalidInput(_) => StatusCode::BAD_REQUEST,
-        AuthError::StorageError(_) => StatusCode::SERVICE_UNAVAILABLE,
-    };
-    (code, err.to_string())
-}
-
-pub(crate) fn map_git_err(err: GitEngineError) -> (StatusCode, String) {
-    let code = match &err {
-        GitEngineError::DefaultBranchInvalid
-        | GitEngineError::InvalidBranchName(_)
-        | GitEngineError::InvalidRevision(_)
-        | GitEngineError::InvalidRepoPath(_)
-        | GitEngineError::InvalidRemoteUrl(_)
-        | GitEngineError::BranchNotAgentScoped(_) => StatusCode::BAD_REQUEST,
-        GitEngineError::BaseBranchNotFound(_)
-        | GitEngineError::RevisionNotFound(_)
-        | GitEngineError::PathNotFound(_) => StatusCode::NOT_FOUND,
-        GitEngineError::DefaultBranchConflict
-        | GitEngineError::DefaultBranchUnsupported
-        | GitEngineError::BranchAlreadyExists(_)
-        | GitEngineError::MergeConflict(_)
-        | GitEngineError::VerificationInvalid(_)
-        | GitEngineError::ExecutionFence(_)
-        | GitEngineError::RepositoryIdentity(_)
-        | GitEngineError::WorktreeServiceBusy(_) => StatusCode::CONFLICT,
-        GitEngineError::CredentialsInRepoConfig => StatusCode::PRECONDITION_FAILED,
-        _ => {
-            tracing::error!(error = %err, "git engine failure");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal git engine error".to_owned(),
-            );
-        }
-    };
-    (code, err.to_string())
-}
-
-pub(crate) fn map_sandbox_err(err: SandboxError) -> (StatusCode, String) {
-    match &err {
-        SandboxError::TimedOut { .. } => (StatusCode::REQUEST_TIMEOUT, err.to_string()),
-        SandboxError::IsolationUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, err.to_string()),
-        _ => {
-            tracing::error!(error = %err, "sandbox failure");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal sandbox error".to_owned(),
-            )
-        }
-    }
-}
-
-pub(crate) fn internal_err(e: impl std::fmt::Display) -> (StatusCode, String) {
-    tracing::error!(error = %e, "internal task failure");
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "internal error".to_owned(),
-    )
-}
+pub(crate) use crate::state_errors::{internal_err, map_auth_err, map_git_err, map_sandbox_err};
 
 /// Enforces team repository BOLA access (fail-closed):
 /// A configured service pins legacy sharing or an exact explicit registration at startup.
@@ -420,13 +356,25 @@ pub(crate) async fn find_authorized_worktree(
         .find(|w| w.id.0 == id)
         .cloned()
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("worktree {id} not found")))?;
+    let (expected_repo_id, repo_access) = if wt.repo_id == state.repo_id {
+        (state.repo_id, state.repo_access)
+    } else {
+        let target_repo = state
+            .read_repository(wt.repo_id)
+            .ok_or_else(|| map_auth_err(AuthError::ForbiddenRepositoryAccess))?;
+        (target_repo.access.repo_id, target_repo.access)
+    };
     let store = state.auth_store.clone();
-    let default_repo = state.repo_id;
-    let repo_access = state.repo_access;
     let caller_owned = caller.clone();
     let repo_id = wt.repo_id;
     tokio::task::spawn_blocking(move || {
-        check_repo_bola(&store, default_repo, repo_access, &caller_owned, repo_id)
+        check_repo_bola(
+            &store,
+            expected_repo_id,
+            repo_access,
+            &caller_owned,
+            repo_id,
+        )
     })
     .await
     .map_err(internal_err)??;
@@ -440,6 +388,14 @@ pub(crate) async fn filter_authorized_worktrees(
     caller: &AuthenticatedPrincipal,
 ) -> Result<Vec<AgentWorktree>, (StatusCode, String)> {
     let candidates: Vec<AgentWorktree> = state.worktrees.read().iter().cloned().collect();
+    let mut repo_accesses: HashMap<RepoId, gitust_core::RepoAccess> = HashMap::new();
+    for wt in &candidates {
+        if wt.repo_id != state.repo_id && !repo_accesses.contains_key(&wt.repo_id) {
+            if let Some(repo) = state.read_repository(wt.repo_id) {
+                repo_accesses.insert(wt.repo_id, repo.access);
+            }
+        }
+    }
     let store = state.auth_store.clone();
     let default_repo = state.repo_id;
     let repo_access = state.repo_access;
@@ -460,10 +416,14 @@ pub(crate) async fn filter_authorized_worktrees(
             let allowed = match access_cache.get(&wt.repo_id).copied() {
                 Some(cached) => cached,
                 None => {
+                    let Some(access) = repo_accesses.get(&wt.repo_id).copied() else {
+                        access_cache.insert(wt.repo_id, false);
+                        continue;
+                    };
                     let ok = match check_repo_bola(
                         &store,
-                        default_repo,
-                        repo_access,
+                        access.repo_id,
+                        access,
                         &caller_owned,
                         wt.repo_id,
                     ) {

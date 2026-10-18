@@ -31,6 +31,7 @@ export interface LiveWorktreeRecord {
 }
 
 export interface LiveSwarmClientCallbacks {
+  getRepositoryId?: () => string | null | undefined;
   getSwarmTasks: () => AgentSandboxTask[];
   setSwarmTasks: (
     updater:
@@ -125,7 +126,11 @@ export function createLiveSwarmSession(cb: LiveSwarmClientCallbacks) {
     if (!token) return;
     const epoch = swarmEpoch;
     const reqId = ++latestSwarmReqId;
-    const current = () => isCurrent(epoch, token) && reqId === latestSwarmReqId;
+    const selectedRepoId = cb.getRepositoryId?.();
+    const current = () =>
+      isCurrent(epoch, token) &&
+      reqId === latestSwarmReqId &&
+      cb.getRepositoryId?.() === selectedRepoId;
     try {
       const res = await fetch("/api/v1/swarm/worktrees", {
         headers: { Authorization: `Bearer ${token}` },
@@ -138,6 +143,14 @@ export function createLiveSwarmSession(cb: LiveSwarmClientCallbacks) {
       if (!current()) return;
       if (!Array.isArray(data))
         throw new Error("Invalid worktree list response");
+      const scoped = selectedRepoId
+        ? data.filter(
+            (wt) =>
+              !wt.repo_id ||
+              wt.repo_id === "repo" ||
+              wt.repo_id === selectedRepoId,
+          )
+        : data;
       let newId = nextId();
       cb.setSwarmTasks((previous) => {
         const byLiveId = new Map(
@@ -145,8 +158,8 @@ export function createLiveSwarmSession(cb: LiveSwarmClientCallbacks) {
             .filter((task) => task.liveId)
             .map((task) => [task.liveId, task]),
         );
-        const incomingIds = new Set(data.map((wt) => wt.id));
-        const tasks = data.map((wt) => {
+        const incomingIds = new Set(scoped.map((wt) => wt.id));
+        const tasks = scoped.map((wt) => {
           const old = byLiveId.get(wt.id);
           if (old && inFlightWorktrees.has(wt.id)) return old;
           const mapped = mapLiveWorktreeToTask(wt, old?.id ?? newId++);
@@ -340,7 +353,11 @@ export function createLiveSwarmSession(cb: LiveSwarmClientCallbacks) {
   const spawnLiveWorktree = async (
     input: NewWorktreeInput,
   ): Promise<NewWorktreeResult> => {
-    const validation = validateNewWorktreeInput(input);
+    const targetRepoId = input.repoId || cb.getRepositoryId?.() || "";
+    const validation = validateNewWorktreeInput({
+      ...input,
+      repoId: targetRepoId,
+    });
     if (validation) return { kind: "error", error: validation };
     const token = getLiveToken();
     if (!token)
@@ -383,7 +400,7 @@ export function createLiveSwarmSession(cb: LiveSwarmClientCallbacks) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          repo_id: input.repoId,
+          repo_id: targetRepoId,
           agent: input.agent,
           branch: input.branch,
           base_branch: input.baseBranch,
@@ -403,7 +420,7 @@ export function createLiveSwarmSession(cb: LiveSwarmClientCallbacks) {
         !created ||
         typeof created.id !== "string" ||
         !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(created.id) ||
-        created.repo_id !== input.repoId ||
+        created.repo_id !== targetRepoId ||
         created.branch !== input.branch ||
         created.base_branch !== input.baseBranch ||
         created.agent !== input.agent ||

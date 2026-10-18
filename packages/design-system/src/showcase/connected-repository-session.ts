@@ -18,6 +18,10 @@ export interface ConnectedRepository {
   canManageGroupMembers?: boolean;
   canRunLocalChecks?: boolean;
   canViewLocalChecksAutomatic?: boolean;
+  canSpawnWorktree?: boolean;
+  archived?: boolean;
+  canAdminister?: boolean;
+  description?: string;
 }
 export const canCloneRepository = (repository: ConnectedRepository) =>
   repository.canClone ??
@@ -63,6 +67,10 @@ const ALLOWED_REPOSITORY_KEYS = new Set<string>([
   "can_manage_group_members",
   "can_run_local_checks",
   "can_view_local_checks_automatic",
+  "can_spawn_worktree",
+  "archived",
+  "can_administer",
+  "description",
 ]);
 export const invalidRepositoryMetadata = () =>
   new Error("Server returned invalid repository metadata");
@@ -108,6 +116,16 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
         typeof raw.can_manage_group_members !== "boolean") ||
       (Object.hasOwn(raw, "can_invite_to_group") &&
         typeof raw.can_invite_to_group !== "boolean") ||
+      (Object.hasOwn(raw, "can_spawn_worktree") &&
+        typeof raw.can_spawn_worktree !== "boolean") ||
+      (Object.hasOwn(raw, "archived") &&
+        typeof raw.archived !== "boolean") ||
+      (Object.hasOwn(raw, "can_administer") &&
+        typeof raw.can_administer !== "boolean") ||
+      (Object.hasOwn(raw, "description") &&
+        raw.description !== null &&
+        (typeof raw.description !== "string" ||
+          raw.description.length > 2048)) ||
       typeof raw.id !== "string" ||
       !uuid.test(raw.id) ||
       /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(raw.id) ||
@@ -152,6 +170,17 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       canManageGroupMembers: raw.can_manage_group_members === true,
       canRunLocalChecks: raw.can_run_local_checks === true,
       canViewLocalChecksAutomatic: raw.can_view_local_checks_automatic === true,
+      canSpawnWorktree:
+        typeof raw.can_spawn_worktree === "boolean"
+          ? raw.can_spawn_worktree
+          : undefined,
+      archived: typeof raw.archived === "boolean" ? raw.archived : undefined,
+      canAdminister:
+        typeof raw.can_administer === "boolean"
+          ? raw.can_administer
+          : undefined,
+      description:
+        typeof raw.description === "string" ? raw.description : undefined,
     };
   });
 };

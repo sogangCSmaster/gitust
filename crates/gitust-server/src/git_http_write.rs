@@ -65,6 +65,16 @@ fn current(
                 .into(),
         ));
     }
+    if target.repository.archived
+        || state
+            .read_repository(target.repository.access.repo_id)
+            .is_some_and(|r| r.archived)
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "repository is archived and read-only".into(),
+        ));
+    }
     Ok(caller)
 }
 async fn prepare(state: AppState, raw: String, headers: HeaderMap) -> Result<Target, Failure> {
@@ -144,7 +154,7 @@ async fn execute(
         target
             .repository
             .engine
-            .validate_ordinary_git_service()
+            .validate_git_write_service(target.repository.workbench_enabled)
             .map_err(unavailable)?;
         if !advertisement {
             #[cfg(test)]

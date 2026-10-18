@@ -147,7 +147,7 @@ async fn merge_inner(
         if !repository.is_default {
             repository
                 .engine
-                .validate_ordinary_git_service()
+                .validate_git_write_service(repository.workbench_enabled)
                 .map_err(map_git_err)?;
         }
         let payload: MergePullRequestPayload = if body.is_empty() {

@@ -153,6 +153,15 @@ pub(crate) async fn git_receive_pack_handler(
     if let Err(resp) = resolve_and_authorize_repo(&state, &pre_caller, &repo).await {
         return resp;
     }
+    if state
+        .read_repository(state.repo_id)
+        .is_some_and(|r| r.archived)
+    {
+        return git_auth_err_response(
+            StatusCode::FORBIDDEN,
+            "repository is archived and read-only".to_owned(),
+        );
+    }
 
     // fail-open-ok: oversized receive-pack body immediately fails closed with 413 PAYLOAD_TOO_LARGE.
     let Ok(body) = axum::body::to_bytes(request_body, MAX_SMART_HTTP_BODY_BYTES).await else {
@@ -170,6 +179,15 @@ pub(crate) async fn git_receive_pack_handler(
     };
     if let Err(resp) = resolve_and_authorize_repo(&state, &caller, &repo).await {
         return resp;
+    }
+    if state
+        .read_repository(state.repo_id)
+        .is_some_and(|r| r.archived)
+    {
+        return git_auth_err_response(
+            StatusCode::FORBIDDEN,
+            "repository is archived and read-only".to_owned(),
+        );
     }
 
     let updates = match inspect_receive_pack_updates(&body) {
@@ -209,7 +227,10 @@ pub(crate) async fn git_receive_pack_handler(
         let worktrees = state.worktrees.read();
         for u in &updates {
             if let Some(short) = u.refname.strip_prefix("refs/heads/") {
-                if let Some(wt) = worktrees.iter().find(|w| w.branch == short) {
+                if let Some(wt) = worktrees
+                    .iter()
+                    .find(|w| w.repo_id == state.repo_id && w.branch == short)
+                {
                     matched_worktrees.push((wt.id, wt.branch.clone(), wt.status));
                 }
             }
@@ -325,6 +346,15 @@ pub(crate) async fn git_receive_pack_handler(
                     return Err((StatusCode::FORBIDDEN, "Git push authority changed".into()));
                 }
                 check_repo_bola(&automatic_state.auth_store, automatic_state.repo_id, automatic_state.repo_access, &fresh, automatic_state.repo_id)?;
+                if automatic_state
+                    .read_repository(automatic_state.repo_id)
+                    .is_some_and(|r| r.archived)
+                {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        "repository is archived and read-only".into(),
+                    ));
+                }
                 crate::branch_protection::ensure_direct_push_allowed(
                     &automatic_state.auth_store,
                     automatic_state.repo_id,

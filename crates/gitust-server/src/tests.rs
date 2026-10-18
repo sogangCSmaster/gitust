@@ -273,3 +273,5 @@ mod tests_ordinary_branch_checks;
 mod tests_pull_requests;
 #[path = "tests_pull_requests_regressions.rs"]
 mod tests_pull_requests_regressions;
+#[path = "tests_repository_admin.rs"]
+mod tests_repository_admin;

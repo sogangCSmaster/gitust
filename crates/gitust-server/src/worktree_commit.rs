@@ -105,10 +105,16 @@ pub(super) async fn commit_worktree(
             matches!(authority, CommitAuthority::LocalOperator),
         )?;
         let result = (|| {
-            check_repo_bola(&state.auth_store, state.repo_id, state.repo_access, &caller, wt.repo_id)?;
+            let target_repo = state.workbench_repository(wt.repo_id)?;
+            let expected_repo_id = if target_repo.is_default {
+                state.repo_id
+            } else {
+                target_repo.access.repo_id
+            };
+            check_repo_bola(&state.auth_store, expected_repo_id, target_repo.access, &caller, wt.repo_id)?;
             policy::check(&runtime, &request.paths)?;
-            let prepared = state
-                .git_engine
+            let prepared = target_repo
+                .engine
                 .prepare_worktree_commit(
                     wt.id,
                     &wt.branch,
@@ -118,24 +124,34 @@ pub(super) async fn commit_worktree(
                     &format!("{}@agents.gitust.local", caller.user_id.0),
                 )
                 .map_err(map_git_err)?;
-            let _repository_guard = state
-                .repo_mutation_lock
+            let _repository_guard = target_repo
+                .mutation
                 .clone()
                 .try_lock_owned()
                 .map_err(|_| (StatusCode::CONFLICT, "repository is busy".into()))?;
             let next = prepared.result();
-            let intent = crate::automatic_checks::prepare(
-                &state, &caller, wt.id, next.commit.clone(), Some(next.parent.clone()),
-                if matches!(authority, CommitAuthority::LocalOperator) { crate::automatic_run_model::Origin::LocalOperator }
-                else { crate::automatic_run_model::Origin::Mcp },
-            )?;
+            let intent = if wt.repo_id == state.repo_id {
+                crate::automatic_checks::prepare(
+                    &state, &caller, wt.id, next.commit.clone(), Some(next.parent.clone()),
+                    if matches!(authority, CommitAuthority::LocalOperator) { crate::automatic_run_model::Origin::LocalOperator }
+                    else { crate::automatic_run_model::Origin::Mcp },
+                )?
+            } else {
+                None
+            };
             let mut denied = None;
-            let committed = state
-                .git_engine
+            let committed = target_repo
+                .engine
                 .finish_worktree_commit_with_gate(prepared, || {
                     let authority = active_caller(&state, &caller, &authority)
                         .and_then(|fresh| {
-                            check_repo_bola(&state.auth_store, state.repo_id, state.repo_access, &fresh, wt.repo_id)
+                            let current_repo = state.workbench_repository(wt.repo_id)?;
+                            let current_expected_id = if current_repo.is_default {
+                                state.repo_id
+                            } else {
+                                current_repo.access.repo_id
+                            };
+                            check_repo_bola(&state.auth_store, current_expected_id, current_repo.access, &fresh, wt.repo_id)
                         })
                         .and_then(|_| policy::check(&runtime, &request.paths));
                     if let Err(error) = authority {

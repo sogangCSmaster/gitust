@@ -56,13 +56,21 @@ impl WriteAuth {
         if allowed.len() != 1 {
             return Err(());
         }
+        if self.repository.archived
+            || self
+                .state
+                .read_repository(self.repository.access.repo_id)
+                .is_none_or(|r| r.archived)
+        {
+            return Err(());
+        }
         if !self.repository.is_default {
             if !allowed[0].can_push_ordinary {
                 return Err(());
             }
             self.repository
                 .engine
-                .validate_ordinary_git_service()
+                .validate_git_write_service(self.repository.workbench_enabled)
                 .map_err(|_| ())?;
         }
         Ok(caller)

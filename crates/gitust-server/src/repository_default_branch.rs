@@ -73,6 +73,12 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Changed
             Ok(())
         };
         authorize()?;
+        if repository.archived || state.read_repository(repo_id).is_some_and(|r| r.archived) {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "repository is archived and read-only".into(),
+            ));
+        }
         if !(repository.is_default || repository.git_write)
             || repository.access.registration.is_none()
         {
@@ -95,7 +101,7 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Changed
         if !repository.is_default {
             repository
                 .engine
-                .validate_ordinary_git_service()
+                .validate_git_write_service(repository.workbench_enabled)
                 .map_err(map_git_err)?;
         }
         let mut denied = None;

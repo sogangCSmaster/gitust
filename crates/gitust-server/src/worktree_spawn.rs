@@ -44,14 +44,16 @@ pub(crate) async fn spawn_worktree_core(
         .map(|base| GitEngine::validate_outbound_branch(&base))
         .transpose()
         .map_err(map_git_err)?;
+    let (expected_repo_id, repo_access) = match state.read_repository(target_repo_id) {
+        Some(repo) if target_repo_id != state.repo_id => (repo.access.repo_id, repo.access),
+        _ => (state.repo_id, state.repo_access),
+    };
     let store = state.auth_store.clone();
-    let default_repo = state.repo_id;
-    let repo_access = state.repo_access;
     let caller_owned = caller.clone();
     tokio::task::spawn_blocking(move || {
         check_repo_bola(
             &store,
-            default_repo,
+            expected_repo_id,
             repo_access,
             &caller_owned,
             target_repo_id,
@@ -59,28 +61,19 @@ pub(crate) async fn spawn_worktree_core(
     })
     .await
     .map_err(internal_err)??;
-    if target_repo_id != state.repo_id {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "repository is not served by this instance".to_owned(),
-        ));
-    }
-    let repo_guard = state
-        .repo_mutation_lock
-        .clone()
-        .try_lock_owned()
-        .map_err(|_| {
-            (
-                StatusCode::CONFLICT,
-                "another repository mutation is in progress".into(),
-            )
-        })?;
+    let target_repo = state.workbench_repository(target_repo_id)?;
+    let repo_guard = target_repo.mutation.clone().try_lock_owned().map_err(|_| {
+        (
+            StatusCode::CONFLICT,
+            "another repository mutation is in progress".into(),
+        )
+    })?;
     let reservation = SpawnReservation::reserve(state, caller.user_id)?;
     let lifecycle = Arc::clone(&reservation.lifecycle);
     let state_for_spawn = state.clone();
     let user_id = caller.user_id;
 
-    let engine = state.git_engine.clone();
+    let engine = target_repo.engine.clone();
     let (materialized, _repo_guard) = tokio::task::spawn_blocking(move || {
         let res = clean_base
             .map_or_else(|| engine.committed_default_branch(), Ok)

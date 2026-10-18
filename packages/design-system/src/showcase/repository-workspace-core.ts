@@ -65,9 +65,13 @@ export const createRepositoryWorkspaceCore = (options: {
   });
   const canWorkbench = () => {
     const repository = selected();
-    return repository?.capability === "workbench" && repository.isDefault;
+    if (!repository || repository.archived) return false;
+    return (
+      repository.canSpawnWorktree ??
+      (repository.capability === "workbench" && repository.isDefault)
+    );
   };
-  const browseOnly = () => selected()?.capability === "browse";
+  const browseOnly = () => Boolean(selected() && !canWorkbench());
   const canViewActions = () => {
     const repository = selected();
     return (

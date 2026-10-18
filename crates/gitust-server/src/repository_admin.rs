@@ -1,0 +1,520 @@
+//! Repository administration settings (`GET/PATCH /api/v1/repos/{id}/settings`)
+//! and online bare repository provisioning (`POST /api/v1/admin/repos`).
+
+use std::sync::Arc;
+
+use axum::extract::{Path, Request, State};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use gitust_core::{AuthError, EnterpriseRole, RepoAccess, RepoId, TeamId};
+use gitust_git::GitEngine;
+use serde::{Deserialize, Serialize};
+
+use crate::auth::{extract_principal, extract_principal_async};
+use crate::repository_reads::{id as parse_repo_id, response};
+use crate::repository_registry::{
+    load_persisted_repo_settings, persist_repo_settings, ReadRepository, RepoRuntimeSettings,
+    MAX_REPOSITORIES,
+};
+use crate::state::{internal_err, map_auth_err, map_git_err, AppState};
+
+type ApiError = (StatusCode, String);
+
+const MAX_REPO_DESCRIPTION_BYTES: usize = 2048;
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Serialize)]
+pub(crate) struct RepositorySettingsResponse {
+    pub(crate) id: RepoId,
+    pub(crate) name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<String>,
+    pub(crate) default_branch: String,
+    pub(crate) is_private: bool,
+    pub(crate) archived: bool,
+    pub(crate) workbench_enabled: bool,
+    pub(crate) can_administer: bool,
+}
+
+fn deserialize_optional_nullable_string<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateRepositorySettingsPayload {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_nullable_string")]
+    description: Option<Option<String>>,
+    #[serde(default)]
+    default_branch: Option<String>,
+    #[serde(default)]
+    is_private: Option<bool>,
+    #[serde(default)]
+    archived: Option<bool>,
+    #[serde(default)]
+    workbench_enabled: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateHostedRepositoryPayload {
+    name: String,
+    #[serde(default)]
+    owner_team_id: Option<TeamId>,
+    #[serde(default = "default_true")]
+    is_private: bool,
+    #[serde(default)]
+    default_branch: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    workbench_enabled: Option<bool>,
+}
+
+fn map_visibility_err(error: gitust_db::RepositoryVisibilityError) -> ApiError {
+    match error {
+        gitust_db::RepositoryVisibilityError::Auth(err) => map_auth_err(err),
+        gitust_db::RepositoryVisibilityError::Conflict => (
+            StatusCode::CONFLICT,
+            "repository visibility changed; refresh before retrying".into(),
+        ),
+        gitust_db::RepositoryVisibilityError::NotPublished(_)
+        | gitust_db::RepositoryVisibilityError::Unconfirmed(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "repository visibility update could not be confirmed".into(),
+        ),
+    }
+}
+
+fn validate_description(raw: Option<String>) -> Result<Option<String>, ApiError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.contains('\0') || trimmed.len() > MAX_REPO_DESCRIPTION_BYTES {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "repository description must be <= 2048 bytes without NUL".into(),
+        ));
+    }
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed.to_owned()))
+    }
+}
+
+fn build_settings_response(
+    state: &AppState,
+    caller: &gitust_core::AuthenticatedPrincipal,
+    repository: &ReadRepository,
+) -> Result<RepositorySettingsResponse, ApiError> {
+    let allowed = state
+        .auth_store
+        .authorized_repository_catalog(caller, &[repository.access])
+        .map_err(map_auth_err)?;
+    let Some(auth) = allowed.first() else {
+        return Err((StatusCode::FORBIDDEN, "repository access denied".into()));
+    };
+    let (default_branch, _) = repository
+        .engine
+        .inspect_repository_head()
+        .map_err(map_git_err)?
+        .into_parts();
+    let name = auth
+        .metadata
+        .as_ref()
+        .map(|m| m.name.clone())
+        // fail-open-ok: unregistered legacy primary uses a generic label without exposing host paths.
+        .unwrap_or_else(|| "Repository".to_owned());
+    let is_private = auth.metadata.as_ref().is_some_and(|m| m.is_private);
+    let can_administer = caller.role == EnterpriseRole::SiteAdmin
+        || (caller.role == EnterpriseRole::Maintainer && repository.git_write);
+    Ok(RepositorySettingsResponse {
+        id: repository.access.repo_id,
+        name,
+        description: repository.description.clone(),
+        default_branch,
+        is_private,
+        archived: repository.archived,
+        workbench_enabled: repository.is_default || repository.workbench_enabled,
+        can_administer,
+    })
+}
+
+pub(crate) async fn get_settings(
+    State(state): State<AppState>,
+    Path(raw): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    response(get_settings_inner(state, raw, headers).await)
+}
+
+async fn get_settings_inner(
+    state: AppState,
+    raw: String,
+    headers: HeaderMap,
+) -> Result<RepositorySettingsResponse, ApiError> {
+    let repo_id = parse_repo_id(&raw)?;
+    let origin = extract_principal_async(&headers, &state.auth_store).await?;
+    let repository = state
+        .read_repository(repo_id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "repository is not hosted".into()))?;
+    tokio::task::spawn_blocking(move || {
+        let _inventory = state.repository_registry.clone();
+        let _ownership = repository
+            .engine
+            .lock_worktree_service()
+            .map_err(map_git_err)?;
+        let current = extract_principal(&headers, &state.auth_store)?;
+        if current.user_id != origin.user_id {
+            return Err(map_auth_err(AuthError::Unauthenticated));
+        }
+        build_settings_response(&state, &current, &repository)
+    })
+    .await
+    .map_err(internal_err)?
+}
+
+pub(crate) async fn update_settings(
+    State(state): State<AppState>,
+    Path(raw): Path<String>,
+    request: Request,
+) -> Response {
+    response(update_settings_inner(state, raw, request).await)
+}
+
+async fn update_settings_inner(
+    state: AppState,
+    raw: String,
+    request: Request,
+) -> Result<RepositorySettingsResponse, ApiError> {
+    let repo_id = parse_repo_id(&raw)?;
+    let (parts, body) = request.into_parts();
+    let origin = extract_principal_async(&parts.headers, &state.auth_store).await?;
+    if origin.role == EnterpriseRole::Developer {
+        return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+    }
+    let body = axum::body::to_bytes(body, 64 * 1024).await.map_err(|_| {
+        (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "repository settings payload too large".into(),
+        )
+    })?;
+    let repository = state
+        .read_repository(repo_id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "repository is not hosted".into()))?;
+    if !repository.git_write && !repository.is_default {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "read-only secondary repository settings cannot be mutated".into(),
+        ));
+    }
+    let guard = repository.mutation.clone().try_lock_owned().map_err(|_| {
+        (
+            StatusCode::CONFLICT,
+            "another repository mutation is in progress".into(),
+        )
+    })?;
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        let _inventory = state.repository_registry.clone();
+        let _ownership = repository
+            .engine
+            .lock_worktree_service()
+            .map_err(map_git_err)?;
+        let current = extract_principal(&parts.headers, &state.auth_store)?;
+        if current.user_id != origin.user_id || current.role == EnterpriseRole::Developer {
+            return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+        }
+        let payload: UpdateRepositorySettingsPayload =
+            serde_json::from_slice(&body).map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid repository settings payload: {e}"),
+                )
+            })?;
+        if (payload.name.is_some()
+            || payload.is_private.is_some()
+            || payload.workbench_enabled.is_some()
+            || payload.default_branch.is_some())
+            && current.role != EnterpriseRole::SiteAdmin
+        {
+            return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+        }
+
+        let before = build_settings_response(&state, &current, &repository)?;
+        // fail-open-ok: preserves current archived setting when omitted from PATCH payload.
+        let effective_archived = payload.archived.unwrap_or(before.archived);
+        if effective_archived && (payload.name.is_some() || payload.default_branch.is_some()) {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "repository is archived and read-only".into(),
+            ));
+        }
+
+        if let Some(ref next_name) = payload.name {
+            let clean_name =
+                gitust_db::validate_repository_name(next_name).map_err(map_auth_err)?;
+            if clean_name != before.name {
+                state
+                    .auth_store
+                    .rename_registered_repository(&current, repository.access, &clean_name)
+                    .map_err(map_auth_err)?;
+            }
+        }
+
+        if let Some(next_private) = payload.is_private {
+            if next_private != before.is_private {
+                state
+                    .auth_store
+                    .change_registered_repository_visibility(
+                        crate::auth::bearer_token(&parts.headers)?,
+                        current.user_id,
+                        repository.access,
+                        before.is_private,
+                        next_private,
+                    )
+                    .map_err(map_visibility_err)?;
+            }
+        }
+
+        if let Some(ref next_branch) = payload.default_branch {
+            let clean_branch =
+                GitEngine::validate_outbound_branch(next_branch).map_err(map_git_err)?;
+            if clean_branch != before.default_branch {
+                let (_, target_sha) = repository
+                    .engine
+                    .resolve_branch_pair_shas(&before.default_branch, &clean_branch)
+                    .map_err(map_git_err)?;
+                let target_ref = format!("refs/heads/{clean_branch}");
+                let current_ref = format!("refs/heads/{}", before.default_branch);
+                let mut denied = None;
+                let changed = repository.engine.change_default_branch_with_gate(
+                    &target_ref,
+                    &current_ref,
+                    &target_sha,
+                    || {
+                        let check = (|| {
+                            let fresh = extract_principal(&parts.headers, &state.auth_store)?;
+                            if fresh.user_id != origin.user_id
+                                || fresh.role != EnterpriseRole::SiteAdmin
+                            {
+                                return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+                            }
+                            let rows = state
+                                .auth_store
+                                .authorized_repository_catalog(&fresh, &[repository.access])
+                                .map_err(map_auth_err)?;
+                            if rows.len() != 1 || !rows[0].can_rename {
+                                return Err(map_auth_err(AuthError::ForbiddenRepositoryAccess));
+                            }
+                            Ok(())
+                        })();
+                        if let Err(err) = check {
+                            denied = Some(err);
+                            return Err(gitust_git::GitEngineError::DefaultBranchUnsupported);
+                        }
+                        Ok(())
+                    },
+                );
+                if let Some(err) = denied {
+                    return Err(err);
+                }
+                changed.map_err(map_git_err)?;
+            }
+        }
+
+        let cached_settings = state
+            .dynamic_registry
+            .read()
+            .settings
+            .get(&repo_id)
+            .cloned();
+        let mut settings = match cached_settings {
+            Some(s) => s,
+            None => load_persisted_repo_settings(&repository.engine).map_err(map_git_err)?,
+        };
+        if let Some(archived) = payload.archived {
+            settings.archived = archived;
+        }
+        if let Some(wb) = payload.workbench_enabled {
+            settings.workbench_enabled = Some(repository.is_default || wb);
+        }
+        if let Some(raw_desc) = payload.description {
+            settings.description = validate_description(raw_desc)?;
+        }
+        persist_repo_settings(&repository.engine, &settings).map_err(map_git_err)?;
+        state
+            .dynamic_registry
+            .write()
+            .settings
+            .insert(repo_id, settings);
+
+        let refreshed = state
+            .read_repository(repo_id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "repository is not hosted".into()))?;
+        build_settings_response(&state, &current, &refreshed)
+    })
+    .await
+    .map_err(internal_err)?
+}
+
+pub(crate) async fn create_hosted_repo(
+    State(state): State<AppState>,
+    request: Request,
+) -> Response {
+    match create_hosted_repo_inner(state, request).await {
+        Ok(body) => {
+            let mut resp = (StatusCode::CREATED, Json(body)).into_response();
+            resp.headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            resp
+        }
+        Err(err) => response::<RepositorySettingsResponse>(Err(err)),
+    }
+}
+
+async fn create_hosted_repo_inner(
+    state: AppState,
+    request: Request,
+) -> Result<RepositorySettingsResponse, ApiError> {
+    let (parts, body) = request.into_parts();
+    let origin = extract_principal_async(&parts.headers, &state.auth_store).await?;
+    if origin.role != EnterpriseRole::SiteAdmin {
+        return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+    }
+    let body = axum::body::to_bytes(body, 64 * 1024).await.map_err(|_| {
+        (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "create repository payload too large".into(),
+        )
+    })?;
+    let guard = state
+        .repo_mutation_lock
+        .clone()
+        .try_lock_owned()
+        .map_err(|_| {
+            (
+                StatusCode::CONFLICT,
+                "another repository mutation is in progress".into(),
+            )
+        })?;
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        let current = extract_principal(&parts.headers, &state.auth_store)?;
+        if current.user_id != origin.user_id || current.role != EnterpriseRole::SiteAdmin {
+            return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+        }
+        let payload: CreateHostedRepositoryPayload =
+            serde_json::from_slice(&body).map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid create repository payload: {e}"),
+                )
+            })?;
+        let clean_name =
+            gitust_db::validate_repository_name(&payload.name).map_err(map_auth_err)?;
+        let default_branch = match payload.default_branch {
+            Some(ref b) if !b.trim().is_empty() => {
+                GitEngine::validate_outbound_branch(b).map_err(map_git_err)?
+            }
+            _ => "main".to_owned(),
+        };
+        let description = validate_description(payload.description)?;
+        // fail-open-ok: workbench_enabled defaults to false on newly created secondary repos unless requested by SiteAdmin.
+        let workbench_enabled = payload.workbench_enabled.unwrap_or(false);
+        if state.read_repositories().len() >= MAX_REPOSITORIES {
+            return Err((
+                StatusCode::CONFLICT,
+                "maximum hosted repositories limit reached".into(),
+            ));
+        }
+
+        let primary_common = state
+            .git_engine
+            .repository_common_directory()
+            .map_err(map_git_err)?;
+        let hosted_root = primary_common.join("gitust-hosted-repos");
+        std::fs::create_dir_all(&hosted_root).map_err(internal_err)?;
+        let candidate_dir = hosted_root.join(format!("{}.git", uuid::Uuid::new_v4()));
+
+        let engine = GitEngine::new(&candidate_dir);
+        let _service_lock = engine
+            .initialize_seeded_bare_repository(&default_branch, &clean_name, &current.username)
+            .map_err(map_git_err)?;
+        let finalize = (|| -> Result<(RepoId, ReadRepository, RepoRuntimeSettings), ApiError> {
+            let repo_id = engine.load_or_create_repository_id().map_err(map_git_err)?;
+            // fail-open-ok: creates a dedicated team UUID when owner_team_id is omitted by SiteAdmin.
+            let owner_team_id = payload.owner_team_id.unwrap_or_default();
+            let registered = state
+                .auth_store
+                .register_local_repository(
+                    &current,
+                    repo_id,
+                    &clean_name,
+                    owner_team_id,
+                    payload.is_private,
+                    None,
+                )
+                .map_err(map_auth_err)?;
+            engine
+                .complete_repository_registration(registered.binding)
+                .map_err(map_git_err)?;
+
+            let settings = RepoRuntimeSettings {
+                archived: false,
+                workbench_enabled: Some(workbench_enabled),
+                description: description.clone(),
+            };
+            persist_repo_settings(&engine, &settings).map_err(map_git_err)?;
+
+            let access = RepoAccess {
+                repo_id,
+                registration: Some(registered.binding),
+            };
+            let read_repo = ReadRepository {
+                engine: engine.clone(),
+                access,
+                is_default: false,
+                git_write: true,
+                workbench_enabled,
+                archived: false,
+                description,
+                mutation: Arc::new(tokio::sync::Mutex::new(())),
+                local_checks_lock: Arc::new(tokio::sync::Mutex::new(())),
+                local_checks_automatic: Arc::new(crate::local_checks_automatic::Registry::default()),
+            };
+            Ok((repo_id, read_repo, settings))
+        })();
+        let (repo_id, read_repo, settings) = match finalize {
+            Ok(v) => v,
+            Err(err) => {
+                // fail-open-ok: best-effort cleanup of unreferenced candidate directory on failed creation.
+                let _ = std::fs::remove_dir_all(&candidate_dir);
+                return Err(err);
+            }
+        };
+
+        {
+            let mut dyn_guard = state.dynamic_registry.write();
+            dyn_guard.settings.insert(repo_id, settings);
+            dyn_guard.online_entries.insert(repo_id, read_repo.clone());
+        }
+
+        build_settings_response(&state, &current, &read_repo)
+    })
+    .await
+    .map_err(internal_err)?
+}

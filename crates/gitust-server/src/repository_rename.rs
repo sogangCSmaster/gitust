@@ -63,6 +63,12 @@ async fn rename_value(
         let repository = state
             .read_repository(repository_id)
             .ok_or_else(|| (StatusCode::NOT_FOUND, "repository is not hosted".into()))?;
+        if repository.archived {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "repository is archived and read-only".into(),
+            ));
+        }
         if repository.access.registration.is_none() {
             return Err((
                 StatusCode::FORBIDDEN,

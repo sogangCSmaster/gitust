@@ -151,10 +151,17 @@ pub(crate) async fn advertise_service(
 ) -> Response {
     let value = match prepare(state.clone(), raw, headers.clone()).await {
         Ok(target) => {
-            execute(state, headers, target, move |engine| {
-                engine.smart_http_advertise_refs(service)
-            })
-            .await
+            if service == SmartHttpService::ReceivePack && target.repository.archived {
+                Err((
+                    StatusCode::FORBIDDEN,
+                    "repository is archived and read-only".into(),
+                ))
+            } else {
+                execute(state, headers, target, move |engine| {
+                    engine.smart_http_advertise_refs(service)
+                })
+                .await
+            }
         }
         Err(error) => Err(error),
     };

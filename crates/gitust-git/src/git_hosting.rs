@@ -8,9 +8,10 @@ fn unavailable() -> GitEngineError {
             .into(),
     )
 }
-fn absent_or_only_ephemeral(
+fn validate_worktrees_dir(
     path: &Path,
     ownership: &crate::WorktreeServiceLock,
+    allow_agent_worktrees: bool,
 ) -> Result<(), GitEngineError> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -28,7 +29,7 @@ fn absent_or_only_ephemeral(
                 else {
                     return Err(unavailable());
                 };
-                if !ownership.is_active_ephemeral_worktree(id) {
+                if !allow_agent_worktrees && !ownership.is_active_ephemeral_worktree(id) {
                     return Err(unavailable());
                 }
             }
@@ -40,14 +41,25 @@ fn absent_or_only_ephemeral(
 impl GitEngine {
     /// Validate both at stopped configuration and under the selected mutation guard before RPC.
     pub fn validate_ordinary_git_service(&self) -> Result<(), GitEngineError> {
+        self.validate_git_write_service(false)
+    }
+
+    pub fn validate_git_write_service(
+        &self,
+        allow_agent_worktrees: bool,
+    ) -> Result<(), GitEngineError> {
         let ownership = self.lock_worktree_service()?;
         let repo = gix::open(&self.repo_path).map_err(|_| unavailable())?;
         if repo.work_dir().is_some() {
             return Err(unavailable());
         }
         let common = Self::common_git_dir(&repo);
-        absent_or_only_ephemeral(&common.join("worktrees"), &ownership)?;
-        absent_or_only_ephemeral(&self.worktrees_base(&repo, &common), &ownership)
+        validate_worktrees_dir(&common.join("worktrees"), &ownership, allow_agent_worktrees)?;
+        validate_worktrees_dir(
+            &self.worktrees_base(&repo, &common),
+            &ownership,
+            allow_agent_worktrees,
+        )
     }
 }
 

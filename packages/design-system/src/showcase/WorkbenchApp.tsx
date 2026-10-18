@@ -174,6 +174,7 @@ export const WorkbenchApp: Component = () => {
     showQuickFeedback,
   });
   const liveSwarmClient = createLiveSwarmSession({
+    getRepositoryId: () => connectedRepository.selected()?.id,
     getSwarmTasks: swarmTasks,
     setSwarmTasks,
     onRepoMutated: () => {
@@ -200,9 +201,9 @@ export const WorkbenchApp: Component = () => {
     liveMode,
     setActiveTab,
     clearView: clearRepositoryView,
-    hydrate: (repository) => {
+    hydrate: () => {
       void liveClient.hydrateFromLiveBackend();
-      if (repository.capability === "workbench")
+      if (connectedRepository.canWorkbench())
         void liveSwarmClient.hydrateSwarmWorktrees();
     },
   });

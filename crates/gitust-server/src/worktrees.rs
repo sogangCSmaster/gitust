@@ -118,7 +118,10 @@ pub(crate) async fn discard_worktree_core(
         if current.status == WorktreeStatus::Merged && !may_remove_approval {
             return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
         }
-        let engine = state.git_engine.clone();
+        let engine = match state.read_repository(wt.repo_id) {
+            Some(repo) => repo.engine,
+            None => state.git_engine.clone(),
+        };
         let state_for_cleanup = state.clone();
         let wt_id = wt.id;
         let branch = wt.branch.clone();
@@ -144,7 +147,10 @@ pub(crate) async fn discard_worktree_core(
         return Ok(StatusCode::NO_CONTENT);
     }
 
-    let engine = state.git_engine.clone();
+    let engine = match state.read_repository(wt.repo_id) {
+        Some(repo) => repo.engine,
+        None => state.git_engine.clone(),
+    };
     let state = state.clone();
     tokio::task::spawn_blocking(move || {
         let _service = engine.lock_worktree_service().map_err(map_git_err)?;

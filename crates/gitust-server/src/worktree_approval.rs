@@ -82,6 +82,7 @@ pub(crate) async fn approve_worktree_handler(
         return Err((StatusCode::NOT_FOUND, format!("worktree {id} not found")));
     }
     let wt = find_authorized_worktree(&state, &caller, id).await?;
+    let target_repo = state.workbench_repository(wt.repo_id)?;
     if wt.status != WorktreeStatus::Verified || wt.verified_commit.is_none() {
         return Err((
             StatusCode::CONFLICT,
@@ -100,18 +101,20 @@ pub(crate) async fn approve_worktree_handler(
         ));
     }
 
-    let repo_guard = state
-        .repo_mutation_lock
-        .clone()
-        .try_lock_owned()
-        .map_err(|_| {
-            (
-                StatusCode::CONFLICT,
-                "another repository merge or mirror sync is currently in progress".to_owned(),
-            )
-        })?;
+    let repo_guard = target_repo.mutation.clone().try_lock_owned().map_err(|_| {
+        (
+            StatusCode::CONFLICT,
+            "another repository merge or mirror sync is currently in progress".to_owned(),
+        )
+    })?;
 
-    let engine = state.git_engine.clone();
+    let engine = target_repo.engine.clone();
+    let expected_repo_id = if target_repo.is_default {
+        state.repo_id
+    } else {
+        target_repo.access.repo_id
+    };
+    let target_access = target_repo.access;
     let state_for_merge = state.clone();
     let wt_id = wt.id;
     let branch = wt.branch.clone();
@@ -144,10 +147,13 @@ pub(crate) async fn approve_worktree_handler(
             {
                 return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
             }
+            state_for_merge
+                .workbench_repository(wt.repo_id)
+                .map(|_| ())?;
             check_repo_bola(
                 &state_for_merge.auth_store,
-                state_for_merge.repo_id,
-                state_for_merge.repo_access,
+                expected_repo_id,
+                target_access,
                 &current,
                 wt.repo_id,
             )

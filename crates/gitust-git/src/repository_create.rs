@@ -90,4 +90,48 @@ impl GitEngine {
             branch: branch.into(),
         })
     }
+
+    /// Initializes a new bare repository at `self.repo_path` with `default_branch` pointing to an
+    /// initial seed commit, returning the active `WorktreeServiceLock`.
+    pub fn initialize_seeded_bare_repository(
+        &self,
+        default_branch: &str,
+        repo_name: &str,
+        author_name: &str,
+    ) -> Result<WorktreeServiceLock, GitEngineError> {
+        let (_, ownership) = self.prepare_empty_repository(default_branch)?;
+        let tree_out = run_git(
+            &self.repo_path,
+            ["hash-object", "-w", "-t", "tree", "/dev/null"],
+        )?;
+        let tree_oid = String::from_utf8_lossy(&tree_out).trim().to_owned();
+        let safe_author = if author_name.trim().is_empty() {
+            "gitust-admin"
+        } else {
+            author_name.trim()
+        };
+        let commit_out = run_git(
+            &self.repo_path,
+            [
+                "-c",
+                &format!("user.name={safe_author}"),
+                "-c",
+                &format!("user.email={safe_author}@gitust.local"),
+                "commit-tree",
+                tree_oid.as_str(),
+                "-m",
+                &format!("Initial commit for {repo_name}"),
+            ],
+        )?;
+        let commit_oid = String::from_utf8_lossy(&commit_out).trim().to_owned();
+        run_git(
+            &self.repo_path,
+            [
+                "update-ref",
+                &format!("refs/heads/{default_branch}"),
+                commit_oid.as_str(),
+            ],
+        )?;
+        Ok(ownership)
+    }
 }

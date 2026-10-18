@@ -1,5 +1,13 @@
-import { createMemo, For, Show, type Component } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  Show,
+  type Component,
+} from "solid-js";
 import { Button } from "../components/ui/button";
+import { DeferredView } from "../components/workspace/deferred-view";
 import { Icon, type IconName } from "../components/workspace/icon";
 import type { ConnectedRepository } from "./connected-repository-client";
 import type { RepositoryRenameActions } from "./repository-rename-types";
@@ -14,6 +22,12 @@ import {
   attachRepositoryOverviewActions,
   type RepositoryWorkspaceCore,
 } from "./repository-workspace";
+
+const RepositoryAdministrationPanel = lazy(() =>
+  import("../patterns/RepositoryAdministrationPanel").then((module) => ({
+    default: module.RepositoryAdministrationPanel,
+  })),
+);
 
 export const RepositoryOverview: Component<{
   repository: ConnectedRepository;
@@ -30,6 +44,7 @@ export const RepositoryOverview: Component<{
       }
     | RepositoryWorkspaceCore;
 }> = (props) => {
+  const [showAdmin, setShowAdmin] = createSignal(false);
   const overviewActions = createMemo(() =>
     props.actions
       ? "rename" in props.actions
@@ -37,6 +52,13 @@ export const RepositoryOverview: Component<{
         : attachRepositoryOverviewActions(props.actions)
       : undefined,
   );
+  const canAdminister = () =>
+    props.liveMode &&
+    Boolean(
+      props.repository.canAdminister ||
+        props.repository.canRename ||
+        props.repository.canChangeVisibility,
+    );
   const destinations: Array<{
     id: "swarm" | "tree" | "diff" | "actions";
     label: string;
@@ -78,7 +100,7 @@ export const RepositoryOverview: Component<{
       aria-labelledby="repository-title"
     >
       <div class="min-w-0 space-y-2">
-        <div class="flex min-w-0 items-center gap-2">
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
           <Icon name="repo" size={20} class="shrink-0 text-primary" />
           <h1
             id="repository-title"
@@ -103,13 +125,42 @@ export const RepositoryOverview: Component<{
             </span>
           </Show>
           <Show
-            when={props.liveMode && props.repository.capability === "browse"}
+            when={
+              props.liveMode &&
+              props.repository.capability === "browse" &&
+              !props.repository.canSpawnWorktree
+            }
           >
             <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
               {props.repository.canPush ? "Git hosting" : "Read only"}
             </span>
           </Show>
+          <Show when={props.liveMode && props.repository.canSpawnWorktree}>
+            <span class="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              Workbench Enabled
+            </span>
+          </Show>
+          <Show when={props.liveMode && props.repository.archived}>
+            <span class="shrink-0 rounded bg-warning/20 px-1.5 py-0.5 text-[10px] font-medium text-warning-foreground">
+              Archived
+            </span>
+          </Show>
+          <Show when={canAdminister()}>
+            <Button
+              size="sm"
+              variant={showAdmin() ? "secondary" : "outline"}
+              class="ml-auto h-7 px-2 text-xs"
+              aria-pressed={showAdmin()}
+              onClick={() => setShowAdmin((v) => !v)}
+            >
+              <Icon name="sliders" size={12} />
+              Admin & lifecycle
+            </Button>
+          </Show>
         </div>
+        <Show when={props.repository.description}>
+          {(desc) => <p class="text-xs text-muted-foreground">{desc()}</p>}
+        </Show>
         <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
           <RepositoryDefaultBranch
             repository={props.repository}
@@ -131,6 +182,15 @@ export const RepositoryOverview: Component<{
           />
         </div>
       </div>
+      <Show when={canAdminister() && showAdmin()}>
+        <DeferredView label="Repository administration">
+          <RepositoryAdministrationPanel
+            repositoryId={props.repository.id}
+            repositoryName={props.repository.name}
+            onCatalogChanged={() => void overviewActions()?.refreshViews()}
+          />
+        </DeferredView>
+      </Show>
       <Show when={props.repository.headCommit === null}>
         <RepositoryInitialCommit
           branch={props.repository.branch}
@@ -142,6 +202,7 @@ export const RepositoryOverview: Component<{
           each={destinations.filter(
             (destination) =>
               props.repository.capability === "workbench" ||
+              props.repository.canSpawnWorktree === true ||
               ["tree", "diff"].includes(destination.id) ||
               (destination.id === "actions" &&
                 Boolean(

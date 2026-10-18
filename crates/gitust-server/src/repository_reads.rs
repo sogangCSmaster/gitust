@@ -126,6 +126,11 @@ struct CatalogEntry {
     head_commit: Option<gitust_core::CommitSha>,
     capability: &'static str,
     is_default: bool,
+    can_spawn_worktree: bool,
+    archived: bool,
+    can_administer: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     can_rename: bool,
     can_clone: bool,
     can_push: bool,
@@ -188,7 +193,8 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
             if branch_name.len() > 32 * 1024 || name.len() > 1024 {
                 return Err(unavailable("repository metadata exceeds its limit"));
             }
-            let can_run_local_checks = (context.is_default || context.git_write)
+            let can_run_local_checks = !context.archived
+                && (context.is_default || context.git_write)
                 && state.trusted_sandbox_exec
                 && caller.role == gitust_core::EnterpriseRole::SiteAdmin
                 && context
@@ -202,6 +208,8 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                         .resolve_checks_ref(&format!("refs/heads/{branch_name}"))
                         .is_ok_and(|actual| &actual == head)
                 });
+            let can_administer = caller.role == gitust_core::EnterpriseRole::SiteAdmin
+                || (caller.role == gitust_core::EnterpriseRole::Maintainer && context.git_write);
             repositories.push(CatalogEntry {
                 id: context.access.repo_id,
                 name,
@@ -213,12 +221,18 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                     "browse"
                 },
                 is_default: context.is_default,
+                can_spawn_worktree: !context.archived
+                    && context.git_write
+                    && (context.is_default || context.workbench_enabled),
+                archived: context.archived,
+                can_administer,
+                description: context.description.clone(),
                 can_run_local_checks,
                 can_view_local_checks_automatic: (context.is_default || context.git_write)
                     && caller.role == gitust_core::EnterpriseRole::SiteAdmin,
                 can_rename: authorization.can_rename,
                 can_clone: true,
-                can_push: context.git_write && authorization.can_push_ordinary,
+                can_push: !context.archived && context.git_write && authorization.can_push_ordinary,
                 is_private: authorization
                     .metadata
                     .as_ref()
@@ -226,7 +240,8 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 can_change_visibility: authorization.can_change_visibility,
                 can_invite_to_group: authorization.can_invite_to_group,
                 can_manage_group_members: authorization.can_manage_group_members,
-                can_change_default_branch: authorization.can_rename
+                can_change_default_branch: !context.archived
+                    && authorization.can_rename
                     && (context.is_default || context.git_write)
                     && context
                         .engine
@@ -266,6 +281,10 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
             return Err(forbidden());
         }
         let can_execute = current.role == gitust_core::EnterpriseRole::SiteAdmin;
+        let can_maint = matches!(
+            current.role,
+            gitust_core::EnterpriseRole::SiteAdmin | gitust_core::EnterpriseRole::Maintainer
+        );
         for entry in &mut repositories {
             let current = after
                 .iter()
@@ -275,6 +294,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 entry.name.clone_from(&metadata.name);
             }
             entry.can_rename = current.can_rename;
+            entry.can_administer &= can_execute || can_maint;
             entry.can_run_local_checks &= can_execute;
             entry.can_view_local_checks_automatic &= can_execute;
             entry.can_push &= current.can_push_ordinary;

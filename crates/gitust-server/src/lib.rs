@@ -68,6 +68,8 @@ mod state_errors;
 mod state_oauth;
 mod transports;
 pub mod webui;
+mod workflow_exec;
+mod workflows;
 mod worktree_owners;
 pub mod worktrees;
 
@@ -308,6 +310,26 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/repos/{id}/sync/rollback",
             post(source_of_truth_sync::rollback),
+        )
+        .route(
+            "/api/v1/repos/{id}/workflows",
+            get(workflows::list_workflows_and_runs),
+        )
+        .route(
+            "/api/v1/repos/{id}/workflow-runs",
+            post(workflow_exec::trigger_workflow_run),
+        )
+        .route(
+            "/api/v1/repos/{id}/workflow-runs/{run_id}/artifacts",
+            get(workflows::list_run_artifacts),
+        )
+        .route(
+            "/api/v1/repos/{id}/workflow-secrets",
+            get(workflows::list_secrets),
+        )
+        .route(
+            "/api/v1/repos/{id}/workflow-secrets/{name}",
+            axum::routing::put(workflows::put_secret).delete(workflows::delete_secret),
         )
         .route("/api/v1/repos/{id}/commits", get(repository_reads::commits))
         .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))

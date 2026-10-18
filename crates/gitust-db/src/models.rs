@@ -131,6 +131,9 @@ pub(crate) struct PersistedSnapshot {
     pub(crate) pull_requests: Vec<gitust_core::PullRequestRecord>,
     #[serde(default)]
     pub(crate) branch_protection_rules: HashMap<RepoId, Vec<gitust_core::BranchProtectionRule>>,
+    #[serde(default)]
+    pub(crate) workflow_secrets:
+        HashMap<RepoId, Vec<crate::workflow_secrets::StoredWorkflowSecret>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -150,6 +153,8 @@ pub(crate) struct AuthState {
     pub(crate) repositories: HashMap<RepoId, crate::repository_registration::StoredRepository>,
     pub(crate) pull_requests: Vec<gitust_core::PullRequestRecord>,
     pub(crate) branch_protection_rules: HashMap<RepoId, Vec<gitust_core::BranchProtectionRule>>,
+    pub(crate) workflow_secrets:
+        HashMap<RepoId, Vec<crate::workflow_secrets::StoredWorkflowSecret>>,
     pub(crate) failed_logins: HashMap<String, Vec<DateTime<Utc>>>,
 }
 
@@ -160,6 +165,7 @@ impl AuthState {
             policy: snap.policy,
             pull_requests: snap.pull_requests,
             branch_protection_rules: snap.branch_protection_rules,
+            workflow_secrets: snap.workflow_secrets,
             ..Self::default()
         };
 
@@ -231,6 +237,7 @@ impl AuthState {
             repositories: self.repositories.values().cloned().collect(),
             pull_requests: self.pull_requests.clone(),
             branch_protection_rules: self.branch_protection_rules.clone(),
+            workflow_secrets: self.workflow_secrets.clone(),
         }
     }
 }

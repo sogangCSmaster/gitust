@@ -104,6 +104,12 @@ mod tests_ssh_receive_pack;
 mod tests_ssh_upload_pack;
 pub use worktree::{ManagedWorktreeEntry, MaterializedWorktree};
 pub use worktree_commit::{PreparedWorktreeCommit, WorktreeCommit};
+mod workflows;
+pub use workflows::{
+    validate_secret_name_syntax, validate_workflow_relative_path, ExpandedWorkflowJob,
+    WorkflowArtifactSpec, WorkflowCacheSpec, WorkflowDefinition, WorkflowJobDefinition,
+    WorkflowStepDefinition,
+};
 
 /// Every branch created on behalf of an agent lives under this namespace. The sync engine keeps
 /// this namespace on-premise, and the engine refuses to create or delete refs outside of it.

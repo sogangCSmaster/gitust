@@ -206,6 +206,8 @@ impl SandboxSpec {
             "gitust-local-check-automatic-runs",
             "gitust-automatic-runs",
             "gitust-ssh",
+            "gitust-sync",
+            "gitust-workflows",
             ".gitust",
         ] {
             rules.push(PathRule::new(

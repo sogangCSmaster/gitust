@@ -40,6 +40,8 @@ mod repository_registration;
 mod repository_visibility;
 pub use repository_registration::{AuthorizedRepository, RegisteredRepository};
 pub use repository_visibility::RepositoryVisibilityError;
+mod workflow_secrets;
+pub use workflow_secrets::{validate_workflow_secret_name, WorkflowSecretMetadata};
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

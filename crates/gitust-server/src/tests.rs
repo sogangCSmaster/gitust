@@ -54,6 +54,8 @@ mod tests_run_history;
 mod tests_source_of_truth_sync;
 #[path = "tests_verification.rs"]
 mod tests_verification;
+#[path = "tests_workflows.rs"]
+mod tests_workflows;
 #[path = "tests_worktree_labels.rs"]
 mod tests_worktree_labels;
 

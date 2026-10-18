@@ -21,6 +21,12 @@ const LiveLocalChecksView = lazy(() =>
   })),
 );
 
+const LiveWorkflowsView = lazy(() =>
+  import("./LiveWorkflowsView").then((module) => ({
+    default: module.LiveWorkflowsView,
+  })),
+);
+
 export interface RepositoryActionsProps {
   repositoryId?: string;
   role?: string;
@@ -65,13 +71,18 @@ export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
       value={mode()}
       onChange={(value) => setMode(canRead() ? value : defaultMode())}
     >
-      <Show when={primary() && canRead()}>
+      <Show when={canRead()}>
         <TabsList class="w-full sm:w-auto" aria-label="Checks diagnostics">
-          <TabsTrigger value="automatic" class="flex-1">
-            Automatic
-          </TabsTrigger>
+          <Show when={primary()}>
+            <TabsTrigger value="automatic" class="flex-1">
+              Automatic
+            </TabsTrigger>
+          </Show>
           <TabsTrigger value="local" class="flex-1">
             Local Checks
+          </TabsTrigger>
+          <TabsTrigger value="workflows" class="flex-1">
+            Workflows
           </TabsTrigger>
         </TabsList>
       </Show>
@@ -94,6 +105,18 @@ export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
               defaultRef={defaultRef()}
               defaultCommit={defaultCommit()}
               refreshRepository={props.refreshRepository}
+            />
+          </DeferredView>
+        </Show>
+      </TabsContent>
+      <TabsContent value="workflows">
+        <Show when={mode() === "workflows" && canRead()}>
+          <DeferredView label="Workflows">
+            <LiveWorkflowsView
+              repositoryId={repositoryId()}
+              role={role()}
+              defaultRef={defaultRef()}
+              defaultCommit={defaultCommit()}
             />
           </DeferredView>
         </Show>

@@ -100,6 +100,10 @@ impl WorkflowDefinition {
                     format!("{} ({})", job.name, parts.join(", "))
                 };
                 let sub = |s: &str| substitute_matrix_tokens(s, &combo);
+                let runs_on = sub(&job.runs_on);
+                if !super::is_valid_ident(&runs_on, 64) {
+                    return Err(invalid("expanded runs_on label is invalid"));
+                }
                 let mut steps = Vec::with_capacity(job.steps.len());
                 for s in &job.steps {
                     let (name, run) = (sub(&s.name), sub(&s.run));
@@ -117,6 +121,8 @@ impl WorkflowDefinition {
                     job_id: job.id.clone(),
                     display_name,
                     needs: job.needs.clone(),
+                    runs_on,
+                    isolation_tier: job.isolation_tier,
                     matrix_values: combo,
                     secrets: job.secrets.clone(),
                     cache,

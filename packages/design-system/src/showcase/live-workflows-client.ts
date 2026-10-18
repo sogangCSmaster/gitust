@@ -4,6 +4,8 @@ export interface LiveWorkflowJobDefinition {
   id: string;
   name: string;
   needs: string[];
+  runs_on?: string;
+  isolation_tier?: "host_os" | "container_vm";
   matrix?: Record<string, string[]> | null;
   secrets?: string[];
   cache_key?: string | null;
@@ -26,6 +28,8 @@ export interface LiveWorkflowJobRun {
   display_name: string;
   needs: string[];
   matrix_values: Record<string, string>;
+  runner_id?: string | null;
+  isolation_tier?: "host_os" | "container_vm";
   status: "passed" | "failed" | "skipped";
   cache_hit: boolean;
   artifacts: LiveWorkflowArtifact[];
@@ -108,6 +112,8 @@ const parseRun = (raw: unknown): LiveWorkflowRunRecord => {
         display_name: job.display_name,
         needs: job.needs.filter(isStr),
         matrix_values: matrixValues,
+        runner_id: isStr(job.runner_id) ? job.runner_id : null,
+        isolation_tier: job.isolation_tier === "container_vm" ? "container_vm" : "host_os",
         status: job.status,
         cache_hit: job.cache_hit,
         artifacts: job.artifacts.map(parseArtifact),
@@ -135,6 +141,8 @@ const parseOverview = (raw: unknown): LiveRepositoryWorkflowsOverview => {
             id: j.id,
             name: j.name,
             needs: j.needs.filter(isStr),
+            runs_on: isStr(j.runs_on) ? j.runs_on : "local",
+            isolation_tier: j.isolation_tier === "container_vm" ? "container_vm" : "host_os",
             matrix: isObj(j.matrix) ? (j.matrix as Record<string, string[]>) : null,
             secrets: Array.isArray(j.secrets) ? j.secrets.filter(isStr) : [],
             cache_key: isStr(j.cache_key) ? j.cache_key : null,

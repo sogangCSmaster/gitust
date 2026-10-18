@@ -394,6 +394,7 @@ mod tests {
                 PathRule::new(&workdir, PathAccess::Hidden),
                 PathRule::new(&workdir, PathAccess::ReadWrite),
             ],
+            isolation_tier: gitust_core::IsolationTier::HostOs,
         };
         let result = crate::LocalSandboxExecutor::new(1)
             .execute(

@@ -48,9 +48,14 @@ pub(crate) fn prepare_run(
         fs::canonicalize(&spec.scratch_base).map_err(|e| prepare_err(&spec.scratch_base, &e))?;
     let run_dir = fs::canonicalize(&run_dir).map_err(|e| prepare_err(&run_dir, &e))?;
 
-    let toolchain_env = prepare_toolchain_env(&run_dir)?;
+    let mut toolchain_env = prepare_toolchain_env(&run_dir)?;
 
     let mut rules = host_rules();
+    crate::isolation_tier::apply_isolation_tier_policy(
+        spec.isolation_tier,
+        &mut rules,
+        &mut toolchain_env,
+    );
     rules.extend(spec.rules.iter().cloned());
     rules.push(PathRule::new(&scratch_base, PathAccess::Hidden));
     rules.push(PathRule::new(&run_dir, PathAccess::ReadWrite));

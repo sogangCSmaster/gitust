@@ -39,11 +39,19 @@ pub struct WorkflowArtifactSpec {
     pub paths: Vec<String>,
 }
 
+fn default_runs_on() -> String {
+    "local".to_owned()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowJobDefinition {
     pub id: String,
     pub name: String,
     pub needs: Vec<String>,
+    #[serde(default = "default_runs_on")]
+    pub runs_on: String,
+    #[serde(default)]
+    pub isolation_tier: gitust_core::IsolationTier,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub matrix: Option<BTreeMap<String, Vec<String>>>,
     #[serde(default)]
@@ -72,6 +80,8 @@ pub struct ExpandedWorkflowJob {
     pub job_id: String,
     pub display_name: String,
     pub needs: Vec<String>,
+    pub runs_on: String,
+    pub isolation_tier: gitust_core::IsolationTier,
     pub matrix_values: BTreeMap<String, String>,
     pub secrets: Vec<String>,
     pub cache: Option<WorkflowCacheSpec>,
@@ -94,6 +104,10 @@ struct RawJob {
     name: Option<String>,
     #[serde(default)]
     needs: Vec<String>,
+    #[serde(default, alias = "runs-on")]
+    runs_on: Option<String>,
+    #[serde(default, alias = "isolation-tier")]
+    isolation_tier: Option<gitust_core::IsolationTier>,
     #[serde(default)]
     strategy: Option<RawStrategy>,
     #[serde(default)]
@@ -265,6 +279,22 @@ fn normalize_job(job_id: String, rj: RawJob) -> Result<WorkflowJobDefinition, Gi
         }
         secrets_set.insert(sec.clone());
     }
+    let runs_on = match rj.runs_on {
+        Some(s) => {
+            let trimmed = s.trim().to_owned();
+            if trimmed.is_empty() || trimmed.len() > 128 {
+                return Err(invalid("runs_on must not be empty"));
+            }
+            trimmed
+        }
+        None => default_runs_on(),
+    };
+    expand::parse_and_validate_template_tokens(&runs_on, &matrix_keys, &mut secrets_set, false)?;
+    if !runs_on.contains("${{") && !is_valid_ident(&runs_on, 64) {
+        return Err(invalid(format!("invalid runs_on label '{runs_on}'")));
+    }
+    // fail-open-ok: optional workflow job isolation_tier defaults to HostOs when omitted.
+    let isolation_tier = rj.isolation_tier.unwrap_or_default();
     let mut cache = None;
     if let Some(c) = rj.cache {
         let (key, paths) =
@@ -305,6 +335,8 @@ fn normalize_job(job_id: String, rj: RawJob) -> Result<WorkflowJobDefinition, Gi
         id: job_id,
         name: job_name,
         needs: rj.needs,
+        runs_on,
+        isolation_tier,
         matrix,
         secrets: secrets_set.into_iter().collect(),
         cache,

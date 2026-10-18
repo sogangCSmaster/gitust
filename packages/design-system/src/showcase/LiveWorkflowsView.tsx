@@ -11,6 +11,7 @@ import { Button } from "../components/ui/button";
 import { TextField, TextFieldInput } from "../components/ui/text-field";
 import { Icon } from "../components/workspace/icon";
 import { StatusBadge } from "../components/workspace/presentation";
+import { RunnerFleetAndCachePanel } from "../patterns/RunnerFleetAndCachePanel";
 import { formatErr } from "./live-repo-context";
 import {
   deleteWorkflowSecret,
@@ -205,6 +206,8 @@ export const LiveWorkflowsView: Component<LiveWorkflowsViewProps> = (props) => {
                               <span class="font-mono text-[11px] text-muted-foreground">{job.id}</span>
                             </div>
                             <div class="flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+                              <span>runs-on: {job.runs_on ?? "local"}</span>
+                              <span>tier: {job.isolation_tier ?? "host_os"}</span>
                               <Show when={job.needs.length > 0}>
                                 <span>needs: {job.needs.join(", ")}</span>
                               </Show>
@@ -244,7 +247,19 @@ export const LiveWorkflowsView: Component<LiveWorkflowsViewProps> = (props) => {
                         {(job) => (
                           <div class="space-y-1 rounded-md border bg-muted/20 p-2">
                             <div class="flex flex-wrap items-center justify-between gap-2">
-                              <span class="font-medium">{job.display_name}</span>
+                              <div class="flex flex-wrap items-center gap-2">
+                                <span class="font-medium">{job.display_name}</span>
+                                <span class="text-[11px] text-muted-foreground">
+                                  tier: {job.isolation_tier ?? "host_os"}
+                                </span>
+                                <Show when={job.runner_id}>
+                                  {(r) => (
+                                    <span class="text-[11px] text-muted-foreground">
+                                      runner: {r()}
+                                    </span>
+                                  )}
+                                </Show>
+                              </div>
                               <div class="flex items-center gap-1.5">
                                 <StatusBadge tone={job.cache_hit ? "info" : "neutral"}>
                                   {job.cache_hit ? "Cache Hit" : "Cache Miss"}
@@ -321,6 +336,12 @@ export const LiveWorkflowsView: Component<LiveWorkflowsViewProps> = (props) => {
           </For>
         </div>
       </div>
+
+      <RunnerFleetAndCachePanel
+        repositoryId={props.repositoryId}
+        role={props.role}
+        refreshEpoch={overview()?.runs.length ?? 0}
+      />
     </section>
   );
 };

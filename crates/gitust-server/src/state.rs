@@ -83,6 +83,7 @@ pub struct AppState {
     pub(crate) ssh_port: Option<u16>,
     pub(crate) local_checks_automatic: Arc<crate::local_checks_automatic::Registry>,
     pub(crate) local_checks_lock: Arc<tokio::sync::Mutex<()>>,
+    pub runner_fleet: Arc<crate::runners::RunnerFleetRegistry>,
 }
 
 impl AppState {
@@ -209,6 +210,7 @@ impl AppState {
             ssh_port: None,
             local_checks_automatic: Arc::new(crate::local_checks_automatic::Registry::default()),
             local_checks_lock: Arc::new(tokio::sync::Mutex::new(())),
+            runner_fleet: Arc::new(crate::runners::RunnerFleetRegistry::default()),
         })
     }
 

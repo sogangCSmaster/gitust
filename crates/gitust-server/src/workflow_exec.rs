@@ -26,13 +26,9 @@ use crate::{
     repository_reads::{id as parse_repo_id, response},
     repository_registry::ReadRepository,
     state::{check_repo_bola, internal_err, map_auth_err, sandbox_spec_for, AppState},
+    workflow_cache_artifacts::{collect_job_artifacts, restore_job_cache, save_job_cache},
     workflows::*,
 };
-
-#[path = "workflow_cache_artifacts.rs"]
-mod cache_artifacts;
-
-use cache_artifacts::{collect_job_artifacts, restore_job_cache, save_job_cache};
 
 const MAX_TRIGGER_BODY_BYTES: usize = 16 * 1024;
 
@@ -113,6 +109,10 @@ async fn execute_single_expanded_job(
         )?);
     }
 
+    let lease = state
+        .runner_fleet
+        .acquire_lease(&exp_job.runs_on, exp_job.isolation_tier)?;
+
     let slot = Arc::new(Mutex::new(None));
     let worktree_id = WorktreeId::new();
     prep.owner.register_ephemeral_worktree(worktree_id);
@@ -134,6 +134,7 @@ async fn execute_single_expanded_job(
     let (store, common) = (state.auth_store.clone(), prep.common_git_dir.clone());
     let (cache, expected) = (exp_job.cache.clone(), prep.expected_commit.clone());
     let (st_cl, hdr_cl) = (state.clone(), headers.clone());
+    let iso_tier = exp_job.isolation_tier;
 
     let (m, spec, fence, cache_hit) = tokio::task::spawn_blocking(move || {
         verify_live_admin_and_writable_repo(&st_cl, &hdr_cl, origin_uid, rid)?;
@@ -153,7 +154,9 @@ async fn execute_single_expanded_job(
             Some(ref c) => restore_job_cache(&common, &m.worktree_dir, c).map_err(unavailable)?,
             None => false,
         };
-        let spec = sandbox_spec_for(&m, &store).map_err(unavailable)?;
+        let spec = sandbox_spec_for(&m, &store)
+            .map_err(unavailable)?
+            .with_isolation_tier(iso_tier);
         let fence = eng
             .begin_execution_fence(&m.worktree)
             .map_err(unavailable)?;
@@ -207,9 +210,10 @@ async fn execute_single_expanded_job(
         let (p_common, p_wt) = (prep.common_git_dir.clone(), m.worktree_dir.clone());
         let (p_cache, p_art) = (exp_job.cache.clone(), exp_job.artifacts.clone());
         let p_sec = prep.secret_values.clone();
+        let src_job_id = exp_job.job_id.clone();
         let post_res = tokio::task::spawn_blocking(move || {
             if let Some(ref c) = p_cache {
-                save_job_cache(&p_common, &p_wt, c)?;
+                save_job_cache(&p_common, &p_wt, c, Some(&src_job_id))?;
             }
             match p_art {
                 Some(ref a) => collect_job_artifacts(&p_wt, a, &p_sec),
@@ -235,9 +239,12 @@ async fn execute_single_expanded_job(
         return Err(unavailable("workflow checkout cleanup unconfirmed"));
     }
 
+    let runner_name = lease.runner_name.clone();
+    drop(lease);
     let redact = combined_output;
     Ok(WorkflowJobRun::from_expanded(
         exp_job,
+        Some(runner_name),
         status_str,
         cache_hit,
         artifacts,
@@ -383,6 +390,7 @@ async fn trigger_workflow_inner(
             let empty = String::new();
             let skipped = WorkflowJobRun::from_expanded(
                 exp_job,
+                None,
                 "skipped".into(),
                 false,
                 Vec::new(),

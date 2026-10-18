@@ -10,6 +10,8 @@ mod pull_request;
 pub use pull_request::*;
 mod repository_access;
 pub use repository_access::{RepoAccess, RepositoryRegistration};
+pub mod runner;
+pub use runner::*;
 
 // ============================================================================
 // Strongly-Typed Domain Identifiers (Newtype Pattern)

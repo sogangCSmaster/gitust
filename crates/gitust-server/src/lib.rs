@@ -53,6 +53,7 @@ mod repository_rename;
 mod repository_summary;
 mod repository_visibility;
 mod run_history;
+pub mod runners;
 mod sandbox_policy;
 mod source_of_truth_sync;
 mod ssh_git;
@@ -68,6 +69,7 @@ mod state_errors;
 mod state_oauth;
 mod transports;
 pub mod webui;
+pub(crate) mod workflow_cache_artifacts;
 mod workflow_exec;
 mod workflows;
 mod worktree_owners;
@@ -330,6 +332,26 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/repos/{id}/workflow-secrets/{name}",
             axum::routing::put(workflows::put_secret).delete(workflows::delete_secret),
+        )
+        .route(
+            "/api/v1/repos/{id}/caches",
+            get(runners::list_repo_caches_handler),
+        )
+        .route(
+            "/api/v1/repos/{id}/caches/{key}",
+            delete(runners::evict_repo_cache_handler),
+        )
+        .route(
+            "/api/v1/admin/runners",
+            get(runners::list_runners_handler).post(runners::register_runner_handler),
+        )
+        .route(
+            "/api/v1/admin/runners/{runner_id}/heartbeat",
+            post(runners::heartbeat_runner_handler),
+        )
+        .route(
+            "/api/v1/admin/runners/{runner_id}",
+            delete(runners::delete_runner_handler),
         )
         .route("/api/v1/repos/{id}/commits", get(repository_reads::commits))
         .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))

@@ -50,6 +50,8 @@ mod tests_repository_unborn;
 mod tests_required_checks;
 #[path = "tests_run_history.rs"]
 mod tests_run_history;
+#[path = "tests_runners.rs"]
+mod tests_runners;
 #[path = "tests_source_of_truth_sync.rs"]
 mod tests_source_of_truth_sync;
 #[path = "tests_verification.rs"]

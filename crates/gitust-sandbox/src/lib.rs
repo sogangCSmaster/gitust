@@ -26,6 +26,7 @@
 mod cleanup;
 mod command;
 mod execution;
+mod isolation_tier;
 mod linux_policy;
 mod mcp;
 mod policy;
@@ -168,9 +169,17 @@ pub struct SandboxSpec {
     pub scratch_base: PathBuf,
     /// Path rules on top of the built-in host rules.
     pub rules: Vec<PathRule>,
+    /// Execution isolation tier (`HostOs` or `ContainerVm`).
+    pub isolation_tier: gitust_core::IsolationTier,
 }
 
 impl SandboxSpec {
+    #[must_use]
+    pub fn with_isolation_tier(mut self, tier: gitust_core::IsolationTier) -> Self {
+        self.isolation_tier = tier;
+        self
+    }
+
     /// Policy for a Git linked worktree.
     #[must_use]
     pub fn for_linked_worktree(
@@ -226,6 +235,7 @@ impl SandboxSpec {
             workdir: worktree_dir.to_path_buf(),
             scratch_base: scratch_base.to_path_buf(),
             rules,
+            isolation_tier: gitust_core::IsolationTier::HostOs,
         }
     }
 }

@@ -10,6 +10,7 @@ async fn required_commands_preserve_quotes_stop_on_failure_and_accept_large_requ
         workdir: workdir.clone(),
         scratch_base: tmp.path().join("scratch"),
         rules: vec![PathRule::new(&workdir, PathAccess::ReadWrite)],
+        isolation_tier: gitust_core::IsolationTier::HostOs,
     };
     let executor = LocalSandboxExecutor::new(1).with_timeout_secs(10);
     let result = executor
@@ -53,6 +54,7 @@ async fn explicit_checks_admission_holds_prepared_capacity_and_cleans_unstarted_
         workdir: workdir.clone(),
         scratch_base: tmp.path().join("scratch"),
         rules: vec![PathRule::new(&workdir, PathAccess::ReadWrite)],
+        isolation_tier: gitust_core::IsolationTier::HostOs,
     };
     let executor = LocalSandboxExecutor::new(1);
     let held = executor.clone();

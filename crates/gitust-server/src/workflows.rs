@@ -52,6 +52,10 @@ pub struct WorkflowJobRun {
     pub job_id: String,
     pub display_name: String,
     pub needs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner_id: Option<String>,
+    #[serde(default)]
+    pub isolation_tier: gitust_core::IsolationTier,
     pub matrix_values: BTreeMap<String, String>,
     pub status: String,
     pub cache_hit: bool,
@@ -63,6 +67,7 @@ pub struct WorkflowJobRun {
 impl WorkflowJobRun {
     pub(crate) fn from_expanded(
         exp: ExpandedWorkflowJob,
+        runner_id: Option<String>,
         status: String,
         cache_hit: bool,
         artifacts: Vec<WorkflowArtifactEntry>,
@@ -73,6 +78,8 @@ impl WorkflowJobRun {
             job_id: exp.job_id,
             display_name: exp.display_name,
             needs: exp.needs,
+            runner_id,
+            isolation_tier: exp.isolation_tier,
             matrix_values: exp.matrix_values,
             status,
             cache_hit,

@@ -9,6 +9,7 @@ fn fixture() -> (tempfile::TempDir, SandboxSpec) {
         workdir: workdir.clone(),
         scratch_base: tmp.path().join("scratch"),
         rules: vec![PathRule::new(workdir, PathAccess::ReadWrite)],
+        isolation_tier: gitust_core::IsolationTier::HostOs,
     };
     (tmp, spec)
 }

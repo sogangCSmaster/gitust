@@ -49,6 +49,7 @@ async fn missing_git_pointer_refuses_execution_before_command_can_recreate_it() 
             PathRule::new(&workdir, PathAccess::ReadWrite),
             PathRule::new(workdir.join(".git"), PathAccess::ReadOnly),
         ],
+        isolation_tier: gitust_core::IsolationTier::HostOs,
     };
     let error = LocalSandboxExecutor::new(1)
         .execute(WorktreeId::new(), &spec, "printf replaced > .git")
@@ -65,6 +66,7 @@ async fn command_starting_with_dash_is_a_script_instead_of_shell_options() {
         workdir: temp.path().to_path_buf(),
         scratch_base: temp.path().join("scratch"),
         rules: vec![PathRule::new(temp.path(), PathAccess::ReadWrite)],
+        isolation_tier: gitust_core::IsolationTier::HostOs,
     };
     let executor = LocalSandboxExecutor::new(1);
     for required in [vec![], vec!["touch must-not-run".into()]] {

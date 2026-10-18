@@ -437,6 +437,7 @@ async fn read_capped_drains_beyond_1mib_without_sigpipe() {
         workdir: workdir.clone(),
         scratch_base: scratch,
         rules: vec![PathRule::new(&workdir, PathAccess::ReadWrite)],
+        isolation_tier: gitust_core::IsolationTier::HostOs,
     };
     let exec = LocalSandboxExecutor::new(1);
     let res = exec
@@ -476,6 +477,7 @@ async fn assigned_attempt_labels_do_not_reuse_or_remove_another_scratch_director
         workdir: workdir.clone(),
         scratch_base: scratch,
         rules: vec![PathRule::new(&workdir, PathAccess::ReadWrite)],
+        isolation_tier: gitust_core::IsolationTier::HostOs,
     };
     let executor = LocalSandboxExecutor::new(2);
     let worktree = WorktreeId::new();

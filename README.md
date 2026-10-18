@@ -27,17 +27,17 @@ The current milestone is a trusted single-user self-hosted alpha: operate concur
 |---|---|
 | Workspaces | Managed `agent/*` branches, linked worktrees, persisted repository identity, ownership checks, and startup recovery |
 | Execution | Local commands using macOS Seatbelt or Linux Bubblewrap |
-| Verification | Clean SHA checks, required commands from the merge target's committed `.gitust-checks.json`, per-command results, and opt-in automatic Checks after managed-worktree MCP commits or Git HTTP pushes |
+| Verification | Clean SHA checks, required commands from the merge target's committed `.gitust-checks.json`, per-command results, and opt-in automatic Checks after managed-worktree MCP commits or Git HTTP/SSH pushes |
 | Approval and publication | Human-approved fast-forward merge, exact-SHA push, persisted records, and explicit retry |
-| Git hosting | Authenticated Smart HTTP clone/fetch and permission-checked pushes; optional Ed25519 SSH clone/fetch |
+| Git hosting | Authenticated Smart HTTP and optional SSH (`--ssh-bind`, Ed25519 and ECDSA P-256/384/521 user keys) clone, fetch, and permission-checked pushes |
 | Mirroring | Explicit inbound synchronization that preserves local work and private agent refs |
 | Agent integration | MCP over stdio or HTTP; explicit host-side worktree commits; OAuth with PKCE for HTTP MCP |
 | Accounts | CLI bootstrap, administrator-issued invitations, roles, PATs, SSH key management, and revocation |
 | Web UI | Embedded SolidJS workbench for browsing and the agent verification/approval/publication flow |
 
-SSH pushes, full pull-request collaboration, GitHub Actions compatibility, microVM execution, SSO, and multi-node scheduling are **planned**. Some additional workbench views are UI demonstrations. The [roadmap](docs/roadmap.md) separates implementation from plans.
+Full pull-request collaboration, GitHub Actions compatibility, microVM execution, SSO, and multi-node scheduling are **planned**. Some additional workbench views are UI demonstrations. The [roadmap](docs/roadmap.md) separates implementation from plans.
 
-Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Durable queued jobs can resume after current authority and Git state are rechecked; uncertain running jobs become interrupted and are never automatically replayed. Local filesystem Git commits remain outside these triggers; the primary default branch has a separate [opt-in Git HTTP flow](docs/operations/default-branch-checks.md). See [verification behavior](docs/architecture/worktree-verification.md) and [automatic-run recovery](docs/architecture/automatic-checks.md).
+Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Durable queued jobs can resume after current authority and Git state are rechecked; uncertain running jobs become interrupted and are never automatically replayed. Local filesystem Git commits remain outside these triggers; the primary default branch has a separate [opt-in Git HTTP/SSH flow](docs/operations/default-branch-checks.md). See [verification behavior](docs/architecture/worktree-verification.md) and [automatic-run recovery](docs/architecture/automatic-checks.md).
 
 SiteAdmins can browse retained automatic attempts in the repository's read-only **Actions** view and open the exact run in **Activity**. This view does not start workflows.
 
@@ -85,7 +85,7 @@ To enable server-side command execution, add `--trusted-single-user-sandbox` on 
 
 Add repeated `--read-only-repo /absolute/path/to/another/repository` arguments for other existing repositories registered against the same auth database. The server supports up to 32 configured repositories in total; secondary repositories expose Files, Changes and authenticated Smart HTTP clone/fetch through their UUID. To permit ordinary Git pushes on a registered bare secondary, explicitly use [`--git-write-repo`](docs/operations/secondary-git-hosting.md) instead. Worktrees, execution, MCP and synchronization remain on the primary `--repo`. See [registration and read-only repositories](docs/operations/repository-registration.md) and the [secondary Git contract](docs/operations/read-only-git.md).
 
-Optional [read-only SSH hosting](docs/operations/ssh-read-only.md) uses `--ssh-bind`, a private persisted Ed25519 host key and registered Ed25519 user keys. It serves UUID clone/fetch for the same configured repositories and current access rules. SSH is disabled by default; pushes remain on Smart HTTP.
+Optional [SSH Git hosting](docs/operations/ssh-read-only.md) uses `--ssh-bind`, a private persisted Ed25519 host key, and registered Ed25519 or ECDSA NIST P-256/384/521 user keys. It serves UUID clone/fetch and permission-checked pushes for the same configured repositories and current access rules, and exposes `ssh_port` in `GET /api/v1/repos` so the web Clone popover can switch between HTTP and SSH URLs. SSH is disabled by default.
 
 To prepare a new registered bare repository from an existing Git source, use the offline [`repository import`](docs/operations/repository-import.md) command. It preserves a fixed import identity through retries and never overwrites an existing destination; serving it still requires explicit configuration.
 

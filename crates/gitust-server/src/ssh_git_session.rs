@@ -109,7 +109,15 @@ impl GitSession {
     }
     fn allowed_key(&self, user: &str, key: &PublicKey) -> bool {
         user == "git"
-            && key.algorithm() == Algorithm::Ed25519
+            && matches!(
+                key.algorithm(),
+                Algorithm::Ed25519
+                    | Algorithm::Ecdsa {
+                        curve: russh::keys::EcdsaCurve::NistP256
+                            | russh::keys::EcdsaCurve::NistP384
+                            | russh::keys::EcdsaCurve::NistP521
+                    }
+            )
             && !self.control.closing.load(Ordering::Acquire)
     }
     fn refused(channel: ChannelId, session: &mut Session) -> Result<(), russh::Error> {
@@ -156,7 +164,7 @@ impl Handler for GitSession {
         }
     }
     // Certificates, passwords, keyboard interaction and forwarded channels retain the
-    // library's rejecting defaults. Only a plain Ed25519 public key can reach the callback above.
+    // library's rejecting defaults. Only plain Ed25519 or ECDSA public keys reach the callback above.
     async fn channel_open_session(
         &mut self,
         channel: Channel<server::Msg>,
@@ -187,34 +195,56 @@ impl Handler for GitSession {
             return Self::refused(channel, session);
         };
         // fail-open-ok: unsupported commands are refused and the channel is closed.
-        let Ok(target_id) = ssh_git_target::command_target(data) else {
+        let Ok((service, target_id)) = ssh_git_target::command_service_target(data) else {
             return Self::refused(channel, session);
         };
         if channel != id {
             return Self::refused(channel, session);
         }
-        let target = ssh_git_target::prepare(
-            self.state.clone(),
-            binding,
-            target_id,
-            self.control.closing.clone(),
-            self.admission.clone(),
-        )
-        .await;
-        // fail-open-ok: unavailable or unauthorized targets are refused without spawning Git.
-        let Ok(target) = target else {
-            return Self::refused(channel, session);
-        };
-        if self.control.closing.load(Ordering::Acquire) {
-            return Self::refused(channel, session);
-        }
-        let engine = target.engine();
-        let authorization = target.authorization.clone();
-        let (stream, lease) = ssh_git_stream::Stream::retain(stream);
-        // fail-open-ok: supervisor setup failure explicitly refuses the channel.
-        let Ok(run) = engine.start_ssh_upload_pack(stream, target, move || authorization.check())
-        else {
-            return Self::refused(channel, session);
+        let (run, lease) = match service {
+            ssh_git_target::SshGitService::UploadPack => {
+                let target = ssh_git_target::prepare(
+                    self.state.clone(),
+                    binding,
+                    target_id,
+                    self.control.closing.clone(),
+                    self.admission.clone(),
+                )
+                .await;
+                // fail-open-ok: unavailable or unauthorized targets are refused without spawning Git.
+                let Ok(target) = target else {
+                    return Self::refused(channel, session);
+                };
+                if self.control.closing.load(Ordering::Acquire) {
+                    return Self::refused(channel, session);
+                }
+                let engine = target.engine();
+                let authorization = target.authorization.clone();
+                let (stream, lease) = ssh_git_stream::Stream::retain(stream);
+                // fail-open-ok: supervisor setup failure explicitly refuses the channel.
+                let Ok(run) =
+                    engine.start_ssh_upload_pack(stream, target, move || authorization.check())
+                else {
+                    return Self::refused(channel, session);
+                };
+                (run, lease)
+            }
+            ssh_git_target::SshGitService::ReceivePack => {
+                let started = crate::ssh_git_write::start(
+                    self.state.clone(),
+                    binding,
+                    target_id,
+                    self.control.closing.clone(),
+                    self.admission.clone(),
+                    stream,
+                )
+                .await;
+                // fail-open-ok: unavailable or unauthorized targets are refused without spawning Git.
+                let Ok(pair) = started else {
+                    return Self::refused(channel, session);
+                };
+                pair
+            }
         };
         self.control.start(run, channel, session.handle(), lease);
         session.channel_success(channel)

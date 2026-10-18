@@ -10,7 +10,7 @@ use tokio::{
 };
 
 #[path = "ssh_upload_pack_io.rs"]
-mod io;
+pub(crate) mod io;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SshUploadPackError {
@@ -38,9 +38,9 @@ pub struct SshUploadPackOutcome {
 }
 
 #[derive(Clone, Copy)]
-struct Completion {
-    result: Result<SshUploadPackOutcome, SshUploadPackError>,
-    cleanup: Result<(), SshUploadPackError>,
+pub(crate) struct Completion {
+    pub(crate) result: Result<SshUploadPackOutcome, SshUploadPackError>,
+    pub(crate) cleanup: Result<(), SshUploadPackError>,
 }
 
 /// Clones can cancel a channel and await cleanup independently of its response task.
@@ -66,6 +66,15 @@ pub struct SshUploadPack {
 }
 
 impl SshUploadPack {
+    pub(crate) fn from_channels(
+        cancel: watch::Sender<bool>,
+        completed: watch::Receiver<Option<Completion>>,
+    ) -> Self {
+        Self {
+            control: SshUploadPackCancel { cancel, completed },
+        }
+    }
+
     pub fn cancel_handle(&self) -> SshUploadPackCancel {
         self.control.clone()
     }
@@ -121,24 +130,19 @@ impl GitEngine {
             receiver,
             completed,
         ));
-        Ok(SshUploadPack {
-            control: SshUploadPackCancel {
-                cancel,
-                completed: result,
-            },
-        })
+        Ok(SshUploadPack::from_channels(cancel, result))
     }
 }
 
-struct Prepared {
-    child: Child,
-    process_group: u32,
-    group_cleanup: Option<Result<(), SshUploadPackError>>,
-    _service: WorktreeServiceLock,
+pub(crate) struct Prepared {
+    pub(crate) child: Child,
+    pub(crate) process_group: u32,
+    pub(crate) group_cleanup: Option<Result<(), SshUploadPackError>>,
+    pub(crate) _service: WorktreeServiceLock,
 }
 
 impl Prepared {
-    fn exited_without_reaping(&mut self) -> Result<bool, SshUploadPackError> {
+    pub(crate) fn exited_without_reaping(&mut self) -> Result<bool, SshUploadPackError> {
         #[cfg(unix)]
         {
             let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
@@ -165,7 +169,7 @@ impl Prepared {
         Err(SshUploadPackError::Unavailable)
     }
 
-    fn stop_group(&mut self) -> Result<(), SshUploadPackError> {
+    pub(crate) fn stop_group(&mut self) -> Result<(), SshUploadPackError> {
         if let Some(result) = self.group_cleanup {
             return result;
         }
@@ -265,7 +269,7 @@ where
 }
 
 #[derive(Clone, Copy)]
-enum Pump {
+pub(crate) enum Pump {
     Input,
     Output,
     Stderr,
@@ -362,7 +366,7 @@ async fn supervise<S, H, G>(
     }));
 }
 
-fn publish_cleanup_failure(completed: &watch::Sender<Option<Completion>>) {
+pub(crate) fn publish_cleanup_failure(completed: &watch::Sender<Option<Completion>>) {
     completed.send_replace(Some(Completion {
         result: Err(SshUploadPackError::CleanupIncomplete),
         cleanup: Err(SshUploadPackError::CleanupIncomplete),

@@ -113,7 +113,27 @@ pub fn inspect_receive_pack_updates(
 
         // First command pkt-line contains `<old> <new> <ref>\0<caps>`, subsequent lines have no NUL.
         let cmd_bytes = match payload.iter().position(|&b| b == 0) {
-            Some(nul_pos) if updates.is_empty() => &payload[..nul_pos],
+            Some(nul_pos) if updates.is_empty() => {
+                let caps = &payload[nul_pos + 1..];
+                if caps.contains(&0) {
+                    return Err(GitEngineError::InvalidRevision(
+                        "unexpected secondary NUL byte in receive-pack capabilities".to_owned(),
+                    ));
+                }
+                // fail-open-ok: trailing newline in capability list is optional; tokens are still checked below.
+                let caps = caps.strip_suffix(b"\n").unwrap_or(caps);
+                // fail-open-ok: trailing CR before LF is optional; tokens are still checked below.
+                let caps = caps.strip_suffix(b"\r").unwrap_or(caps);
+                if caps
+                    .split(|&b| b == b' ')
+                    .any(|cap| cap == b"push-options" || cap.starts_with(b"push-options="))
+                {
+                    return Err(GitEngineError::InvalidRevision(
+                        "push-options capability is not supported".to_owned(),
+                    ));
+                }
+                &payload[..nul_pos]
+            }
             Some(_) => {
                 return Err(GitEngineError::InvalidBranchName(
                     "unexpected NUL byte in subsequent receive-pack command".to_owned(),

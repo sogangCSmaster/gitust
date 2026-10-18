@@ -41,8 +41,9 @@ phase or replace its remaining requirements.
 Repository CI is a development verification tool. It does not implement the
 GitHub Actions-compatible execution engine inside Gitust. Likewise, current MCP
 OAuth is agent authorization, not enterprise account SSO. Optional [SSH hosting](ssh-read-only.md)
-currently implements Ed25519 clone/fetch; key registration alone does not enable it.
-Metadata-only AuthStore repository records do not create
+implements Ed25519 and ECDSA (`nistp256`/`nistp384`/`nistp521`) clone/fetch and authenticated
+push (`git-upload-pack` and `git-receive-pack`) when `--ssh-bind` is configured; key registration
+alone does not enable it. Metadata-only AuthStore repository records do not create
 Git services; the operator-configured catalog includes only opened repositories,
 and additional repositories currently support browsing rather than worktree execution.
 

@@ -368,7 +368,7 @@ export const EnterpriseCredentialsPanel: Component<
         </Section>
         <Section
           title="SSH public keys"
-          description="Ed25519 keys allow clone and fetch when SSH is enabled. Private keys stay on your machine."
+          description="Ed25519 and ECDSA (nistp256/384/521) keys allow SSH clone, fetch, and push when SSH is enabled. Private keys stay on your machine."
         >
           <form
             class="space-y-3"
@@ -391,7 +391,7 @@ export const EnterpriseCredentialsPanel: Component<
               label="OpenSSH public key"
               value={sshKey()}
               onValueChange={setSshKey}
-              placeholder="ssh-ed25519 AAAA..."
+              placeholder="ssh-ed25519 or ecdsa-sha2-nistp256/384/521 AAAA..."
             />
             <Button type="submit" variant="outline">
               Add SSH key

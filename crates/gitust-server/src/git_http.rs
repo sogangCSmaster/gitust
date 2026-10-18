@@ -228,32 +228,57 @@ pub(crate) async fn git_receive_pack_handler(
             )
                 .into_response();
         }
-        let runtime = state.get_worktree_runtime(*wt_id);
-        if caller.role == EnterpriseRole::Developer
-            && runtime
-                .as_ref()
-                .is_none_or(|r| r.created_by != Some(caller.user_id))
-        {
+        let Some(rt) = state.get_worktree_runtime(*wt_id) else {
+            return (
+                StatusCode::CONFLICT,
+                format!("worktree runtime for branch '{wt_branch}' is unavailable"),
+            )
+                .into_response();
+        };
+        if caller.role == EnterpriseRole::Developer && rt.created_by != Some(caller.user_id) {
             return map_auth_err(AuthError::ForbiddenResourceOwnership).into_response();
         }
-        if let Some(rt) = runtime {
-            match rt.exec_lock.clone().try_lock_owned() {
-                Ok(g) => held_exec_locks.push(g),
-                Err(_) => {
-                    return (
-                        StatusCode::CONFLICT,
-                        format!("worktree for branch '{wt_branch}' is currently busy"),
-                    )
-                        .into_response();
-                }
+        let guard = match rt.exec_lock.clone().try_lock_owned() {
+            Ok(g) => g,
+            Err(_) => {
+                return (
+                    StatusCode::CONFLICT,
+                    format!("worktree for branch '{wt_branch}' is currently busy"),
+                )
+                    .into_response();
             }
+        };
+        if !state.worktree_runtime.read().contains_key(wt_id) {
+            return (
+                StatusCode::CONFLICT,
+                format!("worktree runtime for branch '{wt_branch}' was removed"),
+            )
+                .into_response();
         }
-    }
-
-    for (wt_id, _, _) in &matched_worktrees {
-        crate::state::set_worktree_status(&state, *wt_id, |w| {
-            w.status = WorktreeStatus::Pending;
-        });
+        let Some(current_status) = state
+            .worktrees
+            .read()
+            .iter()
+            .find(|w| w.id == *wt_id)
+            .map(|w| w.status)
+        else {
+            return (
+                StatusCode::CONFLICT,
+                format!("worktree for branch '{wt_branch}' was removed"),
+            )
+                .into_response();
+        };
+        if matches!(
+            current_status,
+            WorktreeStatus::Compiling | WorktreeStatus::Merged | WorktreeStatus::Discarded
+        ) {
+            return (
+                StatusCode::CONFLICT,
+                format!("cannot push to agent branch '{wt_branch}' in {current_status:?} state"),
+            )
+                .into_response();
+        }
+        held_exec_locks.push(guard);
     }
 
     let engine = state.git_engine.clone();
@@ -289,7 +314,13 @@ pub(crate) async fn git_receive_pack_handler(
                 if fresh.user_id != caller.user_id || fresh.role != caller.role {
                     return Err((StatusCode::FORBIDDEN, "Git push authority changed".into()));
                 }
-                check_repo_bola(&automatic_state.auth_store, automatic_state.repo_id, automatic_state.repo_access, &fresh, automatic_state.repo_id)
+                check_repo_bola(&automatic_state.auth_store, automatic_state.repo_id, automatic_state.repo_access, &fresh, automatic_state.repo_id)?;
+                for (wt_id, _, _) in &matched_worktrees {
+                    crate::state::set_worktree_status(&automatic_state, *wt_id, |w| {
+                        w.status = WorktreeStatus::Pending;
+                    });
+                }
+                Ok(())
             })();
             authorized.map_err(|error| {
                 preparation_error = Some(error);

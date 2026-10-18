@@ -133,7 +133,7 @@ fn gate_deactivated_account_immediately_invalidates_session_pat_ssh_and_reset_li
         .create_personal_access_token(&dev_principal, "laptop-git-https", Some(30))
         .expect("pat creation must succeed");
     let ssh_key_str =
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGitustTestKeyDev100 dev1@company.internal";
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl dev1@company.internal";
     store
         .register_ssh_public_key(&dev_principal, "MacBook Pro", ssh_key_str)
         .expect("ssh key registration must succeed");
@@ -239,7 +239,7 @@ fn gate_idor_bola_cross_user_token_and_cross_team_repo_blocked() {
         .register_ssh_public_key(
             &principal_a,
             "alpha-key",
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlphaKey000 comment@host",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl comment@host",
         )
         .expect("alpha ssh");
 
@@ -257,7 +257,7 @@ fn gate_idor_bola_cross_user_token_and_cross_team_repo_blocked() {
         .register_ssh_public_key(
             &principal_b,
             "duplicate-key-different-comment",
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlphaKey000 attacker@otherhost",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl attacker@otherhost",
         )
         .is_err());
 

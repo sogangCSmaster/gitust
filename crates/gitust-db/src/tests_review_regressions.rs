@@ -2,7 +2,8 @@ use crate::crypto::canonicalize_openssh_pubkey;
 use crate::{hash_token_sha256, AuthStore};
 use gitust_core::{AuthError, AuthenticatedPrincipal};
 
-const KEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAlphaKey000";
+const KEY: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
 
 fn admin(store: &AuthStore) -> (AuthenticatedPrincipal, String) {
     store

@@ -65,26 +65,31 @@ class Rehearsal:
                      and [self.anchors(repo) for repo in self.f.repos] == self.identities,
                      "SSH read or rejection changed refs, HEAD, worktrees or registration")
 
-    def generate(self, path):
-        self.h.command(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "", "-f", str(path)])
+    def generate(self, path, algorithm="ed25519", bits=None):
+        cmd = ["ssh-keygen", "-q", "-t", algorithm]
+        if bits is not None:
+            cmd += ["-b", str(bits)]
+        cmd += ["-N", "", "-C", "", "-f", str(path)]
+        self.h.command(cmd)
         self.require(stat.S_IMODE(path.stat().st_mode) == 0o600,
                      "generated fixture private key is not private")
         return Path(str(path) + ".pub").read_text().strip()
 
-    def register_key(self, client, name):
+    def register_key(self, client, name, algorithm="ed25519", bits=None):
         path = self.keys / name
-        public = self.generate(path)
+        public = self.generate(path, algorithm=algorithm, bits=bits)
         metadata = client.request("POST", "/api/v1/auth/ssh-keys", {
             "title": name, "public_key_openssh": public}, expected=201)
         self.require(metadata["revoked"] is False, "registered fixture key is revoked")
         return path, metadata["id"]
 
     def environment(self, key):
+        accepted = "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521"
         command = ["ssh", "-F", "/dev/null", "-i", str(key),
                    "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none",
                    "-o", "PreferredAuthentications=publickey", "-o", "PasswordAuthentication=no",
                    "-o", "KbdInteractiveAuthentication=no", "-o", "HostKeyAlgorithms=ssh-ed25519",
-                   "-o", "PubkeyAcceptedAlgorithms=ssh-ed25519", "-o", "StrictHostKeyChecking=yes",
+                   "-o", "PubkeyAcceptedAlgorithms=" + accepted, "-o", "StrictHostKeyChecking=yes",
                    "-o", "UserKnownHostsFile=" + str(self.known_hosts),
                    "-o", "GlobalKnownHostsFile=/dev/null", "-o", "HostKeyAlias=gitust-rehearsal",
                    "-o", "UpdateHostKeys=no", "-o", "VerifyHostKeyDNS=no",
@@ -189,6 +194,7 @@ class Rehearsal:
         self.known_hosts.chmod(0o600)
         self.start()
         self.admin_key, _ = self.register_key(self.f.admin, "operator")
+        self.admin_ecdsa_key, _ = self.register_key(self.f.admin, "operator-ecdsa", "ecdsa", 256)
         self.primary_key, self.primary_key_id = self.register_key(self.f.members[0][0], "primary-member")
         self.secondary_key, _ = self.register_key(self.f.members[1][0], "secondary-member")
         self.unknown_key = self.keys / "unregistered"
@@ -234,8 +240,10 @@ class Rehearsal:
                      "restore changed refs, HEAD or repository bindings")
         self.states = [self.state(repo) for repo in self.f.repos]
         self.start()
-        self.require({row["id"] for row in self.f.admin.request("GET", "/api/v1/repos")["repositories"]}
-                     == set(self.f.ids), "restored service did not retain both configured UUIDs")
+        catalog = self.f.admin.request("GET", "/api/v1/repos")["repositories"]
+        self.require({row["id"] for row in catalog} == set(self.f.ids)
+                     and all(row.get("ssh_port") == self.ssh_port for row in catalog),
+                     "restored service did not retain both configured UUIDs and active ssh_port")
         for index in range(2):
             # The original known_hosts stays strict: a replaced private host key cannot pass.
             self.advertise(index, self.admin_key)
@@ -245,8 +253,12 @@ class Rehearsal:
     def execute(self):
         self.prepare()
         self.stage = "native-clone-and-authority"
+        catalog = self.f.admin.request("GET", "/api/v1/repos")["repositories"]
+        self.require(all(row.get("ssh_port") == self.ssh_port for row in catalog),
+                     "catalog did not expose active ssh_port")
         for index in range(2):
             self.advertise(index, self.admin_key)
+            self.advertise(index, self.admin_ecdsa_key)
         self.advertise(0, self.primary_key)
         self.advertise(1, self.secondary_key)
         primary, secondary = self.clone(0, "primary-clone"), self.clone(1, "secondary-clone")
@@ -254,7 +266,7 @@ class Rehearsal:
         self.deny(1, self.primary_key)
         unhosted = f"ssh://git@127.0.0.1:{self.ssh_port}/00000000-0000-0000-0000-000000000001.git"
         self.deny(0, self.admin_key, url=unhosted)
-        self.deny(0, self.admin_key, push=primary)
+        self.deny(0, self.primary_key, push=primary)
         self.deny(1, self.admin_key, push=secondary)
         self.stage = "offline-update-and-fetch"
         self.update_stopped()
@@ -271,6 +283,18 @@ class Rehearsal:
         self.f.admin.request("POST", f"/api/v1/admin/users/{self.f.members[1][1]}/deactivate", {})
         self.deny(1, self.secondary_key)
         self.restore()
+        self.stage = "authenticated-ssh-push"
+        restored_primary = self.clones[2]
+        self.h.git(restored_primary, "config", "user.name", "Gitust SSH Rehearsal")
+        self.h.git(restored_primary, "config", "user.email", "ssh@company.internal")
+        (restored_primary / "ssh-pushed.txt").write_text("pushed over SSH with ECDSA P-256\n")
+        self.h.git(restored_primary, "add", "ssh-pushed.txt")
+        self.h.git(restored_primary, "commit", "-m", "test: authenticated SSH ECDSA push")
+        pushed_sha = self.h.git(restored_primary, "rev-parse", "HEAD")
+        self.h.git(restored_primary, "push", "origin", "HEAD:refs/heads/agent/ssh-ecdsa-push",
+                   env=self.environment(self.admin_ecdsa_key))
+        self.require(self.h.git(self.f.repos[0], "rev-parse", "refs/heads/agent/ssh-ecdsa-push") == pushed_sha,
+                     "SSH receive-pack push did not update target ref on primary repository")
         self.stage = "strict-git-integrity"
         for repo in [*self.f.repos, *self.clones]:
             self.h.git(repo, "fsck", "--full", "--strict")
@@ -280,7 +304,9 @@ class Rehearsal:
                 "unknown_and_unhosted_denied": True, "current_team_acl_denied": True,
                 "denied_read_emits_no_refs": True,
                 "sequential_revoked_key_and_inactive_account_denied": True,
-                "ssh_receive_pack_denied": True, "read_operations_preserve_refs_and_registration": True,
+                "ssh_receive_pack_denied": True, "ssh_ecdsa_and_receive_pack": True,
+                "catalog_ssh_port_discovery": True,
+                "read_operations_preserve_refs_and_registration": True,
                 "strict_pinned_host_identity_across_restart_restore": True,
                 "stopped_two_repository_relocation": True, "host_private_modes_preserved": True,
                 "git_fsck": True, "external_network_used": False, "platform": os.uname().sysname}

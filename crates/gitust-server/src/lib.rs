@@ -54,6 +54,7 @@ mod ssh_git_host_key;
 mod ssh_git_session;
 mod ssh_git_stream;
 mod ssh_git_target;
+mod ssh_git_write;
 pub mod state;
 mod transports;
 pub mod webui;
@@ -409,7 +410,7 @@ pub async fn serve_with_transports(
         repositories,
         ssh_bind,
     } = options;
-    let (state, _service_lock) = tokio::task::spawn_blocking(
+    let (mut state, _service_lock) = tokio::task::spawn_blocking(
         move || -> Result<(AppState, gitust_git::WorktreeServiceLock), std::io::Error> {
             let mut engine = gitust_git::GitEngine::new(&repo_path);
             if let Some(secs) = sync_timeout_secs {
@@ -448,13 +449,16 @@ pub async fn serve_with_transports(
         Some(bind) => Some(ssh_git::Listener::bind(bind, state.clone()).await?),
         None => None,
     };
+    if let Some(ref ssh_listener) = ssh {
+        state.ssh_port = Some(ssh_listener.local_addr()?.port());
+    }
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let automatic_checks = automatic_checks::start(&state).await?;
     let local_checks_automatic = local_checks_automatic::start(&state).await?;
     let app = build_router(state);
     tracing::info!("Gitust All-in-One Server listening on http://{addr}");
     if let Some(bind) = ssh_bind {
-        tracing::info!("Gitust read-only SSH listening on {bind}");
+        tracing::info!("Gitust SSH listening on {bind}");
     }
     let result = transports::serve(listener, app, ssh).await;
     let local_result = local_checks_automatic.shutdown().await;
@@ -467,5 +471,7 @@ pub async fn serve_with_transports(
 mod tests;
 #[cfg(test)]
 mod tests_listener;
+#[cfg(all(test, unix))]
+mod tests_ssh_git_push;
 #[cfg(test)]
 mod tests_ssh_git_target;

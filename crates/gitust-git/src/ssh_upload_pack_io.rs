@@ -6,7 +6,7 @@ use tokio::{
 
 const CHUNK: usize = 16 * 1024;
 
-pub(super) async fn input<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+pub(crate) async fn input<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     mut source: R,
     mut destination: W,
     cap: usize,
@@ -38,7 +38,7 @@ pub(super) async fn input<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     }
 }
 
-pub(super) async fn output<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+pub(crate) async fn output<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     mut source: R,
     mut destination: W,
     cap: usize,
@@ -72,7 +72,7 @@ pub(super) async fn output<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     }
 }
 
-pub(super) async fn stderr<R: AsyncRead + Unpin>(
+pub(crate) async fn stderr<R: AsyncRead + Unpin>(
     mut source: R,
     failures: mpsc::Sender<SshUploadPackError>,
 ) {

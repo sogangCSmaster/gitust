@@ -87,3 +87,29 @@ fn ssh_binding_does_not_follow_same_key_to_a_different_owner() {
     let fresh = store.authenticate_ssh_key_binding(KEY).unwrap();
     assert_eq!(store.authorize_ssh_key_binding(&fresh).unwrap(), operator);
 }
+
+#[test]
+fn ecdsa_nistp256_384_521_keys_bind_and_mismatched_inner_curve_is_rejected() {
+    const ECDSA_P256: &str = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=";
+    const ECDSA_P384: &str = "ecdsa-sha2-nistp384 AAAAE2VjZHNhLXNoYTItbmlzdHAzODQAAAAIbmlzdHAzODQAAABhBAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYA==";
+    const ECDSA_P521: &str = "ecdsa-sha2-nistp521 AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjEAAACFBAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhA==";
+    const ECDSA_BAD_CURVE: &str = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAzODQAAABBBAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+
+    let store = AuthStore::new_in_memory();
+    let owner = admin(&store);
+    for (title, key) in [
+        ("p256", ECDSA_P256),
+        ("p384", ECDSA_P384),
+        ("p521", ECDSA_P521),
+    ] {
+        let view = store.register_ssh_public_key(&owner, title, key).unwrap();
+        assert!(!view.revoked);
+        let binding = store.authenticate_ssh_key_binding(key).unwrap();
+        assert_eq!(store.authorize_ssh_key_binding(&binding).unwrap(), owner);
+        assert_eq!(store.authenticate_ssh_public_key(key).unwrap(), owner);
+    }
+    assert!(matches!(
+        store.register_ssh_public_key(&owner, "bad-curve", ECDSA_BAD_CURVE),
+        Err(AuthError::InvalidInput(_))
+    ));
+}

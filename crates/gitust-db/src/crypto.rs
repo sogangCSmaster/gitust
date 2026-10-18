@@ -183,6 +183,21 @@ fn encode_base64_unpadded(bytes: &[u8]) -> String {
     out
 }
 
+fn read_ssh_wire_field(buf: &[u8]) -> Result<(&[u8], &[u8]), AuthError> {
+    let invalid = || AuthError::InvalidInput("malformed SSH public key wire payload".to_owned());
+    let &[b0, b1, b2, b3, ref tail @ ..] = buf else {
+        return Err(invalid());
+    };
+    let len = usize::try_from(u32::from_be_bytes([b0, b1, b2, b3])).map_err(|_| invalid())?;
+    let Some(field) = tail.get(..len) else {
+        return Err(invalid());
+    };
+    let Some(rest) = tail.get(len..) else {
+        return Err(invalid());
+    };
+    Ok((field, rest))
+}
+
 /// Validates and canonicalizes an OpenSSH public key into `(<algorithm> <base64-blob>, SHA256:<base64>)`,
 /// decoding the Base64 wire blob, verifying the embedded key-type header matches `<algorithm>`,
 /// and computing the standard OpenSSH SHA-256 fingerprint over the decoded binary key blob.
@@ -220,15 +235,44 @@ pub(crate) fn canonicalize_openssh_pubkey(raw: &str) -> Result<(String, String),
             "SSH public key blob is truncated".to_owned(),
         ));
     }
-    let header_len = usize::try_from(u32::from_be_bytes([
-        decoded[0], decoded[1], decoded[2], decoded[3],
-    ]))
-    // fail-open-ok: unrepresentable header length becomes an impossible value and is rejected below.
-    .unwrap_or(usize::MAX);
-    if header_len != algo.len() || &decoded[4..4 + algo.len()] != algo.as_bytes() {
+    let (header, rest) = read_ssh_wire_field(&decoded).map_err(|_| {
+        AuthError::InvalidInput(
+            "SSH public key blob algorithm header does not match declared key type".to_owned(),
+        )
+    })?;
+    if header != algo.as_bytes() {
         return Err(AuthError::InvalidInput(
             "SSH public key blob algorithm header does not match declared key type".to_owned(),
         ));
+    }
+    match algo {
+        "ssh-ed25519" => {
+            let (key_bytes, trailing) = read_ssh_wire_field(rest)?;
+            if key_bytes.len() != 32 || !trailing.is_empty() {
+                return Err(AuthError::InvalidInput(
+                    "invalid ssh-ed25519 public key length".to_owned(),
+                ));
+            }
+        }
+        "ecdsa-sha2-nistp256" | "ecdsa-sha2-nistp384" | "ecdsa-sha2-nistp521" => {
+            let expected_curve = algo.strip_prefix("ecdsa-sha2-").ok_or_else(|| {
+                AuthError::InvalidInput("invalid ECDSA algorithm prefix".to_owned())
+            })?;
+            let (curve, after_curve) = read_ssh_wire_field(rest)?;
+            if curve != expected_curve.as_bytes() {
+                return Err(AuthError::InvalidInput(
+                    "ECDSA public key curve identifier does not match declared algorithm"
+                        .to_owned(),
+                ));
+            }
+            let (point, trailing) = read_ssh_wire_field(after_curve)?;
+            if point.is_empty() || !trailing.is_empty() {
+                return Err(AuthError::InvalidInput(
+                    "invalid ECDSA public key point encoding".to_owned(),
+                ));
+            }
+        }
+        _ => {}
     }
     let digest: [u8; 32] = Sha256::digest(&decoded).into();
     let fingerprint = format!("SHA256:{}", encode_base64_unpadded(&digest));

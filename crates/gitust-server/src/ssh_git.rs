@@ -58,6 +58,9 @@ impl Listener {
             config: Arc::new(config),
         })
     }
+    pub(crate) fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.tcp.local_addr()
+    }
     pub(crate) fn start(self) -> Running {
         let (stop, receiver) = watch::channel(false);
         let inner_stop = stop.clone();

@@ -28,7 +28,7 @@ CoW and microVM ambitions remain future work. Current worktrees use Git checkout
 In progress. Implemented portions:
 
 - Smart HTTP hosting with access checks and managed-agent-branch push restrictions.
-- Opt-in Ed25519 SSH clone/fetch for configured repositories, with a persisted private host identity, current key/account/ACL checks and bounded native Git streams. SSH push and broader key types remain separate work. See the [read-only SSH contract](operations/ssh-read-only.md).
+- Opt-in SSH clone/fetch (`git-upload-pack`) and permission-checked pushes (`git-receive-pack`) for configured repositories using Ed25519 and ECDSA NIST P-256/384/521 user keys, a persisted private Ed25519 host identity, multi-stage key-binding/account/ACL/RBAC checks, automatic Checks integration on the primary repository, and web Clone popover SSH address discovery via `ssh_port`. RSA SSH transport authentication remains separate work. See the [SSH hosting contract](operations/ssh-read-only.md).
 - Local triage commands and the live web agent workflow.
 - Clean-commit verification, fast-forward approval, and separate exact-SHA publication.
 - Durable approval/publication records and explicit remote-failure retry.
@@ -37,8 +37,8 @@ In progress. Implemented portions:
 - Opt-in local Checks history retains five completed results under the persisted repository identity, with bounded output and CLI list/run-ID queries. It survives offline relocation and remains separate from managed-worktree verification and server Activity.
 - SiteAdmin read-only inspection of primary local Checks history in Actions, using a bounded UUID-scoped API and a separate compact Local Checks view. Reading stored diagnostics does not enable HTTP execution or restore approval authority.
 - Explicit SiteAdmin execution of the active primary's committed default-branch Checks from Actions, when trusted single-user execution is enabled. Expected ref/SHA, original-credential checks and confirmed cleanup bind the result; completed runs share the bounded local history. Execution and saving failures remain distinct, with no automatic retry or approval authority.
-- Opt-in automatic Local Checks after accepted SiteAdmin Git HTTP updates to the primary default branch, with prior committed consent, bounded queue and conservative restart recovery. Diagnostics share the existing Local Checks history without granting approval. See the [default-branch contract](operations/default-branch-checks.md).
-- Opt-in automatic Checks after accepted managed-worktree MCP commits and Git HTTP pushes, with bounded latest-update coalescing and diagnostic history. Automatic success does not grant approval; explicit manual verification remains required.
+- Opt-in automatic Local Checks after accepted SiteAdmin Git HTTP or SSH updates to the primary default branch, with prior committed consent, bounded queue and conservative restart recovery. Diagnostics share the existing Local Checks history without granting approval. See the [default-branch contract](operations/default-branch-checks.md).
+- Opt-in automatic Checks after accepted managed-worktree MCP commits and Git HTTP/SSH pushes, with bounded latest-update coalescing and diagnostic history. Automatic success does not grant approval; explicit manual verification remains required.
 - Per-command verification outcomes, measured durations, skipped checks and expandable command-specific stdout/stderr in HTTP/MCP and the workbench; stored output is bounded separately for history.
 - Durable managed-worktree automatic-run intents, latest-update coalescing, lifecycle records and conservative restart recovery. Queued work is reauthorized; uncertain running work is interrupted without replay. See the [execution contract](architecture/automatic-checks.md).
 - Bounded durable history of completed HTTP/MCP runs, with a SiteAdmin-only read API and no restoration of approval authority.
@@ -68,7 +68,7 @@ Remaining work:
 - Automatic triggers for other ordinary branches and secondary repositories, and workflow execution beyond the existing managed-worktree and primary default-branch Checks. GitHub Actions-compatible workflows remain Phase 4 work.
 - Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current initial static-import closure is approximately 70 kB gzip after the first import-boundary reduction. The [measurement](benchmarks/web-bundle.md) includes every static dependency and the first Overview's cumulative cost; the target remains unmet.
 - Full pull-request collaboration.
-- SSH pushes, broader user-key algorithms and web clone-address discovery beyond the optional read-only transport.
+- RSA user-key authentication on the SSH transport.
 - Repository administration UI, lifecycle management and online inventory changes; additional repositories still need isolated worktree and execution routing before gaining full workbench capabilities.
 - Final-candidate restoration evidence for auth state, Git data, worktrees and approval records on the intended platforms.
 - Deployment validation, platform coverage, and final-candidate checks and Gate A review.

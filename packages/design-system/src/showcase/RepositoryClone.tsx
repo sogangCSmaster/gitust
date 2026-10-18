@@ -45,6 +45,28 @@ const cloneUrl = (id: string): string | null => {
     return null;
   }
 };
+const sshCloneUrl = (id: string, sshPort?: number): string | null => {
+  if (
+    !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id) ||
+    /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(id) ||
+    typeof sshPort !== "number" ||
+    !Number.isInteger(sshPort) ||
+    sshPort < 1 ||
+    sshPort > 65535
+  )
+    return null;
+  try {
+    const origin = new URL(window.location.origin);
+    if (
+      (origin.protocol !== "http:" && origin.protocol !== "https:") ||
+      !origin.hostname
+    )
+      return null;
+    return `ssh://git@${origin.hostname}:${sshPort}/${encodeURIComponent(id.toLowerCase())}.git`;
+  } catch {
+    return null;
+  }
+};
 
 export const RepositoryClone: Component<{
   repository: ConnectedRepository;
@@ -54,15 +76,31 @@ export const RepositoryClone: Component<{
   const [target, setTarget] = createSignal<
     (RepositoryCloneTarget & { url: string }) | null
   >(null);
+  const [protocol, setProtocol] = createSignal<"http" | "ssh">("http");
   const [copying, setCopying] = createSignal(false);
   const [notice, setNotice] = createSignal<"copied" | "manual" | null>(null);
   let input: HTMLInputElement | undefined;
   let generation = 0;
+  const sshUrl = () =>
+    sshCloneUrl(props.repository.id, props.repository.sshPort);
+  const activeUrl = (httpUrl: string) => {
+    const ssh = sshUrl();
+    return protocol() === "ssh" && ssh ? ssh : httpUrl;
+  };
   const close = () => {
     generation++;
     setTarget(null);
+    setProtocol("http");
     setCopying(false);
     setNotice(null);
+  };
+  const selectProtocol = (next: "http" | "ssh") => {
+    if (next === "ssh" && !sshUrl()) return;
+    if (protocol() === next) return;
+    generation++;
+    setCopying(false);
+    setNotice(null);
+    setProtocol(next);
   };
   const current = () => {
     const own = target();
@@ -75,7 +113,11 @@ export const RepositoryClone: Component<{
     );
   };
   createEffect(() => {
-    if (target() && !current()) close();
+    if (target() && !current()) {
+      close();
+      return;
+    }
+    if (protocol() === "ssh" && !sshUrl()) selectProtocol("http");
   });
   onMount(() => {
     const changed = (event: StorageEvent) => {
@@ -98,6 +140,7 @@ export const RepositoryClone: Component<{
     const url = cloneUrl(own.repoId);
     if (!url) return;
     generation++;
+    setProtocol("http");
     setNotice(null);
     setTarget({ ...own, url });
   };
@@ -109,8 +152,16 @@ export const RepositoryClone: Component<{
     }
     if (copying()) return;
     const ownGeneration = generation;
+    const ownProtocol = protocol();
+    const url = activeUrl(own.url);
     const active = () => {
-      if (ownGeneration !== generation || target() !== own) return false;
+      if (
+        ownGeneration !== generation ||
+        target() !== own ||
+        protocol() !== ownProtocol ||
+        activeUrl(own.url) !== url
+      )
+        return false;
       if (!current()) {
         close();
         return false;
@@ -123,7 +174,7 @@ export const RepositoryClone: Component<{
       const clipboard = navigator.clipboard;
       if (typeof clipboard?.writeText !== "function")
         throw new Error("Clipboard unavailable");
-      await clipboard.writeText(own.url);
+      await clipboard.writeText(url);
       if (active()) setNotice("copied");
     } catch {
       if (active()) {
@@ -167,8 +218,9 @@ export const RepositoryClone: Component<{
               <DialogHeader class="pr-8 text-left">
                 <DialogTitle>Clone repository</DialogTitle>
                 <DialogDescription>
-                  Use your Gitust username and a personal access token as the
-                  Git password.
+                  {protocol() === "ssh" && sshUrl()
+                    ? "Authenticate as git with a registered Ed25519 or ECDSA SSH key."
+                    : "Use your Gitust username and a personal access token as the Git password."}
                   <Show when={props.repository.capability === "browse"}>
                     <span class="mt-2 block">
                       {props.repository.canPush
@@ -178,7 +230,31 @@ export const RepositoryClone: Component<{
                   </Show>
                 </DialogDescription>
               </DialogHeader>
-              <TextField value={own().url}>
+              <Show when={sshUrl()}>
+                <div
+                  role="group"
+                  aria-label="Clone protocol"
+                  class="flex flex-wrap items-center gap-2"
+                >
+                  <Button
+                    size="sm"
+                    variant={protocol() === "http" ? "default" : "outline"}
+                    aria-pressed={protocol() === "http"}
+                    onClick={() => selectProtocol("http")}
+                  >
+                    HTTP
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={protocol() === "ssh" ? "default" : "outline"}
+                    aria-pressed={protocol() === "ssh"}
+                    onClick={() => selectProtocol("ssh")}
+                  >
+                    SSH
+                  </Button>
+                </div>
+              </Show>
+              <TextField value={activeUrl(own().url)}>
                 <TextFieldLabel>Clone URL</TextFieldLabel>
                 <TextFieldInput
                   ref={input}

@@ -18,6 +18,7 @@ export interface ConnectedRepository {
   canChangeVisibility?: boolean;
   canClone?: boolean;
   canPush?: boolean;
+  sshPort?: number;
   canInviteToGroup?: boolean;
   canManageGroupMembers?: boolean;
   canRunLocalChecks?: boolean;
@@ -72,6 +73,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
           Number(Object.hasOwn(raw, "can_change_visibility")) +
           Number(Object.hasOwn(raw, "can_clone")) +
           Number(Object.hasOwn(raw, "can_push")) +
+          Number(Object.hasOwn(raw, "ssh_port")) +
           Number(Object.hasOwn(raw, "can_invite_to_group")) +
           Number(Object.hasOwn(raw, "can_manage_group_members")) +
           Number(Object.hasOwn(raw, "can_run_local_checks")) +
@@ -86,6 +88,11 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
         typeof raw.can_change_visibility !== "boolean") ||
       (Object.hasOwn(raw, "can_clone") && typeof raw.can_clone !== "boolean") ||
       (Object.hasOwn(raw, "can_push") && typeof raw.can_push !== "boolean") ||
+      (Object.hasOwn(raw, "ssh_port") &&
+        (typeof raw.ssh_port !== "number" ||
+          !Number.isInteger(raw.ssh_port) ||
+          raw.ssh_port < 1 ||
+          raw.ssh_port > 65535)) ||
       (Object.hasOwn(raw, "can_view_local_checks_automatic") &&
         typeof raw.can_view_local_checks_automatic !== "boolean") ||
       (Object.hasOwn(raw, "can_run_local_checks") &&
@@ -132,6 +139,7 @@ const parseRepositories = (value: unknown): ConnectedRepository[] => {
       canChangeVisibility: raw.can_change_visibility === true,
       canClone: typeof raw.can_clone === "boolean" ? raw.can_clone : undefined,
       canPush: raw.can_push === true,
+      sshPort: typeof raw.ssh_port === "number" ? raw.ssh_port : undefined,
       canInviteToGroup: raw.can_invite_to_group === true,
       canManageGroupMembers: raw.can_manage_group_members === true,
       canRunLocalChecks: raw.can_run_local_checks === true,

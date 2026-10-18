@@ -288,7 +288,7 @@ fn init_temp_repo(dir: &std::path::Path) {
     git(&["commit", "-q", "-m", "init"]);
 }
 
-async fn call(
+pub(super) async fn call(
     app: &Router,
     method: &str,
     uri: String,

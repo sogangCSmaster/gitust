@@ -151,6 +151,7 @@ pub struct AppState {
     /// Host OS sandbox execution over HTTP is only safe for a trusted single-user deployment.
     /// Multi-tenant execution requires the microVM tier, which is not implemented yet.
     pub trusted_sandbox_exec: bool,
+    pub(crate) ssh_port: Option<u16>,
     pub(crate) local_checks_automatic: Arc<crate::local_checks_automatic::Registry>,
     pub(crate) local_checks_lock: Arc<tokio::sync::Mutex<()>>,
 }
@@ -268,6 +269,7 @@ impl AppState {
             outbound_sync_lock: Arc::new(tokio::sync::Mutex::new(())),
             oauth_mcp: Arc::new(Mutex::new(oauth_store)),
             trusted_sandbox_exec: false,
+            ssh_port: None,
             local_checks_automatic: Arc::new(crate::local_checks_automatic::Registry::default()),
             local_checks_lock: Arc::new(tokio::sync::Mutex::new(())),
         })
@@ -276,6 +278,12 @@ impl AppState {
     #[must_use]
     pub fn with_trusted_sandbox_exec(mut self, enabled: bool) -> Self {
         self.trusted_sandbox_exec = enabled;
+        self
+    }
+
+    #[must_use]
+    pub fn with_ssh_port(mut self, port: Option<u16>) -> Self {
+        self.ssh_port = port;
         self
     }
 

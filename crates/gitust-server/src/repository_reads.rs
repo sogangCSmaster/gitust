@@ -137,6 +137,8 @@ struct CatalogEntry {
     can_change_default_branch: bool,
     can_run_local_checks: bool,
     can_view_local_checks_automatic: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ssh_port: Option<u16>,
 }
 fn display_name(engine: &GitEngine, metadata: Option<&RepositoryRecord>) -> String {
     if let Some(metadata) = metadata {
@@ -231,6 +233,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                         .inspect_changeable_default_branch()
                         .map_err(read_error)?
                         .is_some(),
+                ssh_port: state.ssh_port.filter(|&port| port > 0),
             });
         }
         #[cfg(test)]

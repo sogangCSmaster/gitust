@@ -121,6 +121,10 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1:3000")]
         bind: SocketAddr,
 
+        /// Enable read-only SSH clone/fetch with the primary repository's private host key
+        #[arg(long)]
+        ssh_bind: Option<SocketAddr>,
+
         /// Path to the local Git repository to serve
         #[arg(long, default_value = ".")]
         repo: PathBuf,
@@ -247,6 +251,7 @@ async fn main() -> Result<()> {
         }
         Commands::Serve {
             bind,
+            ssh_bind,
             repo,
             read_only_repos,
             git_write_repos,
@@ -257,16 +262,19 @@ async fn main() -> Result<()> {
         } => {
             let auth_store =
                 tokio::task::spawn_blocking(move || AuthStore::open_persistent(&auth_db)).await??;
-            gitust_server::serve_with_repository_modes(
+            gitust_server::serve_with_transports(
                 bind,
                 repo,
                 sync_github,
                 auth_store,
                 trusted_single_user_sandbox,
                 sync_timeout,
-                gitust_server::RepositoryPaths {
-                    read_only: read_only_repos,
-                    git_write: git_write_repos,
+                gitust_server::TransportOptions {
+                    repositories: gitust_server::RepositoryPaths {
+                        read_only: read_only_repos,
+                        git_write: git_write_repos,
+                    },
+                    ssh_bind,
                 },
             )
             .await?;

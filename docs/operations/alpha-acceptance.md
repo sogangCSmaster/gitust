@@ -58,7 +58,7 @@ under-600-line source limit and shared-state encapsulation rules. Do not weaken 
 or security checks to improve latency. Record performance gaps rather than declaring the
 1ms/16ms ambitions achieved.
 
-Full PR/issue collaboration, automatic Checks on every push, SSH Git serving, GitHub
+Full PR/issue collaboration, automatic Checks on every push, SSH writes, GitHub
 Actions compatibility, SSO, billing, multi-node scheduling and microVM isolation are later
 milestones. A newly discovered defect in the accepted workflow belongs to this milestone;
 a new product capability does not silently expand it.

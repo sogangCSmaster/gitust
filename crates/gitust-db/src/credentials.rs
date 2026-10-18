@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use gitust_core::{AccountStatus, AuthError, AuthenticatedPrincipal, SessionId};
+use gitust_core::{AccountStatus, AuthError, AuthenticatedPrincipal, SessionId, SshKeyId, UserId};
 use subtle::ConstantTimeEq;
 
 use crate::crypto::{
@@ -11,6 +11,14 @@ use crate::{
     AuthStore, DEFAULT_SESSION_TTL_HOURS, LOGIN_RATE_LIMIT_WINDOW_SECS, MAX_LOGIN_ATTEMPTS,
     MAX_RATE_LIMIT_TRACKED_KEYS,
 };
+
+/// A signature-complete key authentication pinned to its original registration and owner.
+/// This is not an authorization snapshot; callers must reauthorize before each Git command.
+#[derive(Clone, Debug)]
+pub struct AuthenticatedSshKey {
+    key_id: SshKeyId,
+    original_user: UserId,
+}
 
 impl AuthStore {
     pub(crate) fn is_rate_limited_locked(
@@ -326,9 +334,35 @@ impl AuthStore {
         &self,
         public_key_openssh: &str,
     ) -> Result<AuthenticatedPrincipal, AuthError> {
+        self.authenticate_ssh_key(public_key_openssh)
+            .map(|(_, principal)| principal)
+    }
+
+    /// Call only after SSH has verified the signature and possession of the offered key.
+    pub fn authenticate_ssh_key_binding(
+        &self,
+        public_key_openssh: &str,
+    ) -> Result<AuthenticatedSshKey, AuthError> {
+        self.authenticate_ssh_key(public_key_openssh)
+            .map(|(binding, _)| binding)
+    }
+
+    /// Revalidates the exact original key registration and current active account.
+    /// Repository authorization must be checked separately against the selected service.
+    pub fn authorize_ssh_key_binding(
+        &self,
+        binding: &AuthenticatedSshKey,
+    ) -> Result<AuthenticatedPrincipal, AuthError> {
+        let guard = self.read_state()?;
+        Self::ssh_key_principal_locked(&guard, binding)
+    }
+
+    fn authenticate_ssh_key(
+        &self,
+        public_key_openssh: &str,
+    ) -> Result<(AuthenticatedSshKey, AuthenticatedPrincipal), AuthError> {
         let (_canonical_key, fingerprint_sha256) = canonicalize_openssh_pubkey(public_key_openssh)
             .map_err(|_| AuthError::Unauthenticated)?;
-
         let guard = self.read_state()?;
         let Some(&key_id) = guard.ssh_fingerprint_index.get(&fingerprint_sha256) else {
             return Err(AuthError::Unauthenticated);
@@ -336,8 +370,25 @@ impl AuthStore {
         let Some(key_rec) = guard.ssh_keys_by_id.get(&key_id) else {
             return Err(AuthError::Unauthenticated);
         };
+        let binding = AuthenticatedSshKey {
+            key_id,
+            original_user: key_rec.owner_id,
+        };
+        let principal = Self::ssh_key_principal_locked(&guard, &binding)?;
+        Ok((binding, principal))
+    }
 
-        let Some(user) = guard.users.get(&key_rec.owner_id) else {
+    fn ssh_key_principal_locked(
+        state: &AuthState,
+        binding: &AuthenticatedSshKey,
+    ) -> Result<AuthenticatedPrincipal, AuthError> {
+        let Some(key_rec) = state.ssh_keys_by_id.get(&binding.key_id) else {
+            return Err(AuthError::Unauthenticated);
+        };
+        if key_rec.owner_id != binding.original_user {
+            return Err(AuthError::Unauthenticated);
+        }
+        let Some(user) = state.users.get(&binding.original_user) else {
             return Err(AuthError::Unauthenticated);
         };
         if user.status != AccountStatus::Active {

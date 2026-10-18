@@ -9,7 +9,79 @@ use axum::Router;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::listener::{serve_hardened_with, DeadlineBody, ServeLimits};
+use crate::listener::{serve_hardened_until, serve_hardened_with, DeadlineBody, ServeLimits};
+
+#[tokio::test]
+async fn shutdown_or_caller_cancellation_closes_idle_keepalive_and_stops_accepting() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    for cancel_caller in [false, true] {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let seen = requests.clone();
+        let app = Router::new().route(
+            "/health",
+            get(move || {
+                let seen = seen.clone();
+                async move {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    "ok"
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (stop, mut stopped) = tokio::sync::watch::channel(false);
+        let limits = ServeLimits {
+            header_read_timeout: Duration::from_secs(30),
+            ..fast_limits()
+        };
+        let server = tokio::spawn(serve_hardened_until(listener, app, limits, async move {
+            while !*stopped.borrow_and_update() {
+                if stopped.changed().await.is_err() {
+                    return;
+                }
+            }
+        }));
+        let mut stream = TcpStream::connect(addr).await.expect("connect");
+        stream
+            .write_all(b"GET /health HTTP/1.1\r\nHost: fixture\r\n\r\n")
+            .await
+            .expect("request");
+        let mut response = Vec::new();
+        while !response.ends_with(b"\r\n\r\nok") {
+            let mut buffer = [0; 256];
+            let count = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut buffer))
+                .await
+                .expect("response deadline")
+                .expect("response");
+            assert_ne!(count, 0);
+            response.extend_from_slice(&buffer[..count]);
+            assert!(response.len() < 1024);
+        }
+        assert!(response.starts_with(b"HTTP/1.1 200"));
+        if cancel_caller {
+            server.abort();
+            assert!(server.await.expect_err("caller cancelled").is_cancelled());
+        } else {
+            stop.send_replace(true);
+            tokio::time::timeout(Duration::from_secs(2), server)
+                .await
+                .expect("shutdown deadline")
+                .expect("join")
+                .expect("shutdown");
+        }
+        assert!(time_until_closed(&mut stream, Duration::from_secs(2))
+            .await
+            .is_some());
+        assert!(TcpStream::connect(addr).await.is_err());
+        let _ = stream
+            .write_all(b"GET /health HTTP/1.1\r\nHost: fixture\r\n\r\n")
+            .await;
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+}
 
 async fn spawn_server(limits: ServeLimits) -> std::net::SocketAddr {
     let app = Router::new()

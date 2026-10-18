@@ -49,7 +49,13 @@ mod repository_summary;
 mod repository_visibility;
 mod run_history;
 mod sandbox_policy;
+mod ssh_git;
+mod ssh_git_host_key;
+mod ssh_git_session;
+mod ssh_git_stream;
+mod ssh_git_target;
 pub mod state;
+mod transports;
 pub mod webui;
 mod worktree_owners;
 pub mod worktrees;
@@ -368,6 +374,41 @@ pub async fn serve_with_repository_modes(
     sync_timeout_secs: Option<u64>,
     repositories: RepositoryPaths,
 ) -> Result<(), std::io::Error> {
+    serve_with_transports(
+        addr,
+        repo_path,
+        github_mirror_url,
+        auth_store,
+        trusted_sandbox_exec,
+        sync_timeout_secs,
+        TransportOptions {
+            repositories,
+            ssh_bind: None,
+        },
+    )
+    .await
+}
+
+/// Optional network services; SSH is disabled unless the operator supplies a bind address.
+#[derive(Default)]
+pub struct TransportOptions {
+    pub repositories: RepositoryPaths,
+    pub ssh_bind: Option<SocketAddr>,
+}
+
+pub async fn serve_with_transports(
+    addr: SocketAddr,
+    repo_path: PathBuf,
+    github_mirror_url: String,
+    auth_store: AuthStore,
+    trusted_sandbox_exec: bool,
+    sync_timeout_secs: Option<u64>,
+    options: TransportOptions,
+) -> Result<(), std::io::Error> {
+    let TransportOptions {
+        repositories,
+        ssh_bind,
+    } = options;
     let (state, _service_lock) = tokio::task::spawn_blocking(
         move || -> Result<(AppState, gitust_git::WorktreeServiceLock), std::io::Error> {
             let mut engine = gitust_git::GitEngine::new(&repo_path);
@@ -403,12 +444,19 @@ pub async fn serve_with_repository_modes(
              single-user deployment"
         );
     }
+    let ssh = match ssh_bind {
+        Some(bind) => Some(ssh_git::Listener::bind(bind, state.clone()).await?),
+        None => None,
+    };
+    let listener = tokio::net::TcpListener::bind(addr).await?;
     let automatic_checks = automatic_checks::start(&state).await?;
     let local_checks_automatic = local_checks_automatic::start(&state).await?;
     let app = build_router(state);
-    let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Gitust All-in-One Server listening on http://{addr}");
-    let result = listener::serve_hardened(listener, app).await;
+    if let Some(bind) = ssh_bind {
+        tracing::info!("Gitust read-only SSH listening on {bind}");
+    }
+    let result = transports::serve(listener, app, ssh).await;
     let local_result = local_checks_automatic.shutdown().await;
     automatic_checks.shutdown().await?;
     local_result?;
@@ -419,3 +467,5 @@ pub async fn serve_with_repository_modes(
 mod tests;
 #[cfg(test)]
 mod tests_listener;
+#[cfg(test)]
+mod tests_ssh_git_target;

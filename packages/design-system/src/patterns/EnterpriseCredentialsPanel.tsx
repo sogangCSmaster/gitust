@@ -368,7 +368,7 @@ export const EnterpriseCredentialsPanel: Component<
         </Section>
         <Section
           title="SSH public keys"
-          description="Store a public key. Git SSH serving is not yet available. Private keys stay on your machine."
+          description="Ed25519 keys allow clone and fetch when SSH is enabled. Private keys stay on your machine."
         >
           <form
             class="space-y-3"

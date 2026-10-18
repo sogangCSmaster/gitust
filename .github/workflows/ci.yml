@@ -577,6 +577,40 @@ jobs:
               output.write("### Automatic primary default-branch Checks\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PYCODE
 
+      - name: Clone and fetch over read-only SSH and restore the pinned host identity
+        run: |
+          python3 scripts/ssh-read-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-ssh-read.json"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-ssh-read.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          binary_sha = hashlib.sha256(Path("target/debug/gitust").read_bytes()).hexdigest()
+          platform = {"Linux": "Linux", "macOS": "Darwin"}[os.environ["RUNNER_OS"]]
+          if (report["version"] != 1 or report["source_commit"] != expected
+              or report["runtime_worktree_dirty"] is not False or report["binary_sha256"] != binary_sha
+              or report["actual_repositories"] != 2 or report["actual_clones"] != 4
+              or report["platform"] != platform or report["external_network_used"] is not False):
+              raise SystemExit("SSH rehearsal source or scope evidence is invalid")
+          checks = ["passed", "primary_secondary_native_clone", "native_raw_refs_head_tree_match",
+                    "annotated_tag_objects_preserved", "offline_incremental_fetch",
+                    "unknown_and_unhosted_denied", "current_team_acl_denied", "denied_read_emits_no_refs",
+                    "sequential_revoked_key_and_inactive_account_denied", "ssh_receive_pack_denied",
+                    "read_operations_preserve_refs_and_registration",
+                    "strict_pinned_host_identity_across_restart_restore", "stopped_two_repository_relocation",
+                    "host_private_modes_preserved", "git_fsck", "owned_services_reaped", "private_fixture_removed"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("SSH clone/fetch and recovery rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "actual_repositories", "actual_clones", "external_network_used", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### Read-only SSH clone/fetch and host identity restore\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
       - name: Reject unsafe service restart after an interrupted command
         run: |
           python3 scripts/execution-crash-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-execution-crash.json"

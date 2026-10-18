@@ -96,7 +96,12 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
     native worktree registrations, checkout/scratch contents and authority state
     after completion. Require bounded primary administrator reads, disabled
     restart, stopped two-repository relocation, strict fsck and owned cleanup.
-14. Kill a disposable fixture service during an actual automatic Check and require
+14. Clone and fetch both configured repositories with native OpenSSH/Git and a
+    pinned Ed25519 host identity. Compare raw refs, annotated tag objects, HEAD and
+    trees; deny unauthorized reads without emitting refs and reject SSH pushes.
+    Restore a stopped two-repository snapshot at a new location and require the
+    original host fingerprint, private key modes, successful reads and strict fsck.
+15. Kill a disposable fixture service during an actual automatic Check and require
    a fresh service to refuse the unresolved execution fence. Stop only the
    fixture's authenticated process groups, require explicit operator recovery,
    and prove ordinary execution resumes without restoring verification authority.

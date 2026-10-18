@@ -13,6 +13,7 @@
 mod automatic_checks;
 mod credential_mutations;
 mod credentials;
+pub use credentials::AuthenticatedSshKey;
 mod crypto;
 mod disk_lock;
 mod invites;
@@ -58,6 +59,8 @@ mod tests_review_regressions;
 mod tests_session_scope;
 #[cfg(test)]
 mod tests_snapshot_limits;
+#[cfg(test)]
+mod tests_ssh_binding;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

@@ -39,6 +39,7 @@ mod repository_registration;
 pub use repository_registration::RegistrationReceipt;
 mod service_lock;
 mod smart_http;
+mod ssh_upload_pack;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -88,6 +89,11 @@ pub use smart_http::{
     inspect_receive_pack_updates, ReceivePackRefUpdate, SmartHttpService,
     MAX_SMART_HTTP_BODY_BYTES, SMART_HTTP_TIMEOUT,
 };
+pub use ssh_upload_pack::{
+    SshUploadPack, SshUploadPackCancel, SshUploadPackError, SshUploadPackOutcome,
+};
+#[cfg(all(test, unix))]
+mod tests_ssh_upload_pack;
 pub use worktree::{ManagedWorktreeEntry, MaterializedWorktree};
 pub use worktree_commit::{PreparedWorktreeCommit, WorktreeCommit};
 

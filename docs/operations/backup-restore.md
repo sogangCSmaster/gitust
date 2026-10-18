@@ -37,6 +37,11 @@ The tool does not start a server, verify accounts through login, restore outboun
 credentials, or infer fresh verification authority. Complete sections 4 and 5 against the
 restored service. The manual procedure below explains the same storage and recovery model.
 
+An enabled [Git SSH server](ssh-read-only.md) stores its inbound host identity at
+`<primary-common-git-dir>/gitust-ssh/host_key`. This private key and its directory modes
+are included in the snapshot. Preserve and verify the original host fingerprint after
+restoration; it is distinct from external outbound SSH credentials.
+
 ### Include configured read-only repositories
 
 For a service started with additional `--read-only-repo` or `--git-write-repo` paths,

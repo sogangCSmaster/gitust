@@ -28,6 +28,7 @@ CoW and microVM ambitions remain future work. Current worktrees use Git checkout
 In progress. Implemented portions:
 
 - Smart HTTP hosting with access checks and managed-agent-branch push restrictions.
+- Opt-in Ed25519 SSH clone/fetch for configured repositories, with a persisted private host identity, current key/account/ACL checks and bounded native Git streams. SSH push and broader key types remain separate work. See the [read-only SSH contract](operations/ssh-read-only.md).
 - Local triage commands and the live web agent workflow.
 - Clean-commit verification, fast-forward approval, and separate exact-SHA publication.
 - Durable approval/publication records and explicit remote-failure retry.
@@ -67,7 +68,7 @@ Remaining work:
 - Automatic triggers for other ordinary branches and secondary repositories, and workflow execution beyond the existing managed-worktree and primary default-branch Checks. GitHub Actions-compatible workflows remain Phase 4 work.
 - Reduce the initial JavaScript bundle toward the 50 kB gzip target; the current initial static-import closure is approximately 70 kB gzip after the first import-boundary reduction. The [measurement](benchmarks/web-bundle.md) includes every static dependency and the first Overview's cumulative cost; the target remains unmet.
 - Full pull-request collaboration.
-- SSH Git transport; existing SSH key registration is not an SSH Git server.
+- SSH pushes, broader user-key algorithms and web clone-address discovery beyond the optional read-only transport.
 - Repository administration UI, lifecycle management and online inventory changes; additional repositories still need isolated worktree and execution routing before gaining full workbench capabilities.
 - Final-candidate restoration evidence for auth state, Git data, worktrees and approval records on the intended platforms.
 - Deployment validation, platform coverage, and final-candidate checks and Gate A review.

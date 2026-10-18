@@ -29,6 +29,8 @@ hyper.workspace = true
 hyper-util.workspace = true
 tower.workspace = true
 libc.workspace = true
+russh.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

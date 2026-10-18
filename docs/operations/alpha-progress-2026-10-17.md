@@ -1144,3 +1144,50 @@ Other ordinary-branch triggers, secondary execution, SSH transport and GitHub
 Actions compatibility remain future work. GitHub product publication stays
 deferred, automatic Gate B stays stopped, and existing preview servers were not
 restarted or deployed.
+
+
+### Optional read-only SSH hosting, 2026-10-18
+
+Based on `b08177308518c549e03177609f2f54ed646c5a9f`, an explicit
+`--ssh-bind` enables native SSH clone/fetch for configured repository UUIDs.
+Plain Ed25519 user keys authenticate as `git`; current key registration, active
+account and the selected repository binding/ACL are checked again before native
+Git starts. The server loads one private persisted Ed25519 host identity under
+the primary common Git directory. The shared sandbox policy hides that directory.
+Missing or invalid keys fail startup. SSH push, arbitrary commands, other key
+algorithms and web SSH clone-address discovery remain outside this slice.
+See the [setup and transport contract](ssh-read-only.md).
+
+The owned Git supervisor distinguishes input EOF from cancellation, retains
+repository/admission holders through cleanup, and reports uncertainty without
+silently releasing ownership. Normal native exit is observed before reap, with
+owned output draining and no later numeric process-group signal. A retained SSH
+channel sends the native exit status before its final close. The HTTP listener
+also owns its connection tasks through shutdown and bounded draining; this does
+not claim that all pre-existing detached blocking work has completed.
+
+Full verification passed: Rust 467, frontend 311 across 44 files and Python 20,
+with two existing ignored Git tests. The final ordinary macOS OpenSSH/Git
+rehearsal passed 17 functional checks on two repositories and four actual clones.
+It compared raw refs, HEAD, trees and annotated tag objects, fetched offline
+updates, denied unsupported pushes and unauthorized reads without emitting refs,
+and retained the original pinned host identity after stopped backup and relocated
+restore. Server/client strict fsck, private fixture removal and owned service
+cleanup passed. Runtime provenance remains an uncommitted candidate, identified
+by its fixed binary and source hashes.
+
+Independent implementation and integration reviews found no remaining P0/P1/P2.
+They corrected native process identity/cleanup reporting, channel-close ordering,
+HTTP keep-alive shutdown, fixture environment isolation and denied-read output
+validation. The guide now distinguishes server and client keys and provides a
+consistent clone/fetch example. [Candidate evidence](evidence/ssh-read-only-2026-10-18.json)
+records exact sources, verification, normal runtime and review hashes. Initial
+JavaScript still exceeds the 50,000-byte goal; no latency or isolation-performance
+claim is added.
+
+The preceding `b081773` [hosted run](https://github.com/sogangCSmaster/gitust/actions/runs/39085108058)
+passed Ubuntu and macOS, including automatic default-branch Checks. This SSH
+candidate needs its own hosted result; the workflow now runs the native SSH
+rehearsal on both platforms. Existing preview servers were not restarted or
+deployed. Actual GitHub product publication remains deferred, automatic Gate B
+stays stopped, and the overall roadmap and final alpha acceptance remain open.

@@ -1,0 +1,317 @@
+{
+  "version": 1,
+  "base_commit": "b08177308518c549e03177609f2f54ed646c5a9f",
+  "scope": "Optional Ed25519 SSH clone/fetch for configured repositories with current key and ACL binding, private host identity and owned connection/Git cleanup",
+  "source_manifest_sha256": "99909e87f5dc4416c8eee1baab263534ca9f74372d75dcb7a22c283dc343fe2c",
+  "source": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "before_sha256": "9409ebbdb2981170d8a5431838da5d6f924f14ac87ef04402809b4fbe3039242",
+      "after_sha256": "22b204fdd00cf5ead39d0b72a4fb85b7fb49a937bcb8830a7e7e7a8555562c07"
+    },
+    {
+      "path": "Cargo.lock",
+      "before_sha256": "7dd9dc13996daf3bc9de7f94944766ce527516191ae6a1b1f4217708d5f7e66d",
+      "after_sha256": "5d3f7f3ac814c4006496a8c11c55e6c6b49724b23cc701acf472d9ab5a7538b4"
+    },
+    {
+      "path": "Cargo.toml",
+      "before_sha256": "e2d88609bc834d847f01db70278a67c5bde594e8b83b85da05af86ce2d4b6ee1",
+      "after_sha256": "bf17f495026108102735050fc92ddb027f25397af4e2e173b4bc6f2df5dbcc97"
+    },
+    {
+      "path": "README.md",
+      "before_sha256": "9c50b9ef46468c9a0487256ec80b9e5c046ebad8c12a45fc02ecde2de4ed0406",
+      "after_sha256": "277a3d26e1fc577738c4382a7a44431f5c88f187297e62d8c16a448e34588aaf"
+    },
+    {
+      "path": "crates/gitust-cli/src/main.rs",
+      "before_sha256": "21391a5601edbe093981ccc144510a627868bd4b2f6674cbae7c773790b4c3cf",
+      "after_sha256": "75578725b1256a6991943dd4031f69c4c4739aa21dfe7392ab4c6b5649aef1e3"
+    },
+    {
+      "path": "crates/gitust-db/src/credentials.rs",
+      "before_sha256": "e01041a0370b746f3c9aebfa4185977c8e9da0262d625d0e3efea753fa85ca60",
+      "after_sha256": "128c771f1178b97955db989d31a9682ebde028da9c2685895d1874402126bec8"
+    },
+    {
+      "path": "crates/gitust-db/src/lib.rs",
+      "before_sha256": "a85ee08e431757285a24aa414dde1b06e2f0b648d7b7a7c1ad325a811fc98823",
+      "after_sha256": "9a87ca6beaf011303d92d5fc5466ddb6a43b63f54f091db8f7ea1c862508ee51"
+    },
+    {
+      "path": "crates/gitust-db/src/tests_ssh_binding.rs",
+      "before_sha256": null,
+      "after_sha256": "5f46add291f70f2e5a11b6b952d7f813c9e8d6cfc2522966bbc3625ac2d9b11a"
+    },
+    {
+      "path": "crates/gitust-git/Cargo.toml",
+      "before_sha256": "5642bb876a16a2e7ee2fb1a75c9e86c2a9b408a1f6f6d5111055a4273d199b31",
+      "after_sha256": "dcb14291ff6713b930c93c6f81ac6c3f00f5266b6b81a349b1985fd8251a159a"
+    },
+    {
+      "path": "crates/gitust-git/src/lib.rs",
+      "before_sha256": "62af083cd8843fa042ceb376ddd786dd58a2d979132e528e3a989473dccc5e34",
+      "after_sha256": "63205c232986d96971f0dacf55b83d4569608680fe894088f17989b304af69c0"
+    },
+    {
+      "path": "crates/gitust-git/src/ssh_upload_pack.rs",
+      "before_sha256": null,
+      "after_sha256": "32bce33a53804d570fed077dc3f10476f54d533057dbd68e87c28f42f90fcf9d"
+    },
+    {
+      "path": "crates/gitust-git/src/ssh_upload_pack_io.rs",
+      "before_sha256": null,
+      "after_sha256": "7272c02a84ea129c9b60031c347288b550c352db081c5b639f452235264dd67d"
+    },
+    {
+      "path": "crates/gitust-git/src/tests_ssh_upload_pack.rs",
+      "before_sha256": null,
+      "after_sha256": "2093dfec76b28cfa6271663c0ccb74c4d69439bfdfd8107b577a8217d5cd68af"
+    },
+    {
+      "path": "crates/gitust-sandbox/src/lib.rs",
+      "before_sha256": "5b3099fbc5a4cbf047cec4e51a64167f3f63470402a9c03e87afa91d7cfa1771",
+      "after_sha256": "e1514a6310e59f835b7fc5f7fb92e1201f98fdf01795c54920d34e0275e66a3c"
+    },
+    {
+      "path": "crates/gitust-sandbox/src/tests_policy_failclosed.rs",
+      "before_sha256": "e36cb28c1df6c57baaa1d33aedd6367f9730f0e8903ee2bf46f4f2175217b7ee",
+      "after_sha256": "1449b42da985892250a16479c956a08ccfffaa6f8a19b3d86c6cfe902654c1a5"
+    },
+    {
+      "path": "crates/gitust-server/Cargo.toml",
+      "before_sha256": "c59a7fe82a598329885aab3d8d76f24694fcc3554d31925b435de5e314a0b610",
+      "after_sha256": "5dca65f2bc1cc4260344a323cfa78ac760b1b35ff4b23e7f935dff556065b09b"
+    },
+    {
+      "path": "crates/gitust-server/src/lib.rs",
+      "before_sha256": "a566fd8363d982fe96b1f4ca8b0b1a485d1bf196106a65708cb701dba9c8c594",
+      "after_sha256": "becc3fe519f5398dfd8dcb4ae4c63b8a324ff0619e268d41bb7f718bf2a36e0d"
+    },
+    {
+      "path": "crates/gitust-server/src/listener.rs",
+      "before_sha256": "2cbfe647f3a0d6855e02dd08e38c654f60f094b5284e5b00ec2c28341e1f4ee4",
+      "after_sha256": "d9fe22728cf53a143e0eacf046a3ecb2831191ac79e31b8f1f391abbbb174d15"
+    },
+    {
+      "path": "crates/gitust-server/src/ssh_git.rs",
+      "before_sha256": null,
+      "after_sha256": "c36377e78a3768925aee5f6cb68a806553f5e0cb80d25084f407d652f51095cb"
+    },
+    {
+      "path": "crates/gitust-server/src/ssh_git_host_key.rs",
+      "before_sha256": null,
+      "after_sha256": "ed66731765e67500a9d4b1665c9cee2a702fae0aab29e89951bd515d1e863446"
+    },
+    {
+      "path": "crates/gitust-server/src/ssh_git_session.rs",
+      "before_sha256": null,
+      "after_sha256": "4ff5d245c35605a9951432191d74d9fdbfe3e4accf016294236359a107162f4e"
+    },
+    {
+      "path": "crates/gitust-server/src/ssh_git_stream.rs",
+      "before_sha256": null,
+      "after_sha256": "e112789640af8dcf738cb87f6181386b23635bc814372df7b2f194bc06e9b1c5"
+    },
+    {
+      "path": "crates/gitust-server/src/ssh_git_target.rs",
+      "before_sha256": null,
+      "after_sha256": "044a71b5d7beffc1e4ffd053e37b4b3b5d66a3b80cd22968b03a4a6d6a8ef987"
+    },
+    {
+      "path": "crates/gitust-server/src/tests.rs",
+      "before_sha256": "67d66b57920243546f3e835da8c361bb8ebc400cbfa0c145fc5f7d3d6fea9747",
+      "after_sha256": "79e69f38e870f809b8070a1be9601c32864e82d9cd3667fa2f72e31f0f48f19b"
+    },
+    {
+      "path": "crates/gitust-server/src/tests_listener.rs",
+      "before_sha256": "9a17d8d77995d4d7db8fb955703fcd94daa15785a3a196098dd0196ba5f40c31",
+      "after_sha256": "ffda41783855277605fc0ab85989215ee040f5a92bc04a185bbef5f3dfd3c911"
+    },
+    {
+      "path": "crates/gitust-server/src/tests_ssh_git_target.rs",
+      "before_sha256": null,
+      "after_sha256": "94ef9ca41960c0b36cf502ed91ca1544c81d8172648ade12b593910fb469da2c"
+    },
+    {
+      "path": "crates/gitust-server/src/transports.rs",
+      "before_sha256": null,
+      "after_sha256": "83c3b801f4e53abd4a9e70aab1b17b3d114612430e3ccb573a67a87e739c1089"
+    },
+    {
+      "path": "docs/architecture/overview.md",
+      "before_sha256": "b72cfaa35f312474fd2eb3c003c581ca02e8fd10780edafa49b5a98e5130e0af",
+      "after_sha256": "459d47f6620b8851b450d9c89e03929bee4da1691b93d1330116c04854a9d6a5"
+    },
+    {
+      "path": "docs/operations/alpha-acceptance.md",
+      "before_sha256": "e8bae577845106da5343c574cef30435c69bb960ab7f98956016c864c7e449fd",
+      "after_sha256": "de48392cfd80db982d7eb21c8abb13a3e9364accbb914598309f291fba4f3dd1"
+    },
+    {
+      "path": "docs/operations/backup-restore.md",
+      "before_sha256": "2c381558dd71665f28c6e6e1cc21f77e29e1521c2b03f26bafc50de11567e82a",
+      "after_sha256": "c746ee84098afb3be6c0929cc54eaca782cf239a789ad69d2d8672d7375d562b"
+    },
+    {
+      "path": "docs/operations/repository-ci.md",
+      "before_sha256": "ec0981fb57aa440288ea62e10785f100241aa038d473bb68f8cfd58b9bd6ada0",
+      "after_sha256": "6dec57c038d0094d0013c6531fe7964260919bd375e035437ee915b90ade803b"
+    },
+    {
+      "path": "docs/operations/roadmap-execution.md",
+      "before_sha256": "2a7217165fc6a6c2e45ecd1e664096d0420f024cdc3d2bb97427f216c520f587",
+      "after_sha256": "a417fc58c55d54102aeee8271546092f6b4789915627beb2c7da17f1c4c0bd42"
+    },
+    {
+      "path": "docs/operations/ssh-read-only.md",
+      "before_sha256": null,
+      "after_sha256": "1868653567c25c5313d0417e804e7ba9d4eb34aac79e240ac1d67aa863bbe912"
+    },
+    {
+      "path": "docs/roadmap.md",
+      "before_sha256": "fdf88733b277ca7af2e547aa136e248bd129e854f1e2aa51e8a8972de29f2464",
+      "after_sha256": "eb23bd9a5c15d239ea90e4ecbfa721b8c9925f1fe49fcd5099b990165a63a879"
+    },
+    {
+      "path": "packages/design-system/dist/assets/EnterpriseAdminView-Bx3BbtXX.js",
+      "before_sha256": "41456c26f9eb2f7c42a69148d7bbe8059895d9b959485abacac91883d783b643",
+      "after_sha256": null
+    },
+    {
+      "path": "packages/design-system/dist/assets/EnterpriseAdminView-CTrxTpOi.js",
+      "before_sha256": null,
+      "after_sha256": "658fa04edad973d4f19a203ea2de296680f758f0474fe5f079bad41f405f6702"
+    },
+    {
+      "path": "packages/design-system/dist/assets/index.js",
+      "before_sha256": "14132adbe02f009d1372c0b5765ded57ca1932be60e1718ea3224b78535ef617",
+      "after_sha256": "573f5f641373c2a52318144147cbeaf75be9d861748ad2c6d7ddf99ee49cd1ca"
+    },
+    {
+      "path": "packages/design-system/src/patterns/EnterpriseCredentialsPanel.tsx",
+      "before_sha256": "b0433baaa8121dd24d8c9306075adcf390dbb032f71947753c8ed182d5ba37b3",
+      "after_sha256": "21be11e50b489a684d3745e7980eed6b9b47360cd42e78f0b15cb4e9c8a80e86"
+    },
+    {
+      "path": "scripts/ssh-read-rehearsal.py",
+      "before_sha256": null,
+      "after_sha256": "0729db2af35aa37307187f0b4e55e9d86a8e887717d2a7e5ae15ee9df519aed8"
+    }
+  ],
+  "verification": {
+    "command": "CARGO_INCREMENTAL=0 scripts/verify.sh",
+    "exit_code": 0,
+    "log_sha256": "d1e4c20fe00c31d7b8c8149b41d5ff12b29ab7fd1c289a5009321c0ae3d35dc1",
+    "rust_passed": 467,
+    "existing_git_ignored": 2,
+    "nested_child_results_not_double_counted": true,
+    "frontend_passed": 311,
+    "frontend_files": 44,
+    "python_passed": 20,
+    "max_source_lines": 599
+  },
+  "native_ssh_operator": {
+    "report_sha256": "e120178fb2ed6d9293929757d4bdb5c3320c64903c565cc5708d5f3939a46bf0",
+    "binary_sha256": "a8a2df0dcb9a6b51d386826ecae3b3356070a74fc466d45991ee3ce0a997b357",
+    "runtime_source_sha256": {
+      "scripts/ssh-read-rehearsal.py": "0729db2af35aa37307187f0b4e55e9d86a8e887717d2a7e5ae15ee9df519aed8",
+      "scripts/alpha-rehearsal.py": "2ca006f63daa85030eb35d03e3eb0927f4274438f9cd06976f206b69e3b8b09c",
+      "scripts/multi-repository-rehearsal.py": "f2d35dfa03cdf03500580587711bb020473463fb04d5782b430267bc9c7fdc36",
+      "scripts/backup.py": "24b9e250e7c6b6097697ae3797aec4ebfca223e9ad4eb269b073815bea2275b6"
+    },
+    "platform": "Darwin",
+    "actual_repositories": 2,
+    "actual_clones": 4,
+    "functional_checks_count": 17,
+    "checks": {
+      "passed": true,
+      "primary_secondary_native_clone": true,
+      "native_raw_refs_head_tree_match": true,
+      "annotated_tag_objects_preserved": true,
+      "offline_incremental_fetch": true,
+      "unknown_and_unhosted_denied": true,
+      "current_team_acl_denied": true,
+      "denied_read_emits_no_refs": true,
+      "sequential_revoked_key_and_inactive_account_denied": true,
+      "ssh_receive_pack_denied": true,
+      "read_operations_preserve_refs_and_registration": true,
+      "strict_pinned_host_identity_across_restart_restore": true,
+      "stopped_two_repository_relocation": true,
+      "host_private_modes_preserved": true,
+      "git_fsck": true,
+      "owned_services_reaped": true,
+      "private_fixture_removed": true
+    },
+    "runtime_worktree_dirty": true,
+    "external_network_used": false,
+    "scope": "Ordinary native OpenSSH and Git, sequential account/key/ACL denial, stopped restart and relocation. The private binary source matches the integrated production source; later changes only clarify operating documentation."
+  },
+  "independent_source_reviews": [
+    {
+      "artifact": "ssh-root-source-gate-a-review.json",
+      "sha256": "e446896312fa1c1f2d392782b10cc14c3b8be3538020f3e3b56a64ad43956a57",
+      "unresolved_p0_p1_p2": 0
+    },
+    {
+      "artifact": "ssh-binding-host-loader-operator-http-d-source-gate-a-review-v2.json",
+      "sha256": "1751f48ede7a82aab331cfb7ad08bbb44e29be21ae2ad8c95ccc1ed0da2ab9ff",
+      "unresolved_p0_p1_p2": 0
+    },
+    {
+      "artifact": "gitust-ssh-upload-pack-source-gate-a-review-v2.json",
+      "sha256": "2a86423315e8921b402d5cdd3157ce17da4a7d8d4aa09aed6450e3a060242429",
+      "unresolved_p0_p1_p2": 0
+    },
+    {
+      "artifact": "gitust-ssh-integrated-source-gate-a-review.json",
+      "sha256": "760e09d928be02b01cce3eb4b8b6126da7313d7171c448911a035782d3eb3ac6",
+      "unresolved_p0_p1_p2": 0
+    }
+  ],
+  "review_fixes": [
+    "Natural native Git exit is observed without reaping, then owned streams drain before reap; no numeric process-group signal is sent after normal reap.",
+    "Cleanup uncertainty is reported promptly while the owned supervisor retains repository and admission holders.",
+    "The russh channel remains retained until native exit status, EOF and close are delivered or delivery fails; dropping the pumps cannot close it first.",
+    "HTTP shutdown now stops admission and owns connection draining, with a deadline and joined cancellation instead of leaving idle keep-alive tasks detached.",
+    "The host-key fixture shares the existing sanitized Git command helper.",
+    "Existing denied-read operating cases additionally require empty ref output, with a subsequent allowed control and unchanged repository state.",
+    "The setup guide distinguishes the server host key from a passphrase-protected client key, registers only the public key and names the clone destination."
+  ],
+  "test_scope": {
+    "new_tests": "Ordinary key binding/loading, exact command selection, Git stream/EOF/caps and HTTP shutdown fixtures. Existing required tests ran unchanged.",
+    "initial_unavailable_execution": "The first HTTP shutdown test could not bind inside the tool sandbox; the same owned loopback fixture passed with normal OS permissions.",
+    "full_gate_timing": "The full gate covers the final production source and bundle; subsequent edits add or clarify documentation only."
+  },
+  "bundle": {
+    "tool": "Python gzip.compress level=9 mtime=0",
+    "zlib_version": "1.2.12",
+    "baseline_initial_bytes": 70639,
+    "candidate_initial_bytes": 70641,
+    "target_bytes": 50000,
+    "target_met": false,
+    "comparison_scope": "Same compressor and cohort; do not compare these byte counts directly with earlier Node/Vite compressor measurements.",
+    "latency_claim": false
+  },
+  "preceding_hosted_ci": {
+    "commit": "b08177308518c549e03177609f2f54ed646c5a9f",
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39085108058",
+    "conclusion": "success",
+    "platforms": [
+      "Ubuntu",
+      "macOS"
+    ],
+    "query_sha256": "8edb1047193d59746720aff44a42618a2dc5724e0739e130b3cb834c07df84a0"
+  },
+  "limits": [
+    "This candidate still needs its own hosted Ubuntu and macOS CI; local native SSH evidence is macOS only.",
+    "SSH is disabled by default and accepts only plain Ed25519 keys, username git and read-only UUID upload-pack; push, certificates, other user-key algorithms and web SSH address discovery remain future work.",
+    "Current authority is rechecked immediately before Git starts; already streamed bytes cannot be recalled and mid-transfer revocation is not promised.",
+    "Network and native-child limits do not establish an overall memory bound, interruptible filesystem I/O or arbitrary detached-descendant isolation.",
+    "HTTP connection cleanup does not imply that every pre-existing detached blocking operation has completed; existing ownership/fence rules still apply.",
+    "Existing preview servers were not restarted; no deployment or actual GitHub product publication occurred. GitHub product publication remains deferred by the user.",
+    "Automatic Gate B remains stopped; no new exploit, race, symlink, special-file, crash or escape probe was introduced.",
+    "Initial JavaScript remains above the 50,000-byte target."
+  ]
+}

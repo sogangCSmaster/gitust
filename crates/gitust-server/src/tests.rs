@@ -247,7 +247,7 @@ async fn http_gate_worktree_ownership_quota_and_work_preservation() {
     assert_eq!(s, StatusCode::NO_CONTENT);
 }
 
-fn fixture_git() -> std::process::Command {
+pub(crate) fn fixture_git() -> std::process::Command {
     let mut command = std::process::Command::new("git");
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("GIT_") {

@@ -23,6 +23,22 @@ fn linked_worktree_policy_hides_fixed_ssh_host_key_directory() {
 }
 
 #[test]
+fn linked_worktree_policy_hides_gitust_search_directory() {
+    let common = std::path::Path::new("/fixture/repository.git");
+    let spec = SandboxSpec::for_linked_worktree(
+        std::path::Path::new("/fixture/worktrees/own"),
+        &common.join("worktrees/own"),
+        common,
+        None,
+        std::path::Path::new("/fixture/worktrees"),
+        std::path::Path::new("/fixture/scratch"),
+    );
+    assert!(spec.rules.iter().any(|rule| {
+        rule.path == common.join("gitust-search") && rule.access == PathAccess::Hidden
+    }));
+}
+
+#[test]
 fn missing_readonly_child_fails_instead_of_inheriting_writable_parent() {
     let temp = tempfile::tempdir().unwrap();
     for access in [PathAccess::ReadOnly, PathAccess::ReadWrite] {

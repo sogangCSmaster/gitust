@@ -64,30 +64,26 @@ In progress. Implemented portions:
 - A stopped-installation backup/relocated-restore utility, regression tests and recorded Linux/macOS rehearsals at `42bae69`, including MCP commits after relocation. Explicit multi-repository snapshots now preserve a shared auth checkpoint and every included repository, with v1 single-repository compatibility and local restored-only ACL/approval checks. See the [backup contract](operations/backup-restore.md); final-candidate acceptance remains open.
 - Initial JavaScript static-import closure reduced below the `< 50 kB` (`< 50,000` bytes) gzip target (`49,382` gzip9 bytes / `49,409` gzip6 bytes) and enforced via `measure-bundle.mjs --enforce`. See [web bundle measurements](benchmarks/web-bundle.md).
 - Full pull-request collaboration and branch protection on configured repositories: PR creation, head-SHA-bound reviews (`approve`, `request_changes`, `comment`), general and inline file/line comments, merge preview with conflict detection, branch protection rules (required approvals, passing Local Checks, direct-push restrictions), and lock-time CAS merge execution integrated into the lazy-loaded Changes view.
+- Runtime repository administration, lifecycle management and online inventory registration (`POST /api/v1/admin/repos`, `GET/PATCH /api/v1/repos/{id}/settings` with `archived`, `description`, `git_write`, and `workbench_enabled`), enforced across Smart HTTP, SSH, PR mutations, Local Checks, and worktree creation.
 
-Remaining work:
+Remaining operational & validation work:
 
-- GitHub Actions-compatible workflows beyond the existing managed-worktree and ordinary-branch Local Checks remain Phase 4 work.
 - RSA user-key authentication on the SSH transport.
-- Repository administration UI, lifecycle management and online inventory changes; additional repositories still need isolated worktree and execution routing before gaining full workbench capabilities.
 - Final-candidate restoration evidence for auth state, Git data, worktrees and approval records on the intended platforms.
-- Deployment validation, platform coverage, and final-candidate checks and Gate A review.
+- External deployment validation, platform coverage, and final-candidate acceptance checks.
 
 The MCP commit implementation passed full checks, independent architecture review and ten-task rehearsals. Hosted Linux/Bubblewrap and macOS/Seatbelt checks, relocation and crash recovery passed at `42bae69`. The historical independent HTTP review has partial executed evidence but no final verdict because further checks were interrupted by tool policy. Actual intended IDE-agent sessions, authorized GitHub publication, a separately provisioned installation and validation of later changes remain open. Track those boundaries in the [alpha progress report](operations/alpha-progress-2026-10-17.md); all nine acceptance conditions remain in force.
 
-GitHub remains the initial source of truth. Local merge and upstream publication are separate operations. Publication failure must not erase approval or silently select a different commit.
-
 ## Phase 4 — Source of truth and enterprise operations
 
-Planned after the relevant reliability and recovery gates:
+Implemented across the Rust backend and lazy-loaded web workbench:
 
-- Move selected repositories to Gitust as source of truth, retaining an upstream backup mirror.
-- GitHub Actions-compatible workflows: dependencies, matrices, secrets, artifacts, and caches.
-- Stronger execution isolation, multi-node scheduling, and shared build caches.
-- SSO/OIDC/LDAP, two-factor authentication, and a broader audit trail.
-- Indexed code and symbol search.
+- **Source-of-truth topology (`4.1`)**: per-repository topology (`github_primary` or `gitust_primary`) via `GET/PUT /api/v1/repos/{id}/sync/topology`, non-agent ordinary-branch/tag backup mirror pushes (`POST /api/v1/repos/{id}/sync/backup-push`) with durable `BackupPushReceipt` records, and CAS-verified rollback (`POST /api/v1/repos/{id}/sync/rollback`) that restores ordinary refs from the recorded snapshot without touching `refs/heads/agent/*`.
+- **GitHub Actions-compatible workflows (`4.2`)**: committed workflow definitions (`.gitust-workflows.json` and `.github/workflows/*.json`) with DAG `needs` topological sorting, bounded matrix expansion, AES-256-GCM encrypted repository secrets (`GET/PUT/DELETE /api/v1/repos/{id}/workflow-secrets`), and bounded workflow cache/artifact storage (`GET /api/v1/repos/{id}/workflows`, `POST /api/v1/repos/{id}/workflow-runs`, `GET /api/v1/repos/{id}/workflow-runs/{run_id}/artifacts`).
+- **Execution isolation tiers, multi-node runner scheduling & shared build caches (`4.3`)**: hardened `IsolationTier` (`host_os` and `container_vm` restricting host toolchain/home access), SiteAdmin runner pool registration, heartbeat, and label-aware job routing (`GET/POST /api/v1/admin/runners`, `POST /api/v1/admin/runners/{runner_id}/heartbeat`, `DELETE /api/v1/admin/runners/{runner_id}`), and SHA-256 content-addressed shared build caches (`GET /api/v1/repos/{id}/caches`, `DELETE /api/v1/repos/{id}/caches/{key}`).
+- **Enterprise SSO (`oidc`/`ldap`), RFC 6238 2FA (TOTP) & tamper-evident audit trail (`4.4`)**: encrypted-at-rest SSO provider configuration (`GET/POST /api/v1/admin/sso/providers`, `DELETE /api/v1/admin/sso/providers/{id}`), HMAC-SHA256 verified assertion login (`POST /api/v1/auth/sso/login`) respecting invite-only onboarding and email-domain policy, RFC 6238 TOTP enrollment/verification with replay protection (`GET /api/v1/auth/totp/status`, `POST /api/v1/auth/totp/enroll`, `POST /api/v1/auth/totp/verify`, `DELETE /api/v1/auth/totp`), and a SHA-256 hash-chained audit log (`GET /api/v1/admin/audit-log`) with automatic chain integrity verification.
+- **Indexed repository-authorized code & symbol search (`4.5`)**: commit-pinned trigram and symbol indexing (`GET /api/v1/repos/{id}/search?q=<query>&rev=<rev>&kind=all|code|symbol`) reading committed blobs from the `gix` object database (`<common_git_dir>/gitust-search`, hidden from sandboxes), rejecting `refs/heads/agent/*` revisions and agent-only commits, and enforcing BOLA and post-read credential re-verification.
 
-These capabilities are not implied by demo screens or domain models. Introduce SQL storage, search services, and an Actions engine only when needed by an agreed implementation step.
 
 ## Validation
 

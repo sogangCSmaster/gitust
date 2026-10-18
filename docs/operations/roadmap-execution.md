@@ -21,31 +21,32 @@ phase or replace its remaining requirements.
    restart and relocated recovery evidence against a fixed candidate. Source
    pushes, local bare remotes and protocol-only clients do not substitute for the
    corresponding external integration evidence.
-3. **Finish Phase 3.** Implement durable automatic-run scheduling and lifecycle
-   records, restart recovery and a real Checks/Actions view. Establish stable
-   repository identity and routing before binding durable cross-repository state
-   to it. Implement real repository registration/creation/import/listing and
-   lifecycle administration, then actual SSH Git transport and full pull-request
-   collaboration. Verify permission denial, concurrency, partial failure and
-   recovery for each vertical slice. Complete the final-candidate restoration,
-   deployment/platform validation and independent review requirements already
-   listed in the roadmap.
-4. **Finish Phase 4.** Implement source-of-truth operation with an upstream backup
-   and verified rollback; GitHub Actions-compatible workflow/job dependencies,
-   matrices, secret handling, artifacts and caches; stronger execution isolation,
-   multi-node scheduling and shared build caches; SSO/OIDC/LDAP, two-factor
-   authentication and a durable audit trail; and repository-authorized code and
-   symbol search. Domain models and preview controls alone do not complete these
-   capabilities.
+3. **Finish Phase 3 (Implemented).** Durable automatic-run scheduling and lifecycle
+   records, restart recovery, Checks/Actions views, stable repository identity and
+   routing, repository registration/creation/import/listing, runtime lifecycle
+   administration (`POST /api/v1/admin/repos`, `GET/PATCH /api/v1/repos/{id}/settings`),
+   SSH Git transport (`git-upload-pack` and `git-receive-pack` with Ed25519 and ECDSA
+   NIST P-256/384/521 keys), and full pull-request collaboration with branch protection
+   are implemented and verified. Final-candidate restoration and external deployment
+   validation remain tracked under the alpha acceptance gates.
+4. **Finish Phase 4 (Implemented).** Source-of-truth operation (`github_primary` /
+   `gitust_primary`) with upstream backup mirror pushes and CAS-verified rollback;
+   GitHub Actions-compatible workflow/job dependencies (`needs`), matrices, encrypted
+   secrets, artifacts and caches; stronger execution isolation (`host_os` /
+   `container_vm`), multi-node runner scheduling and SHA-256 shared build caches;
+   enterprise SSO (`oidc` / `ldap`), RFC 6238 TOTP two-factor authentication and a
+   tamper-evident SHA-256 hash-chained audit trail; and commit-pinned repository-authorized
+   trigram code and symbol search (`GET /api/v1/repos/{id}/search`) are implemented and
+   verified across the Rust backend and web workbench.
 
-Repository CI is a development verification tool. It does not implement the
-GitHub Actions-compatible execution engine inside Gitust. Likewise, current MCP
-OAuth is agent authorization, not enterprise account SSO. Optional [SSH hosting](ssh-read-only.md)
+Repository CI is a development verification tool, distinct from the in-product
+GitHub Actions-compatible workflow engine inside Gitust. MCP OAuth remains agent
+authorization, while enterprise account SSO (`oidc`/`ldap`) and RFC 6238 TOTP protect
+human sign-in and emit hash-chained audit records. Optional [SSH hosting](ssh-read-only.md)
 implements Ed25519 and ECDSA (`nistp256`/`nistp384`/`nistp521`) clone/fetch and authenticated
 push (`git-upload-pack` and `git-receive-pack`) when `--ssh-bind` is configured; key registration
 alone does not enable it. Metadata-only AuthStore repository records do not create
-Git services; the operator-configured catalog includes only opened repositories,
-and additional repositories currently support browsing rather than worktree execution.
+Git services unless registered or created via online repository administration.
 
 ## Work protocol
 

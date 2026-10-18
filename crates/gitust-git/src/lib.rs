@@ -38,6 +38,8 @@ mod repository_import;
 pub use repository_import::PreparedImport;
 mod repository_registration;
 pub use repository_registration::RegistrationReceipt;
+pub mod search;
+pub use search::*;
 mod service_lock;
 mod smart_http;
 mod source_of_truth_mirror;
@@ -53,6 +55,8 @@ mod tests_outbound;
 mod tests_repository_identity;
 #[cfg(all(test, unix))]
 mod tests_repository_registration;
+#[cfg(test)]
+mod tests_search;
 mod verification;
 mod worktree;
 mod worktree_commit;

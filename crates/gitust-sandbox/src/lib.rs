@@ -217,6 +217,7 @@ impl SandboxSpec {
             "gitust-ssh",
             "gitust-sync",
             "gitust-workflows",
+            "gitust-search",
             ".gitust",
         ] {
             rules.push(PathRule::new(

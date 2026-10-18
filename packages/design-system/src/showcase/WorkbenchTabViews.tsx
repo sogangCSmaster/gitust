@@ -517,6 +517,12 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
               files={fileTreeNodes()}
               selectedFilePath={props.selectedTreePath}
               lines={props.blobLines}
+              liveMode={props.liveMode}
+              repositoryId={props.repository?.id}
+              revision={
+                props.branches?.state().selected?.name ??
+                props.repository?.branch
+              }
               onSelect={(node) =>
                 props.onSelectFileFromTree
                   ? props.onSelectFileFromTree(node)

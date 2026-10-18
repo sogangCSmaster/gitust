@@ -26,16 +26,18 @@ The current milestone is a trusted single-user self-hosted alpha: operate concur
 | Area | Available now |
 |---|---|
 | Workspaces | Managed `agent/*` branches, linked worktrees, persisted repository identity, ownership checks, and startup recovery |
-| Execution | Local commands using macOS Seatbelt or Linux Bubblewrap |
-| Verification | Clean SHA checks, required commands from the merge target's committed `.gitust-checks.json`, per-command results, and opt-in automatic Checks after managed-worktree MCP commits or Git HTTP/SSH pushes |
+| Execution | Local commands using macOS Seatbelt or Linux Bubblewrap (`host_os` and hardened `container_vm` isolation tiers), plus multi-node runner scheduling and SHA-256 shared build caches |
+| Verification & Workflows | Clean SHA checks, required commands from `.gitust-checks.json`, opt-in automatic Checks, and GitHub Actions-compatible workflows (`.gitust-workflows.json` / `.github/workflows/*.json`) with DAG `needs`, matrices, encrypted secrets, caches, and artifacts |
+| Pull Requests & Branch Protection | PR creation, head-SHA-bound reviews (`approve`, `request_changes`, `comment`), inline diff comments, branch protection rules, and lock-time CAS merge execution |
 | Approval and publication | Human-approved fast-forward merge, exact-SHA push, persisted records, and explicit retry |
-| Git hosting | Authenticated Smart HTTP and optional SSH (`--ssh-bind`, Ed25519 and ECDSA P-256/384/521 user keys) clone, fetch, and permission-checked pushes |
-| Mirroring | Explicit inbound synchronization that preserves local work and private agent refs |
+| Git hosting | Authenticated Smart HTTP and optional SSH (`--ssh-bind`, Ed25519 and ECDSA P-256/384/521 user keys) clone, fetch, and permission-checked pushes, plus online repository lifecycle administration |
+| Mirroring & Source of Truth | Explicit inbound synchronization, per-repository `github_primary` / `gitust_primary` topology, upstream backup mirror pushes, and CAS-verified rollback preserving private `agent/*` refs |
+| Code & Symbol Search | Commit-pinned trigram code and symbol search (`GET /api/v1/repos/{id}/search`) over committed `gix` blobs with `agent/*` isolation and BOLA enforcement |
 | Agent integration | MCP over stdio or HTTP; explicit host-side worktree commits; OAuth with PKCE for HTTP MCP |
-| Accounts | CLI bootstrap, administrator-issued invitations, roles, PATs, SSH key management, and revocation |
-| Web UI | Embedded SolidJS workbench for browsing and the agent verification/approval/publication flow |
+| Accounts & Enterprise Security | CLI bootstrap, administrator-issued invitations, roles, PATs, SSH key management, revocation, OIDC/LDAP SSO providers, RFC 6238 TOTP 2FA, and a SHA-256 hash-chained tamper-evident audit log |
+| Web UI | Embedded SolidJS workbench (`< 50 kB` initial gzip JS closure) for repository browsing, search, PRs, workflows, access administration, and the agent verification/approval/publication flow |
 
-Full pull-request collaboration, GitHub Actions compatibility, microVM execution, SSO, and multi-node scheduling are **planned**. Some additional workbench views are UI demonstrations. The [roadmap](docs/roadmap.md) separates implementation from plans.
+See the [roadmap](docs/roadmap.md) for architectural details and operational validation boundaries.
 
 Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Durable queued jobs can resume after current authority and Git state are rechecked; uncertain running jobs become interrupted and are never automatically replayed. Local filesystem Git commits remain outside these triggers; the primary default branch has a separate [opt-in Git HTTP/SSH flow](docs/operations/default-branch-checks.md). See [verification behavior](docs/architecture/worktree-verification.md) and [automatic-run recovery](docs/architecture/automatic-checks.md).
 

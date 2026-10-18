@@ -114,3 +114,12 @@ Local Checks is outside both measured closures and loads through Actions on dema
 The 50,000-byte initial target remains unmet. These emitted-byte measurements do
 not establish startup, interaction or network timing. See the
 [candidate evidence](../operations/evidence/local-checks-web-2026-10-18.json).
+
+## Explicit web Local Checks, 2026-10-18
+
+Based on `e181f86e723badfde4bfd4a8818a12d67db555af`, the same maintained command
+measures 70,735 initial gzip9 bytes (+180) and 75,502 cumulative bytes for first
+Overview (+180). Opening Actions uses 84,842 cumulative bytes; then opening Local
+Checks uses 92,853 bytes. The execution client and local result view remain outside
+the initial and Overview closures. The initial 50,000-byte target remains unmet.
+These emitted-byte measurements do not establish startup or interaction timing.

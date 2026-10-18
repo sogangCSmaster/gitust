@@ -83,7 +83,13 @@ Both `ubuntu-22.04` and `macos-15` run the same required gates:
     results through a service with HTTP execution disabled. Require bounded no-store
     responses, primary-only routing, current administrator session/PAT access,
     unchanged history and Git state, restart, strict fsck and owned-service cleanup.
-12. Kill a disposable fixture service during an actual automatic Check and require
+12. Run committed default-branch Checks through an active trusted primary service
+    using both administrator sessions and PATs. Compare actual success/failure,
+    skipped steps and saved results against native Git, existing GET and stopped
+    CLI queries. Require rejected requests to preserve history and Git state,
+    unchanged dirty files, tasks and approvals, restart with execution disabled,
+    strict fsck and cleanup of the owned fixture services and files.
+13. Kill a disposable fixture service during an actual automatic Check and require
    a fresh service to refuse the unresolved execution fence. Stop only the
    fixture's authenticated process groups, require explicit operator recovery,
    and prove ordinary execution resumes without restoring verification authority.

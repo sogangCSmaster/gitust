@@ -26,6 +26,10 @@ export interface RepositoryActionsProps {
   role?: string;
   isPrimary: boolean;
   selectionEpoch: number;
+  canRunChecks?: boolean;
+  defaultRef?: string;
+  defaultCommit?: string | null;
+  refreshRepository?: (isCurrent: () => boolean) => Promise<boolean>;
 }
 
 export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
@@ -37,6 +41,9 @@ export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
   const role = createMemo(() => props.role);
   const primary = createMemo(() => props.isPrimary);
   const epoch = createMemo(() => props.selectionEpoch);
+  const canRun = createMemo(() => props.canRunChecks === true);
+  const defaultRef = createMemo(() => props.defaultRef);
+  const defaultCommit = createMemo(() => props.defaultCommit);
   const canRead = () => primary() && role() === "SiteAdmin";
   createEffect(() => {
     repositoryId();
@@ -73,6 +80,10 @@ export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
               role={role()}
               isPrimary={primary()}
               selectionEpoch={epoch()}
+              canRunChecks={canRun()}
+              defaultRef={defaultRef()}
+              defaultCommit={defaultCommit()}
+              refreshRepository={props.refreshRepository}
             />
           </DeferredView>
         </Show>

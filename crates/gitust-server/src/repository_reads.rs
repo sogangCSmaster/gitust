@@ -135,6 +135,7 @@ struct CatalogEntry {
     can_invite_to_group: bool,
     can_manage_group_members: bool,
     can_change_default_branch: bool,
+    can_run_local_checks: bool,
 }
 fn display_name(engine: &GitEngine, metadata: Option<&RepositoryRecord>) -> String {
     if let Some(metadata) = metadata {
@@ -184,6 +185,20 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
             if branch_name.len() > 32 * 1024 || name.len() > 1024 {
                 return Err(unavailable("repository metadata exceeds its limit"));
             }
+            let can_run_local_checks = context.is_default
+                && state.trusted_sandbox_exec
+                && caller.role == gitust_core::EnterpriseRole::SiteAdmin
+                && context
+                    .engine
+                    .committed_default_branch()
+                    .is_ok_and(|base| base == branch_name)
+                && head_commit.as_ref().is_some_and(|head| {
+                    // fail-open-ok: an unavailable source only disables this UI hint; POST independently validates source and authority.
+                    context
+                        .engine
+                        .resolve_checks_ref(&format!("refs/heads/{branch_name}"))
+                        .is_ok_and(|actual| &actual == head)
+                });
             repositories.push(CatalogEntry {
                 id: context.access.repo_id,
                 name,
@@ -195,6 +210,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                     "browse"
                 },
                 is_default: context.is_default,
+                can_run_local_checks,
                 can_rename: authorization.can_rename,
                 can_clone: true,
                 can_push: context.git_write && authorization.can_push_ordinary,
@@ -243,6 +259,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
         if !same_access {
             return Err(forbidden());
         }
+        let can_execute = current.role == gitust_core::EnterpriseRole::SiteAdmin;
         for entry in &mut repositories {
             let current = after
                 .iter()
@@ -252,6 +269,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 entry.name.clone_from(&metadata.name);
             }
             entry.can_rename = current.can_rename;
+            entry.can_run_local_checks &= can_execute;
             entry.can_push &= current.can_push_ordinary;
             entry.is_private = current
                 .metadata

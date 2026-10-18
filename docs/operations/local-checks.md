@@ -128,7 +128,50 @@ SiteAdmin credentials and repository access, returns `Cache-Control: no-store`,
 and is bounded to 3 MiB. Secondary repositories are not routed to this primary
 history. Storage failure is an error, distinct from an empty history.
 
-Reading history does not require enabling server command execution. There is no
-run or retry action in this view: record with the explicit stopped-service CLI
-command, then restart the service to inspect its saved results. Changing repository,
-session or access clears the previous selection and pending result.
+Reading history does not require enabling server command execution. Changing
+repository, session or access clears the previous selection and pending result.
+
+## Explicit execution through an active primary
+
+With `--trusted-single-user-sandbox` enabled, a current SiteAdmin can select
+**Run Checks** in **Actions → Local Checks**. The compact view shows the current
+default branch and commit that the request will use. The branch selected in Files
+does not change this execution target. Other users, secondary repositories and
+servers without this execution capability retain their existing viewing behavior.
+
+`POST /api/v1/repos/{id}/local-check-runs` accepts `expected_source_ref` (the exact
+full default branch ref), `expected_commit` (its full commit ID) and an optional
+`timeout_secs` from 1 through 600. Unknown fields are rejected. The request body
+is capped at 256 KiB. It runs only the committed policy's required commands in a
+temporary checkout, sharing the server's executor and repository ownership.
+Uncommitted files stay in the original checkout. The operation does not create
+worktree verification or merge approval. The `auto_run` setting does not disable
+this explicit request.
+
+Original credentials, the actual repository and the expected target are checked
+after reading the body and again after executor admission and scratch preparation,
+before the first command. Output is returned only after another original-credential
+and repository check. The catalog's optional `can_run_local_checks` field is a UI
+hint; POST independently checks all requirements. A missing hint keeps older servers
+read-only in this view.
+
+The response has exactly seven fields: `version: 1`, `repo_id`, `status`, `reason`,
+`cleanup`, `history` and `record`. A completed success or command failure with
+confirmed cleanup is saved in the existing newest-five history and returns HTTP
+200. `record` has the same bounded shape as a history GET record; HTTP 200 does
+not imply that commands passed. `history` contains `status` and `reason`.
+
+If saving fails, HTTP 503 preserves the confirmed `passed` or `failed` record and
+reports `history.status: failed`, `reason: history_unconfirmed`. If completion
+cannot be confirmed, HTTP 503 reports `status: unconfirmed`, no record and history
+`not_attempted`; unresolved execution evidence remains subject to explicit recovery.
+Responses are capped at 3 MiB with `Cache-Control: no-store`. Admission failures use
+fixed error codes. A stale default ref or commit returns HTTP 409; Refresh updates
+the target before another explicit click. Another active local Checks run also
+returns 409.
+
+The UI keeps execution outcome separate from saved-history status. Refresh only
+reads state and never retries execution. If the response is lost or uncertain,
+inspect stored results before starting another run: commands may have run already.
+There is no queue, automatic ordinary-branch trigger, replay or cancellation claim.
+The existing stopped-service CLI and its v1/v2 contracts remain available.

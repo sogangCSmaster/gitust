@@ -161,6 +161,8 @@ In the workbench, run verification, inspect the result, select **Approve & Merge
 
 Local `triage approve` is an explicit operator action: it does not automatically run Checks or consume server verification evidence. Use HTTP/workbench approval when enforcing server verification policy.
 
+For ordinary-branch diagnostics on an active trusted single-user server, a SiteAdmin can use **Actions → Local Checks → Run Checks**. It runs the primary repository's committed default branch at the displayed SHA and records the result. Execution success, saved history and merge approval are separate states. See the [local Checks contract](docs/operations/local-checks.md).
+
 ## Architecture and performance
 
 Gitust uses Rust, Tokio, Axum, and `gix`, with a SolidJS frontend built on locally owned [solid-ui](https://www.solid-ui.com/) components, Kobalte and Tailwind CSS. Git objects, worktrees, authentication state, and approval records stay on the deployment's storage. The auth store currently uses lock-protected JSON snapshots; SQL storage is not implemented.

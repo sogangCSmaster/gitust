@@ -57,6 +57,7 @@ const PrimitivesTab = lazy(() =>
   })),
 );
 
+import type { RepositoryActionsContext } from "./repository-workspace";
 import type { ConnectedRepository } from "./connected-repository-client";
 const RepositoryBranchSelect = lazy(() =>
   import("./RepositoryBranchSelect").then((module) => ({
@@ -72,6 +73,7 @@ export interface WorkbenchTabViewsProps {
   liveMode: boolean;
   repository?: ConnectedRepository | null;
   repositoryEpoch?: number;
+  repositoryActions?: RepositoryActionsContext;
   canWorkbench?: boolean;
   swarmTasks: AgentSandboxTask[];
   focusedSwarmIdx: number;
@@ -234,7 +236,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
         title="Actions"
         description={
           props.liveMode
-            ? "Read-only Checks diagnostics for this repository."
+            ? "Checks diagnostics for this repository."
             : "Interface demo with generated logs and simulated jobs. Replay the sample pipeline to explore its states."
         }
       />
@@ -261,7 +263,19 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => (
             repositoryId={props.repository?.id}
             role={props.adminAuthProps?.liveSession?.role}
             isPrimary={props.canWorkbench === true}
-            selectionEpoch={props.repositoryEpoch ?? 0}
+            selectionEpoch={
+              props.repositoryActions?.selectionEpoch() ??
+              props.repositoryEpoch ??
+              0
+            }
+            canRunChecks={props.repository?.canRunLocalChecks === true}
+            defaultRef={
+              props.repository
+                ? `refs/heads/${props.repository.branch}`
+                : undefined
+            }
+            defaultCommit={props.repository?.headCommit}
+            refreshRepository={props.repositoryActions?.refresh}
           />
         </DeferredView>
       </Show>

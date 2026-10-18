@@ -439,3 +439,25 @@ it("uses current ordinary-push hints without granting them to older catalogs", a
   expect(states.at(-1)?.repositories).toEqual([]);
   expect(states.at(-1)?.error).toContain("invalid repository metadata");
 });
+
+it("requires an explicit typed local Checks execution hint while preserving old catalogs", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        response([{ ...repo, can_run_local_checks: true }]),
+      )
+      .mockResolvedValueOnce(response([repo]))
+      .mockResolvedValueOnce(
+        response([{ ...repo, can_run_local_checks: "true" }]),
+      ),
+  );
+  const { states, client } = setup();
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]?.canRunLocalChecks).toBe(true);
+  await client.refresh();
+  expect(states.at(-1)?.repositories[0]?.canRunLocalChecks).toBe(false);
+  await client.refresh();
+  expect(states.at(-1)?.repositories).toEqual([]);
+});

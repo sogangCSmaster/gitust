@@ -17,6 +17,12 @@ import {
   createLocalChecksClient,
   type LocalChecksState,
 } from "./live-local-checks-client";
+import { getLiveToken } from "./live-repo-context";
+import { isOid } from "./live-automatic-runs";
+import {
+  createLocalChecksRunClient,
+  type LocalChecksRunState,
+} from "./live-local-checks-run";
 import type { RepositoryActionsProps } from "./LiveRepositoryActionsView";
 
 export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
@@ -32,13 +38,90 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
     selectionEpoch: () => props.selectionEpoch,
     canRead: () => props.isPrimary && props.role === "SiteAdmin",
   });
-  const selected = createMemo(() =>
-    state().records.find((record) => record.runId === selectedId()),
+  const [runState, setRunState] = createSignal<LocalChecksRunState>({
+    status: "idle",
+  });
+  const [sessionAvailable, setSessionAvailable] = createSignal(true);
+  const [refreshing, setRefreshing] = createSignal(false);
+  const [refreshError, setRefreshError] = createSignal<string>();
+  let refreshGeneration = 0;
+  let disposed = false;
+  const canRun = () =>
+    props.isPrimary &&
+    props.role === "SiteAdmin" &&
+    props.canRunChecks === true &&
+    sessionAvailable() &&
+    isOid(props.defaultCommit) &&
+    !!props.defaultRef;
+  const runner = createLocalChecksRunClient(setRunState, {
+    repositoryId: () => props.repositoryId,
+    selectionEpoch: () => props.selectionEpoch,
+    canRun,
+    sourceRef: () => props.defaultRef,
+    commit: () => props.defaultCommit,
+  });
+  const selected = createMemo(
+    () =>
+      state().records.find((record) => record.runId === selectedId()) ??
+      (runState().report?.record?.runId === selectedId()
+        ? runState().report?.record
+        : undefined),
   );
+  createEffect(() => {
+    props.repositoryId;
+    props.selectionEpoch;
+    props.role;
+    props.isPrimary;
+    props.canRunChecks;
+    props.defaultRef;
+    props.defaultCommit;
+    runner.clear();
+  });
+  const submit = async () => {
+    setRefreshError(undefined);
+    const report = await runner.run();
+    if (!report?.record || !runner.isCurrent()) return;
+    setSelectedId(report.record.runId);
+    if (report.history.status === "saved") await client.load();
+  };
+  const refresh = async () => {
+    if (runState().status === "running" || refreshing()) return;
+    const key = ++refreshGeneration;
+    const id = props.repositoryId,
+      epoch = props.selectionEpoch,
+      token = getLiveToken();
+    const current = () =>
+      !disposed &&
+      key === refreshGeneration &&
+      id === props.repositoryId &&
+      epoch === props.selectionEpoch &&
+      token === getLiveToken();
+    setRefreshing(true);
+    setRefreshError(undefined);
+    try {
+      const refreshed = props.refreshRepository
+        ? await props.refreshRepository(current)
+        : true;
+      if (!current()) return;
+      if (!refreshed) {
+        setRefreshError("Unable to refresh repository context. Try again.");
+        return;
+      }
+      await client.load();
+    } catch {
+      if (current())
+        setRefreshError("Unable to refresh repository context. Try again.");
+    } finally {
+      if (!disposed && key === refreshGeneration) setRefreshing(false);
+    }
+  };
   createEffect(() => {
     const id = props.repositoryId;
     const epoch = props.selectionEpoch;
     const allowed = props.isPrimary && props.role === "SiteAdmin";
+    refreshGeneration++;
+    setRefreshing(false);
+    setRefreshError(undefined);
     setSelectedId(null);
     client.clear();
     if (id && allowed && Number.isSafeInteger(epoch)) void client.load();
@@ -49,30 +132,110 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
   });
   const sessionChanged = (event: StorageEvent) => {
     if (event.key === "gitust_token" || event.key === null) {
+      refreshGeneration++;
+      setRefreshing(false);
+      setRefreshError(undefined);
+      setSessionAvailable(false);
+      runner.clear();
       setSelectedId(null);
       client.clear();
     }
   };
   onMount(() => window.addEventListener("storage", sessionChanged));
   onCleanup(() => {
+    disposed = true;
+    refreshGeneration++;
+    runner.clear();
     client.clear();
     window.removeEventListener("storage", sessionChanged);
   });
   return (
     <section class="min-w-0 space-y-3" aria-label="Recorded Local Checks">
-      <div class="flex min-w-0 items-center justify-between gap-3">
-        <p class="min-w-0 text-xs text-muted-foreground">
-          Latest five recorded runs. Diagnostics only.
+      <div class="space-y-2 sm:flex sm:items-center sm:justify-between sm:gap-3 sm:space-y-0">
+        <div class="min-w-0 text-xs text-muted-foreground">
+          <p>Latest five recorded runs. Diagnostics only.</p>
+          <Show when={canRun()}>
+            <p class="truncate" title={props.defaultRef}>
+              Default: {props.defaultRef?.slice(11)} ·{" "}
+              {props.defaultCommit?.slice(0, 7)}
+            </p>
+          </Show>
+        </div>
+        <div class="flex shrink-0 gap-2">
+          <Show when={canRun()}>
+            <Button
+              size="sm"
+              class="flex-1 sm:flex-none"
+              disabled={runState().status === "running" || refreshing()}
+              onClick={() => void submit()}
+            >
+              <Icon name="play" />{" "}
+              {runState().status === "running" ? "Running…" : "Run Checks"}
+            </Button>
+          </Show>
+          <Button
+            size="sm"
+            variant="outline"
+            class="flex-1 sm:flex-none"
+            disabled={
+              runState().status === "running" ||
+              refreshing() ||
+              state().status === "loading"
+            }
+            onClick={() => void refresh()}
+          >
+            <Icon name="rotate-ccw" /> Refresh
+          </Button>
+        </div>
+      </div>
+      <Show when={runState().status === "running"}>
+        <p role="status" class="text-sm text-muted-foreground">
+          Running default branch Checks…
         </p>
+      </Show>
+      <Show when={runState().report?.record}>
+        <p role="status" class="text-sm">
+          {runState().report?.status === "passed"
+            ? "Checks passed."
+            : "Checks failed."}{" "}
+          {runState().report?.history.status === "saved"
+            ? "Result saved."
+            : "Saving this result could not be confirmed. Refresh stored results before another run."}
+        </p>
+      </Show>
+      <Show
+        when={
+          runState().report?.history.status === "failed" &&
+          runState().report?.record
+        }
+      >
         <Button
           size="sm"
           variant="outline"
-          class="shrink-0"
-          onClick={() => void client.load()}
+          aria-pressed={selectedId() === runState().report?.record?.runId}
+          onClick={() => {
+            const record = runState().report?.record;
+            if (record && runner.isCurrent()) setSelectedId(record.runId);
+          }}
         >
-          <Icon name="rotate-ccw" /> Refresh
+          View execution result
         </Button>
-      </div>
+      </Show>
+      <Show when={runState().report?.status === "unconfirmed"}>
+        <Alert>
+          <AlertDescription>
+            Could not confirm completion. Refresh stored results before another
+            run. A new run may repeat commands.
+          </AlertDescription>
+        </Alert>
+      </Show>
+      <Show when={runState().error || refreshError()}>
+        <Alert variant="destructive">
+          <AlertDescription>
+            {runState().error ?? refreshError()}
+          </AlertDescription>
+        </Alert>
+      </Show>
       <Show when={state().status === "idle"}>
         <p role="status" class="text-sm text-muted-foreground">
           Refresh to load Local Checks.
@@ -88,13 +251,17 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
           <AlertDescription>{state().error}</AlertDescription>
         </Alert>
       </Show>
-      <Show when={state().status === "ready"}>
+      <Show when={state().status === "ready" || runState().report?.record}>
         <Show
-          when={state().records.length}
+          when={state().records.length || runState().report?.record}
           fallback={
             <EmptyState
               title="No recorded Local Checks"
-              description="Run local Checks with --record from the stopped repository to retain completed results."
+              description={
+                canRun()
+                  ? "Run Checks to record a result for the default branch."
+                  : "Run local Checks with --record from the stopped repository to retain completed results."
+              }
             />
           }
         >

@@ -75,6 +75,9 @@ pub enum SandboxError {
     #[error("sandbox execution failed to spawn command '{command}': {message}")]
     SpawnFailed { command: String, message: String },
 
+    #[error("sandbox execution admission was denied before commands started")]
+    AdmissionDenied,
+
     #[error("sandbox concurrency semaphore closed")]
     ConcurrencyLimiterClosed,
 
@@ -84,6 +87,9 @@ pub enum SandboxError {
     #[error("sandbox cleanup could not be confirmed: {message}")]
     CleanupIncomplete { message: String },
 }
+
+pub type SandboxAdmission =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), SandboxError>> + Send>>;
 
 /// Isolation backend actually used for a run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

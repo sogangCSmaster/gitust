@@ -507,6 +507,42 @@ jobs:
               output.write("### Read-only local Checks history\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
           PY
 
+      - name: Run explicit default-branch Checks through the active primary
+        run: |
+          python3 scripts/http-local-checks-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-http-local-checks.json"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "gitust-http-local-checks.json").read_text())
+          expected = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          binary_sha = hashlib.sha256(Path("target/debug/gitust").read_bytes()).hexdigest()
+          platform = {"Linux": "Linux", "macOS": "Darwin"}[os.environ["RUNNER_OS"]]
+          backend = {"Linux": "linux_bubblewrap", "macOS": "macos_seatbelt"}[os.environ["RUNNER_OS"]]
+          if (report["version"] != 1 or report["source_commit"] != expected
+              or report["runtime_worktree_dirty"] is not False or report["binary_sha256"] != binary_sha
+              or report["actual_repositories"] != 2 or report["platform"] != platform
+              or report["sandbox_backends"] != [backend] or report["external_github_publication"] is not False):
+              raise SystemExit("HTTP Local Checks rehearsal source or scope evidence is invalid")
+          checks = ["passed", "active_primary_executes_committed_checks", "exact_snapshot_and_policy_binding",
+                    "success_failure_and_skipped_steps", "saved_http_get_and_cli_results_match",
+                    "dirty_working_copy_preserved", "session_and_pat_execution",
+                    "disabled_member_and_revoked_credentials_denied",
+                    "secondary_unknown_stale_and_unknown_fields_denied", "capability_matches_execution_scope",
+                    "bounded_no_store_responses", "restart_and_disabled_reads_preserve_history",
+                    "original_git_tasks_and_approval_preserved", "confirmed_cleanup", "git_fsck",
+                    "private_fixture_removed", "owned_services_reaped"]
+          if not all(report[key] is True for key in checks):
+              raise SystemExit("HTTP Local Checks rehearsal is incomplete")
+          public = {key: report[key] for key in ["source_commit", "binary_sha256", "platform",
+                    "sandbox_backends", "actual_repositories", "external_github_publication", *checks]}
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("### Explicit active-primary Local Checks\n\n```json\n" + json.dumps(public, indent=2) + "\n```\n")
+          PY
+
       - name: Reject unsafe service restart after an interrupted command
         run: |
           python3 scripts/execution-crash-rehearsal.py --binary target/debug/gitust --report "$RUNNER_TEMP/gitust-execution-crash.json"

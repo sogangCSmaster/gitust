@@ -12,7 +12,9 @@ export interface LocalChecksState {
   error?: string;
 }
 
-async function boundedJson(response: Response): Promise<unknown> {
+export async function readLocalChecksJson(
+  response: Response,
+): Promise<unknown> {
   const limit = 3 * 1024 * 1024;
   if (Number(response.headers.get("content-length")) > limit)
     return invalidLocalChecks();
@@ -104,7 +106,7 @@ export function createLocalChecksClient(
         });
         return;
       }
-      const raw = await boundedJson(response);
+      const raw = await readLocalChecksJson(response);
       if (!current()) return;
       const records = parseLocalChecks(raw, repositoryId);
       if (current()) publish({ status: "ready", records });

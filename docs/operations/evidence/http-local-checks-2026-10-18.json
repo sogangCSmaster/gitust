@@ -1,0 +1,401 @@
+{
+  "version": 1,
+  "base_commit": "e181f86e723badfde4bfd4a8818a12d67db555af",
+  "scope": "Explicit SiteAdmin Local Checks on the active primary default branch, with separate execution and history-save outcomes",
+  "source_manifest_sha256": "15e2817fb8eaa6840853666a56931c075b769b0c49ab1b08d6c6ee75c963a323",
+  "source_paths": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "ac7479d30dc1dc268492a25e5e8187b0a6724849f09e9f287d63a811bb788a39",
+      "lines": null
+    },
+    {
+      "path": "README.md",
+      "sha256": "696fad568394b6b7a793037f9c9303dac920678a4065f3b6fca00a54671494e3",
+      "lines": null
+    },
+    {
+      "path": "crates/gitust-cli/src/sandbox_cmd.rs",
+      "sha256": "e35becca65649d0fc97ef6782cb9bd31fcd6ecb5edd4d30047bddfcdb4de4846",
+      "lines": 112
+    },
+    {
+      "path": "crates/gitust-sandbox/src/execution.rs",
+      "sha256": "3e2b1612aaf54d9849ef3cb0f2201084a09622f5c1ea5a7e19bd622e5a68ea10",
+      "lines": 365
+    },
+    {
+      "path": "crates/gitust-sandbox/src/lib.rs",
+      "sha256": "773a714209c15f3ecfbfdb05e5676193fb92b499dcb2e1d970aeb9d6f6e3f178",
+      "lines": 414
+    },
+    {
+      "path": "crates/gitust-sandbox/src/tests_required_commands.rs",
+      "sha256": "7a400d89d0334e8c86681714d7a2d4e7d21b137abc037e2715372f3fd65f23ac",
+      "lines": 78
+    },
+    {
+      "path": "crates/gitust-server/src/ephemeral_checkout.rs",
+      "sha256": "772f0bee3242c6222afcd0d9b2a85a36d79957cb0cb3bc171b00f37c3bc015ea",
+      "lines": 95
+    },
+    {
+      "path": "crates/gitust-server/src/ephemeral_sandbox.rs",
+      "sha256": "6fd99d64c5627364b9c9f13baa9f47a7b50149a9515eb2e826de1eac3c71924f",
+      "lines": 257
+    },
+    {
+      "path": "crates/gitust-server/src/lib.rs",
+      "sha256": "a80e93fec6b3a0c7ba0eea8b4b5180226d12866be206fd9bb0f0bc2ccb4f3946",
+      "lines": 409
+    },
+    {
+      "path": "crates/gitust-server/src/repository_local_checks_exec.rs",
+      "sha256": "1ad6a92cea2ff5d486a2395030370a9d74d416f4d6ae71d19c39b622dc40bfeb",
+      "lines": 268
+    },
+    {
+      "path": "crates/gitust-server/src/repository_local_checks_result.rs",
+      "sha256": "f39feca36611c1de409f4a5815849ca3d5315a15ea56f07f19ad7054f281d346",
+      "lines": 129
+    },
+    {
+      "path": "crates/gitust-server/src/repository_reads.rs",
+      "sha256": "cebf7129612e9e5566e00dae072a811cbb6b1089fa5759659f615b87df52dc87",
+      "lines": 379
+    },
+    {
+      "path": "crates/gitust-server/src/sandbox_policy.rs",
+      "sha256": "d7e53f3cfdbf6b639085f453aa991df3c95367dc5954dcb9b7aa4a747f1dfb72",
+      "lines": 38
+    },
+    {
+      "path": "crates/gitust-server/src/state.rs",
+      "sha256": "5c0975f4fc10f2fdcaa2e30a57e66a06d6e75caec9171608ff5d1effe7ad2452",
+      "lines": 569
+    },
+    {
+      "path": "crates/gitust-server/src/tests.rs",
+      "sha256": "fc6b513113496fc9851c07eef54aaad8f4f15172b0d75fdec58f164429e759db",
+      "lines": 580
+    },
+    {
+      "path": "crates/gitust-server/src/tests_repository_local_checks_exec.rs",
+      "sha256": "e6ef993d4da05ae0baeee141a3246b708bfde28e204e2b1b721b9a8dcf51ee4e",
+      "lines": 286
+    },
+    {
+      "path": "docs/benchmarks/web-bundle.md",
+      "sha256": "a0bf8f9071cddf900aaef283d2c1d9506be5ad69bab292030fb46f50bb1be1b1",
+      "lines": null
+    },
+    {
+      "path": "docs/operations/local-checks.md",
+      "sha256": "9c84a9e9a0fb2493e546941fe8436627c112823c6491eb08eb3ef963a62bafcb",
+      "lines": null
+    },
+    {
+      "path": "docs/operations/repository-ci.md",
+      "sha256": "170a5abb4f93f8ff871a23816ff3a78c51216a8af94c0f1c835ea7e513682ac3",
+      "lines": null
+    },
+    {
+      "path": "docs/roadmap.md",
+      "sha256": "28874f66f7562f56c7979bba17423669acc7d5146c4fad310b15f00695c80efc",
+      "lines": null
+    },
+    {
+      "path": "packages/design-system/dist/assets/LiveLocalChecksView-BPKNhe_U.js",
+      "sha256": null,
+      "lines": null
+    },
+    {
+      "path": "packages/design-system/dist/assets/LiveLocalChecksView-kaPxPX2G.js",
+      "sha256": "8a4e8a9ebc35e963ab7f38f20b2056498e42b2fbb1c6fe79a2d25a59a7f59e72",
+      "lines": null
+    },
+    {
+      "path": "packages/design-system/dist/assets/LiveRepositoryActionsView-BN8L3dWd.js",
+      "sha256": "6eeca2b23225b098e53b6c2844fa742ae009b8b293ecb83bbc07343925152e7f",
+      "lines": null
+    },
+    {
+      "path": "packages/design-system/dist/assets/LiveRepositoryActionsView-Bhk8aEwd.js",
+      "sha256": null,
+      "lines": null
+    },
+    {
+      "path": "packages/design-system/dist/assets/index.css",
+      "sha256": "a3f0142e342cf56d608b31bc96d360589e9ea2b1b94829f4503254bf8e347dc9",
+      "lines": null
+    },
+    {
+      "path": "packages/design-system/dist/assets/index.js",
+      "sha256": "33bcd92abf88dce635996bd17519b6f895496dd63438c5e0f8a054d2a0ff51fc",
+      "lines": null
+    },
+    {
+      "path": "packages/design-system/src/showcase/LiveLocalChecksView.tsx",
+      "sha256": "4ef9cd87dc9f1822db64e7e36471e40a92593b56ce4e57d16d677c402129b5c0",
+      "lines": 375
+    },
+    {
+      "path": "packages/design-system/src/showcase/LiveRepositoryActionsView.tsx",
+      "sha256": "173119dfcc4860c7eeb8100f8610a85706f929f50c2e69276867a8acfdef85c6",
+      "lines": 93
+    },
+    {
+      "path": "packages/design-system/src/showcase/WorkbenchApp.tsx",
+      "sha256": "dcb4cc2b3c0b20325421daa8298111ef22416e14c1521458c88a5c1757c2db5d",
+      "lines": 599
+    },
+    {
+      "path": "packages/design-system/src/showcase/WorkbenchTabViews.tsx",
+      "sha256": "8f8495591f226c762b2a27f39a216d683cd865d7e25a30b2aeb7d75aaf75d6d7",
+      "lines": 358
+    },
+    {
+      "path": "packages/design-system/src/showcase/connected-repository-client.ts",
+      "sha256": "985c526595637e3aaed785cc38c4e6b1c33f9ddeec7e9f03a038dd7309ce818f",
+      "lines": 371
+    },
+    {
+      "path": "packages/design-system/src/showcase/live-local-checks-client.ts",
+      "sha256": "7e4d45d600d1727f34f25826ca16d20181bf55492510cafbd28f8455edf0d376",
+      "lines": 125
+    },
+    {
+      "path": "packages/design-system/src/showcase/live-local-checks-run.ts",
+      "sha256": "ba8c64be50613fbe7c54eefbd9b87c1a0835ba37ab318369ffd8d79978a1d68e",
+      "lines": 254
+    },
+    {
+      "path": "packages/design-system/src/showcase/repository-workspace.ts",
+      "sha256": "56fa54354baa625d987c121772bec3d518c1f90624f2465d8afaec0faae74bec",
+      "lines": 399
+    },
+    {
+      "path": "packages/design-system/tests/connected-repository-client.test.ts",
+      "sha256": "19a21df7f25da20378c7f74fa84ac4df9f1117d5f8f60e2cdc248a5887f7c88c",
+      "lines": 463
+    },
+    {
+      "path": "packages/design-system/tests/local-checks-execution.test.tsx",
+      "sha256": "17ef8bc2db3bdcdbaf5654d09c912da27f85f9b6113f7b5ea3c23c40e7cfadf6",
+      "lines": 222
+    },
+    {
+      "path": "packages/design-system/tests/local-checks-run.test.ts",
+      "sha256": "564a6b20a92ed2155ec80f3f2ad872aa83c37a69473bfceb567f998bdea984f4",
+      "lines": 126
+    },
+    {
+      "path": "scripts/http-local-checks-rehearsal.py",
+      "sha256": "e4248bc5418b3d4da13ca7a45ed38eea605020498d2509d20259171504a5d4d3",
+      "lines": 290
+    }
+  ],
+  "author_evidence": {
+    "backend_sha256": "e0b86084720d8f8ff9e356c450c7fcd0283bc29872f4b0e988f4b1f3cca7f46b",
+    "ui_v2_sha256": "9f4c89f2cbc8c25490011ec6dbcb489eeaaf4e74500fa074973ff013529be342"
+  },
+  "verification": {
+    "command": "scripts/verify.sh",
+    "exit_code": 0,
+    "log_sha256": "5b9c223596bf70b5dc438f9b35a7017a3e0a9809d6f12d08b359252738084cfe",
+    "rust_passed": 451,
+    "existing_git_ignored": 2,
+    "nested_child_results_not_double_counted": true,
+    "frontend_passed": 308,
+    "frontend_files": 43,
+    "python_passed": 20,
+    "max_source_lines": 599
+  },
+  "test_first": {
+    "backend": "Final first normal HTTP test body fails against separate e181 production source because POST is unsupported; passes with implementation. The initial signing-config fixture failure is excluded.",
+    "ui": "Baseline component lacks Run Checks; new behavior case fails then passes. The later unsaved-result navigation regression fails before the minimal fix and passes after. Whole test files changed between stages and are not claimed byte-identical."
+  },
+  "actual_http_operator": {
+    "report_sha256": "a0a408e16161d3abec891c7ab396472afca808ea20a6f16599c23cb37b8fcd9d",
+    "api_only_binary_sha256": "31e8e9b02e3a752212c057acbb4965590d7034e1bc1df336808e35b9a6d5fe42",
+    "checks": 17,
+    "passed": true,
+    "repositories": 2,
+    "execution_repository": "primary",
+    "platform": "Darwin",
+    "sandbox_backends": [
+      "macos_seatbelt"
+    ],
+    "scope": "Normal success/failure, exact GET and stopped CLI history, unchanged dirty files/tasks/approvals, routine admission denials, native Git fsck and owned fixture cleanup",
+    "first_attempt": "Excluded: fixture restart after seeding a real approval requires a valid configured local mirror path. Initialized an empty disposable bare upstream; no product change or publication. Debug copy is excluded from final source and proof."
+  },
+  "native_browser": {
+    "report_sha256": "b93e89b5c422740c00794642e9deb1d7d095705d9c0251a1cf4c99aeb744ca57",
+    "binary_sha256": "ec70164397458023e90338a6da504ab6ba933d9c5a670e073d4509ff255820bc",
+    "actual_login": true,
+    "keyboard_post": true,
+    "exact_history_and_git_identity_match": true,
+    "no_extra_run_after_refresh": true,
+    "failed_7_and_skipped_displayed": true,
+    "secondary_run_hidden": true,
+    "viewports": [
+      {
+        "branch": {
+          "height": 16,
+          "lineHeight": "16px",
+          "overflow": "ellipsis"
+        },
+        "buttons": [
+          {
+            "height": 32,
+            "text": "Run Checks",
+            "whiteSpace": "nowrap",
+            "y": 228
+          },
+          {
+            "height": 32,
+            "text": "Refresh",
+            "whiteSpace": "nowrap",
+            "y": 228
+          }
+        ],
+        "scrollWidth": 1440,
+        "width": 1440
+      },
+      {
+        "branch": {
+          "height": 16,
+          "lineHeight": "16px",
+          "overflow": "ellipsis"
+        },
+        "buttons": [
+          {
+            "height": 32,
+            "text": "Run Checks",
+            "whiteSpace": "nowrap",
+            "y": 204
+          },
+          {
+            "height": 32,
+            "text": "Refresh",
+            "whiteSpace": "nowrap",
+            "y": 204
+          }
+        ],
+        "scrollWidth": 768,
+        "width": 768
+      },
+      {
+        "branch": {
+          "height": 16,
+          "lineHeight": "16px",
+          "overflow": "ellipsis"
+        },
+        "buttons": [
+          {
+            "height": 44,
+            "text": "Run Checks",
+            "whiteSpace": "nowrap",
+            "y": 240
+          },
+          {
+            "height": 44,
+            "text": "Refresh",
+            "whiteSpace": "nowrap",
+            "y": 240
+          }
+        ],
+        "scrollWidth": 320,
+        "width": 320
+      }
+    ],
+    "screenshots": [
+      {
+        "name": "gitust-http-local-checks-desktop.jpg",
+        "sha256": "b8c131aadc2b5fad1cf3c3ac21f0e2d80c068787090b08d80df1bbbb1aeacec3"
+      },
+      {
+        "name": "gitust-http-local-checks-tablet.jpg",
+        "sha256": "55d9067bb645e36aad2cb36a0149aa48b817060ec71ea252ed136c1ecc3be809"
+      },
+      {
+        "name": "gitust-http-local-checks-mobile.jpg",
+        "sha256": "83a2cd1a705bf07e04f3e72091bf8563583b4d410faef628f676b39000ef4a95"
+      }
+    ],
+    "owned_services_reaped": true,
+    "private_fixture_removed": true,
+    "private_credentials_removed": true,
+    "tab_closed": true,
+    "viewport_restored": true,
+    "scope": "Actual integrated loopback service; 503 navigation is covered by component tests, without native fault injection."
+  },
+  "review_fixes": [
+    "Fixed operator state/history/fence assertions around routine denials and tied final run IDs to actual requests.",
+    "Matched skipped output omission and exact fixed admission error codes.",
+    "Added a read-only path back to the current execution result after a save-failed response, without adding a saved-history row or another POST."
+  ],
+  "independent_source_reviews": [
+    {
+      "artifact": "gitust-http-local-checks-backend-source-gate-a-review.json",
+      "sha256": "18130ff57a8a6773c344f44198bd0fc6536e2f0a63022d22673ffcc3284d484d",
+      "unresolved_p0_p1_p2": 0
+    },
+    {
+      "artifact": "gitust-http-local-checks-ui-source-gate-a-review-v2.json",
+      "sha256": "4b68290cf6c29c6450557ca6febc89409c7a484f32d33fed8ed86e62974ec5d7",
+      "unresolved_p0_p1_p2": 0
+    },
+    {
+      "artifact": "gitust-http-local-checks-root-source-review.json",
+      "sha256": "75862e1b8db29a26f1035c2751d3b0ef64145176799828a7fbb15f59c0f13648",
+      "unresolved_p0_p1_p2": 0
+    },
+    {
+      "artifact": "gitust-http-local-checks-integrated-source-gate-a-review.json",
+      "sha256": "c1d036d160e7796505aea7e3cf9b870742a13d1297158008ff582fc7ac83c57b",
+      "unresolved_p0_p1_p2": 0
+    }
+  ],
+  "bundle": {
+    "gzip_level": 9,
+    "initial_bytes": 70735,
+    "initial_delta_bytes": 180,
+    "first_overview_bytes": 75502,
+    "first_actions_bytes": 84842,
+    "actions_then_local_bytes": 92853,
+    "target_bytes": 50000,
+    "target_met": false,
+    "initial_and_overview_exclude_local_module": true,
+    "measurement_evidence_sha256": "9f4c89f2cbc8c25490011ec6dbcb489eeaaf4e74500fa074973ff013529be342",
+    "latency_claim": false
+  },
+  "preceding_hosted_ci": {
+    "commit": "e181f86e723badfde4bfd4a8818a12d67db555af",
+    "url": "https://github.com/sogangCSmaster/gitust/actions/runs/39081044607",
+    "conclusion": "success",
+    "query_sha256": "86fb0a9ac234a352d5515a2c7f3c12d97fa9aa1c6bb5c5a18a38192bd5de0783",
+    "jobs": [
+      {
+        "name": "Verify and rehearse (macos-15)",
+        "conclusion": "success",
+        "skipped_steps": [
+          "Install Linux sandbox prerequisites"
+        ]
+      },
+      {
+        "name": "Verify and rehearse (ubuntu-22.04)",
+        "conclusion": "success",
+        "skipped_steps": []
+      }
+    ]
+  },
+  "limits": [
+    "The candidate is uncommitted at local validation time and needs its own hosted CI after push.",
+    "Manual primary default-branch diagnostics do not grant verification/approval, execute secondaries, add a queue, retry/cancel endpoint or ordinary-branch automatic triggers.",
+    "Current OS sandbox remains trusted single-user only.",
+    "Existing user preview servers were not restarted; no deployment or actual GitHub product publication was performed.",
+    "Actual GitHub product publication remains deferred by the user. Automatic Gate B remains stopped.",
+    "No new exploit, race, symlink, special-file or sandbox-escape probe was introduced; the existing required verification suite ran unchanged."
+  ]
+}

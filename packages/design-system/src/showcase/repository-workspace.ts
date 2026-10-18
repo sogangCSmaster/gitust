@@ -19,6 +19,11 @@ import type {
   DefaultBranchIntent,
 } from "./repository-default-branch";
 
+export interface RepositoryActionsContext {
+  selectionEpoch: () => number;
+  refresh: (isCurrent: () => boolean) => Promise<boolean>;
+}
+
 export const isRepositoryTab = (tab: WorkbenchTab, liveMode: boolean) =>
   ["overview", "swarm", "tree", "diff"].includes(tab) ||
   (liveMode && tab === "actions");
@@ -141,6 +146,27 @@ export const createRepositoryWorkspace = (options: {
     const repository = selected();
     if (current() && repository && repository.headCommit === origin.headCommit)
       options.hydrate(repository);
+  };
+  const actions: RepositoryActionsContext = {
+    selectionEpoch,
+    refresh: async (viewCurrent) => {
+      const origin = selected();
+      const epoch = selectionEpoch();
+      const token = getLiveToken();
+      if (!origin || !token || !options.liveMode()) return false;
+      const current = () => {
+        const repository = selected();
+        return (
+          viewCurrent() &&
+          epoch === selectionEpoch() &&
+          token === getLiveToken() &&
+          repository?.id === origin.id &&
+          client.isCurrentSession()
+        );
+      };
+      await client.refreshIfCurrent(current);
+      return current() && state().error === null;
+    },
   };
   const clone = () => {
     const repository = selected();
@@ -356,6 +382,7 @@ export const createRepositoryWorkspace = (options: {
     state,
     selected,
     selectionEpoch,
+    actions,
     open,
     navigate,
     reset,

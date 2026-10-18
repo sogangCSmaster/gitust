@@ -575,3 +575,6 @@ mod tests_repository_group_members_auth;
 mod tests_git_http_write;
 #[path = "tests_git_http_write_auth.rs"]
 mod tests_git_http_write_auth;
+
+#[path = "tests_repository_local_checks_exec.rs"]
+mod tests_repository_local_checks_exec;

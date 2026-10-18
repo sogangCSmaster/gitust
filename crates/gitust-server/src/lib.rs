@@ -17,6 +17,8 @@ mod automatic_run_model;
 mod automatic_run_page;
 mod automatic_run_recovery;
 mod automatic_run_store;
+mod ephemeral_checkout;
+pub mod ephemeral_sandbox;
 pub mod git_http;
 mod git_http_auth;
 mod git_http_automatic;
@@ -33,12 +35,15 @@ mod repository_default_branch;
 mod repository_group_invites;
 mod repository_group_members;
 mod repository_local_checks;
+mod repository_local_checks_exec;
+mod repository_local_checks_result;
 mod repository_reads;
 mod repository_registry;
 mod repository_rename;
 mod repository_summary;
 mod repository_visibility;
 mod run_history;
+mod sandbox_policy;
 pub mod state;
 pub mod webui;
 mod worktree_owners;
@@ -228,7 +233,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/repos/{id}/local-check-runs",
-            get(repository_local_checks::list),
+            get(repository_local_checks::list).post(repository_local_checks_exec::run),
         )
         .route("/api/v1/repos/{id}/commits", get(repository_reads::commits))
         .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))

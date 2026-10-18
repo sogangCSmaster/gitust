@@ -11,9 +11,9 @@ use tokio::process::Command;
 
 use crate::policy::{build_sanitized_path, prepare_run, PreparedRun};
 use crate::{
-    await_pipe_drain, cleanup, command, read_capped, LocalSandboxExecutor, SandboxCleanupGuard,
-    SandboxCommandOutput, SandboxCommandResult, SandboxError, SandboxExecutionResult, SandboxSpec,
-    MAX_SANDBOX_STREAM_BYTES,
+    await_pipe_drain, cleanup, command, read_capped, LocalSandboxExecutor, SandboxAdmission,
+    SandboxCleanupGuard, SandboxCommandOutput, SandboxCommandResult, SandboxError,
+    SandboxExecutionResult, SandboxSpec, MAX_SANDBOX_STREAM_BYTES,
 };
 
 impl LocalSandboxExecutor {
@@ -26,7 +26,7 @@ impl LocalSandboxExecutor {
         requested: &str,
         required: &[String],
     ) -> Result<SandboxExecutionResult, SandboxError> {
-        self.execute_check_run(None, worktree_id, spec, Some(requested), required)
+        self.execute_check_run(None, worktree_id, spec, Some(requested), required, None)
             .await
     }
 
@@ -37,7 +37,19 @@ impl LocalSandboxExecutor {
         spec: &SandboxSpec,
         commands: &[String],
     ) -> Result<SandboxExecutionResult, SandboxError> {
-        self.execute_check_run(None, worktree_id, spec, None, commands)
+        self.execute_check_run(None, worktree_id, spec, None, commands, None)
+            .await
+    }
+
+    /// Admission runs after the shared permit and scratch preparation, before any command.
+    pub async fn execute_required_checks_with_admission(
+        &self,
+        worktree_id: WorktreeId,
+        spec: &SandboxSpec,
+        commands: &[String],
+        admission: SandboxAdmission,
+    ) -> Result<SandboxExecutionResult, SandboxError> {
+        self.execute_check_run(None, worktree_id, spec, None, commands, Some(admission))
             .await
     }
 
@@ -57,8 +69,15 @@ impl LocalSandboxExecutor {
                 message: "execution attempt ID must not be nil".into(),
             });
         }
-        self.execute_check_run(Some(run_id), worktree_id, spec, Some(requested), required)
-            .await
+        self.execute_check_run(
+            Some(run_id),
+            worktree_id,
+            spec,
+            Some(requested),
+            required,
+            None,
+        )
+        .await
     }
 
     async fn execute_check_run(
@@ -68,6 +87,7 @@ impl LocalSandboxExecutor {
         spec: &SandboxSpec,
         requested: Option<&str>,
         required: &[String],
+        admission: Option<SandboxAdmission>,
     ) -> Result<SandboxExecutionResult, SandboxError> {
         let command_str = match requested {
             Some(requested) => command::display(requested, required),
@@ -140,6 +160,21 @@ impl LocalSandboxExecutor {
         let mut exit_code = 0;
         // fail-open-ok: numeric fallback preserves the fixed per-stream output cap.
         let cap = usize::try_from(MAX_SANDBOX_STREAM_BYTES).unwrap_or(1024 * 1024);
+        if let Some(admission) = admission {
+            if let Err(error) = admission.await {
+                let run_dir = prepared.run_dir.clone();
+                tokio::task::spawn_blocking(move || fs::remove_dir_all(run_dir))
+                    .await
+                    .map_err(|_| SandboxError::CleanupIncomplete {
+                        message: "unstarted scratch cleanup did not complete".into(),
+                    })?
+                    .map_err(|_| SandboxError::CleanupIncomplete {
+                        message: "unstarted scratch cleanup failed".into(),
+                    })?;
+                cleanup.run_dir = None;
+                return Err(error);
+            }
+        }
         for step in &mut steps {
             if tokio::time::Instant::now() >= deadline {
                 return Err(SandboxError::TimedOut {

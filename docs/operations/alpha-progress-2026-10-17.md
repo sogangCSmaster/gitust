@@ -1055,3 +1055,41 @@ gate and web-history rehearsal; it does not establish the original OS cause. Thi
 candidate still requires its own hosted validation. HTTP execution, ordinary-branch
 automatic triggers and new approval authority are not added. GitHub product
 publication remains deferred and automatic Gate B remains stopped.
+
+### Explicit Local Checks on an active primary, 2026-10-18
+
+Based on `e181f86e723badfde4bfd4a8818a12d67db555af`, a current SiteAdmin can use
+**Actions → Local Checks → Run Checks** when trusted single-user execution is
+enabled. The request carries the displayed default ref and full commit ID. The
+server runs that committed policy in a temporary checkout, sharing the existing
+executor and service ownership. Original credentials are checked after the body,
+after executor admission and before output. Completed outcomes share the existing
+bounded local history; failed saving preserves the actual result without claiming
+it was stored. No verification or approval authority is added.
+
+Full verification passed: Rust 451, frontend 308 across 43 files and Python 20,
+with two existing ignored Git tests. The normal HTTP rehearsal passed 17 checks
+on Seatbelt, including actual success/failure/skipping, exact HTTP/CLI history,
+unchanged working files and task/approval records, fixed admission errors, restart,
+native Git fsck and owned fixture cleanup. Its first startup failure was a missing
+local upstream in the new approval-restoration fixture; preparing an empty bare
+upstream corrected the fixture without changing product validation.
+
+The actual integrated browser logged in, ran Checks by keyboard and displayed the
+same saved run/ref/commit/policy/result as the retained checkpoint. Refresh created
+no additional run. Past failure and skipped commands remained inspectable, and
+secondary repositories had no execution button. At 320/768/1440 CSS pixels there
+was no horizontal overflow; paired buttons were 44/32/32 pixels high and long
+branch labels stayed on one line. Owned services, credentials and browser state
+were cleaned up. The save-failed result navigation fix is covered by component
+tests; the browser check did not inject storage faults.
+
+Independent source reviews found no remaining P0/P1/P2. The initial gzip9 bundle
+is 70,735 bytes (+180), so the 50,000-byte goal remains unmet. The
+[candidate evidence](evidence/http-local-checks-2026-10-18.json) separates source,
+test-first failures, actual runtime, screenshots and independent review hashes.
+The preceding `e181f86` [hosted run](https://github.com/sogangCSmaster/gitust/actions/runs/39081044607)
+passed Linux and macOS; this candidate still needs its own hosted result.
+Ordinary-branch automatic triggers and GitHub Actions compatibility remain future
+work. Actual GitHub product publication remains deferred, automatic Gate B stays
+stopped, and existing preview servers have not been restarted or deployed.

@@ -1,29 +1,19 @@
 import { createMemo, createSignal } from "solid-js";
 import type { DiffLine } from "../patterns/VirtualDiffViewer";
+import type { FileTreeNode } from "../patterns/VirtualFileTree";
 import {
   statusDiffLine,
   type LiveCommitSummary,
   type LiveWorktreeReview,
-} from "./live-repo-client";
-import { generateLargeDiff, generateMonorepoFileTree } from "./mock-data";
+} from "./live-repo-context";
 
-export const createWorkbenchRepositoryState = (
-  liveMode: () => boolean,
-  activeTab: () => string,
-) => {
-  // Demo data is only available in the explicitly labelled showcase mode.
-  const fallbackDiffLines = createMemo(() =>
-    !liveMode() && activeTab() === "diff" ? generateLargeDiff(10000) : [],
+export const createWorkbenchRepositoryState = (liveMode: () => boolean) => {
+  const [liveDiffLines, setLiveDiffLines] = createSignal<DiffLine[] | null>(
+    null,
   );
-  const fallbackFileTreeNodes = createMemo(() =>
-    !liveMode() && activeTab() === "tree" ? generateMonorepoFileTree(5000) : [],
-  );
-  const [liveDiffLines, setLiveDiffLines] = createSignal<ReturnType<
-    typeof generateLargeDiff
-  > | null>(null);
-  const [liveFileTreeNodes, setLiveFileTreeNodes] = createSignal<ReturnType<
-    typeof generateMonorepoFileTree
-  > | null>(null);
+  const [liveFileTreeNodes, setLiveFileTreeNodes] = createSignal<
+    FileTreeNode[] | null
+  >(null);
   const [liveCommits, setLiveCommits] = createSignal<LiveCommitSummary[]>(
     liveMode()
       ? []
@@ -62,10 +52,6 @@ export const createWorkbenchRepositoryState = (
   const blobLines = createMemo(
     () => liveBlobLines() ?? statusDiffLine("[Select a file to preview.]"),
   );
-  const diffLines = createMemo(() => liveDiffLines() ?? fallbackDiffLines());
-  const fileTreeNodes = createMemo(
-    () => liveFileTreeNodes() ?? fallbackFileTreeNodes(),
-  );
 
   return {
     setActiveCommitRev,
@@ -83,11 +69,11 @@ export const createWorkbenchRepositoryState = (
     worktreeReview,
     lookupMicros,
     selectedFilePath,
-    diffLines,
+    diffLines: liveDiffLines,
     liveDiffFiles,
     diffTruncated,
     treeTruncated,
-    fileTreeNodes,
+    fileTreeNodes: liveFileTreeNodes,
     selectedTreePath,
     setSelectedTreePath,
     setLiveBlobLines,

@@ -1,6 +1,7 @@
 # Web bundle measurements
 
-The initial JavaScript target is **less than 50,000 gzip bytes**. It remains unmet.
+The initial JavaScript target is **less than 50,000 gzip bytes**. It is **met**
+(`49,382` gzip9 bytes / `49,409` gzip6 bytes).
 Measure every HTML module script and modulepreload dependency together with its
 transitive static imports. Moving a dependency into another eagerly loaded file
 does not reduce this total.
@@ -8,7 +9,7 @@ does not reduce this total.
 With locked dependencies installed and Node.js 24, run from the repository root:
 
 ```sh
-pnpm --filter @gitust/design-system exec node scripts/measure-bundle.mjs
+pnpm --filter @gitust/design-system exec node scripts/measure-bundle.mjs --enforce
 ```
 
 The command uses the production Vite configuration with private temporary output
@@ -134,3 +135,30 @@ The direct initial → Actions → Local Checks closure is 94,887 bytes; it excl
 the previously visited Overview and is a different cohort. The new lifecycle
 client and panel remain outside the initial and Overview closures. The initial
 50,000-byte target remains unmet; these are emitted-byte totals, not latency claims.
+
+## Ordinary-branch Local Checks and <50 kB initial JavaScript closure, 2026-10-18
+
+Using the same maintained measurement command (`node scripts/measure-bundle.mjs --enforce`)
+and environment (Node.js 24.18.1, Vite 6.4.4, zlib 1.3.1-e00f703 on Darwin 25.5.0
+arm64, Apple M4 Pro), the initial static JavaScript closure now meets the
+**less than 50,000 gzip bytes** budget (`initial_target_met: true`):
+
+| Complete JavaScript closure | Before gzip9 | After gzip9 | Difference |
+|---|---:|---:|---:|
+| Initial repository catalog (`assets/index.js`) | 70,791 B | 49,382 B | -21,409 B (-30.24%) |
+| First Repository Overview, cumulative | 75,558 B | 64,798 B | -10,760 B (-14.24%) |
+
+The initial raw bytes fall from 216,133 to 146,302 (`-69,831` B / `-32.31%`). At
+gzip6, the initial closure falls from 70,842 to 49,409 bytes (and 54,847 bytes at
+gzip1); the first Repository Overview cumulative closure is 64,833 gzip6 bytes
+(189,742 raw bytes across 6 files). The initial build still emits a single
+JavaScript entry (`assets/index.js`, sha256 `432e7dd53025ec8d051980897fcf82c67500397dc3c80d48520faba940e83d5f`)
+with no HTML `modulepreload` roots.
+
+Key boundary reductions:
+
+- Replaced `@kobalte/core` root barrel imports in startup UI primitives (`sidebar.tsx`, `sidebar-menu-button.tsx`, `text-field.tsx`, `switch.tsx`) with direct `@kobalte/core/polymorphic` sub-module imports, preventing Rollup from pulling unused Kobalte `FormControl` and `Button` primitives into `assets/index.js`.
+- Split the mobile-only sheet drawer (`sidebar-mobile-sheet.tsx`) and unused sidebar extras (`sidebar-extras.tsx`) from `sidebar.tsx`, and extracted `KeyHint` (`key-hint.tsx`) and `PageHeading` (`page-heading.tsx`) from `presentation.tsx`.
+- Separated lightweight startup session hydration (`live-auth-session.ts`, `live-repo-session.ts`, `live-swarm-session.ts`, `connected-repository-session.ts`, `repository-workspace-core.ts`) from tab-only and overview-only mutation controllers (`live-auth-client.ts`, `live-repo-client.ts`, `live-swarm-client.ts`, `connected-repository-client.ts`, `repository-workspace.ts`, `live-branch-parser.ts`).
+- Deferred non-landing tab views (`WorkbenchTabViews`), modal overlay containers (`WorkbenchOverlays`), and procedural demo fixtures (`mock-generators.ts`) until a non-landing tab or modal is opened.
+

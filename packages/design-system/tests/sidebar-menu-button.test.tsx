@@ -7,10 +7,8 @@ import {
   screen,
   waitFor,
 } from "@solidjs/testing-library";
-import {
-  SidebarMenuButton,
-  SidebarProvider,
-} from "../src/components/ui/sidebar";
+import { SidebarProvider } from "../src/components/ui/sidebar";
+import { SidebarMenuButton } from "../src/components/ui/sidebar-extras";
 import { SidebarMenuButtonBase } from "../src/components/ui/sidebar-menu-button";
 
 beforeEach(() => {

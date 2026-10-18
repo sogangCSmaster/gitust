@@ -1,4 +1,5 @@
 use super::*;
+use crate::ChecksWorkflowStep;
 
 fn write_policy(repo: &Path, contents: &[u8]) {
     fs::write(repo.join(".gitust-checks.json"), contents).unwrap();
@@ -89,4 +90,59 @@ fn checks_configuration_must_not_be_a_symlink_or_directory() {
     git(tmp.path(), &["add", "."]);
     git(tmp.path(), &["commit", "-qm", "directory policy"]);
     assert!(engine.required_checks("main").is_err());
+}
+
+#[test]
+fn checks_support_named_workflow_steps_and_ordinary_branch_filters() {
+    let tmp = TempDir::new().unwrap();
+    init_repo(tmp.path());
+    let engine = GitEngine::new(tmp.path());
+    write_policy(
+        tmp.path(),
+        br#"{"version":1,"auto_run":true,"branches":["main","release/v1"],"steps":[{"name":"lint","run":"printf lint"},{"name":"test","run":"printf test"}]}"#,
+    );
+    let checks = engine.required_checks("main").unwrap().unwrap();
+    assert_eq!(checks.commands, vec!["printf lint", "printf test"]);
+    assert_eq!(
+        checks.steps,
+        vec![
+            ChecksWorkflowStep {
+                name: "lint".into(),
+                run: "printf lint".into(),
+            },
+            ChecksWorkflowStep {
+                name: "test".into(),
+                run: "printf test".into(),
+            },
+        ]
+    );
+    assert_eq!(
+        checks.branches,
+        Some(vec!["main".to_owned(), "release/v1".to_owned()])
+    );
+    assert!(checks.allows_auto_run_for_branch("main"));
+    assert!(checks.allows_auto_run_for_branch("release/v1"));
+    assert!(!checks.allows_auto_run_for_branch("feature/other"));
+    assert!(!checks.allows_auto_run_for_branch("agent/task"));
+    assert!(!checks.allows_auto_run_for_branch("refs/heads/main"));
+
+    for invalid in [
+        serde_json::json!({"version":1}),
+        serde_json::json!({"version":1,"commands":["true"],"steps":[{"name":"s","run":"true"}]}),
+        serde_json::json!({"version":1,"steps":[]}),
+        serde_json::json!({"version":1,"steps":[{"name":" ","run":"true"}]}),
+        serde_json::json!({"version":1,"steps":[{"name":"s","run":" "}]}),
+        serde_json::json!({"version":1,"steps":[{"name":"x".repeat(129),"run":"true"}]}),
+        serde_json::json!({"version":1,"steps":[{"name":"s\0","run":"true"}]}),
+        serde_json::json!({"version":1,"commands":["true"],"branches":[]}),
+        serde_json::json!({"version":1,"commands":["true"],"branches":["main","main"]}),
+        serde_json::json!({"version":1,"commands":["true"],"branches":["agent/x"]}),
+        serde_json::json!({"version":1,"commands":["true"],"branches":["refs/heads/main"]}),
+    ] {
+        write_policy(tmp.path(), invalid.to_string().as_bytes());
+        assert!(
+            engine.required_checks("main").is_err(),
+            "expected error for {invalid}"
+        );
+    }
 }

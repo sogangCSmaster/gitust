@@ -196,7 +196,14 @@ async function measure() {
 }
 
 try {
-  console.log(JSON.stringify(await measure(), null, 2));
+  const report = await measure();
+  console.log(JSON.stringify(report, null, 2));
+  if (process.argv.includes("--enforce") && !report.initial_target_met) {
+    console.error(
+      `Initial JS bundle target not met: ${report.initial.gzip_bytes[9]} gzip9 bytes >= ${report.initial_target_bytes} bytes`,
+    );
+    process.exitCode = 1;
+  }
 } catch (error) {
   console.error(
     `Bundle measurement failed: ${error instanceof Error ? error.message : String(error)}`,

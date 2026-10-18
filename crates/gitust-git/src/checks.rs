@@ -1,6 +1,6 @@
 //! Committed Checks policy lookup and exact ordinary branch selection never grant approval.
 use gix::prelude::HeaderExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{GitEngine, GitEngineError, MAX_BRANCH_NAME_BYTES};
 use gitust_core::CommitSha;
@@ -8,20 +8,50 @@ use gitust_core::CommitSha;
 const CHECKS_PATH: &str = ".gitust-checks.json";
 const MAX_CHECKS_BYTES: u64 = 16_384;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChecksWorkflowStep {
+    pub name: String,
+    pub run: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequiredChecks {
     pub blob_oid: String,
     pub commands: Vec<String>,
+    pub steps: Vec<ChecksWorkflowStep>,
     pub auto_run: bool,
+    pub branches: Option<Vec<String>>,
+}
+
+impl RequiredChecks {
+    #[must_use]
+    pub fn allows_auto_run_for_branch(&self, branch: &str) -> bool {
+        if !self.auto_run {
+            return false;
+        }
+        if !GitEngine::validate_outbound_branch(branch).is_ok_and(|clean| clean == branch) {
+            return false;
+        }
+        match &self.branches {
+            Some(allowed) => allowed.iter().any(|item| item == branch),
+            None => true,
+        }
+    }
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ChecksConfig {
     version: u32,
-    commands: Vec<String>,
+    #[serde(default)]
+    commands: Option<Vec<String>>,
+    #[serde(default)]
+    steps: Option<Vec<ChecksWorkflowStep>>,
     #[serde(default)]
     auto_run: bool,
+    #[serde(default)]
+    branches: Option<Vec<String>>,
 }
 
 impl GitEngine {
@@ -102,6 +132,10 @@ impl GitEngine {
     }
 }
 
+fn valid_command(cmd: &str) -> bool {
+    !cmd.trim().is_empty() && cmd.len() <= 4096 && !cmd.contains('\0')
+}
+
 fn from_commit(
     repo: &gix::Repository,
     commit: gix::Commit<'_>,
@@ -128,20 +162,63 @@ fn from_commit(
     let object = entry.object().map_err(|e| invalid(e.to_string()))?;
     let config: ChecksConfig = serde_json::from_slice(&object.data)
         .map_err(|e| invalid(format!("invalid checks configuration: {e}")))?;
-    if config.version != 1
-        || config.commands.is_empty()
-        || config.commands.len() > 8
-        || config
-            .commands
-            .iter()
-            .any(|c| c.trim().is_empty() || c.len() > 4096 || c.contains('\0'))
-    {
-        return Err(invalid("checks require version 1 and 1..=8 nonempty commands of at most 4096 bytes without NUL"));
+    if config.version != 1 {
+        return Err(invalid("checks require version 1"));
+    }
+    let (commands, steps) = match (config.commands, config.steps) {
+        (Some(commands), None) => {
+            if commands.is_empty()
+                || commands.len() > 8
+                || !commands.iter().all(|c| valid_command(c))
+            {
+                return Err(invalid(
+                    "checks require version 1 and 1..=8 nonempty commands of at most 4096 bytes without NUL",
+                ));
+            }
+            (commands, Vec::new())
+        }
+        (None, Some(steps)) => {
+            if steps.is_empty()
+                || steps.len() > 8
+                || !steps.iter().all(|s| {
+                    !s.name.trim().is_empty()
+                        && s.name.len() <= 128
+                        && !s.name.contains('\0')
+                        && valid_command(&s.run)
+                })
+            {
+                return Err(invalid(
+                    "checks workflow steps require 1..=8 named steps with 1..=128 byte names and 1..=4096 byte commands without NUL",
+                ));
+            }
+            let commands = steps.iter().map(|s| s.run.clone()).collect();
+            (commands, steps)
+        }
+        _ => {
+            return Err(invalid(
+                "checks configuration must specify exactly one of commands or steps",
+            ))
+        }
+    };
+    if let Some(ref branches) = config.branches {
+        if branches.is_empty()
+            || branches.len() > 16
+            || !branches
+                .iter()
+                .all(|b| GitEngine::validate_outbound_branch(b).is_ok_and(|clean| clean == *b))
+            || (0..branches.len()).any(|i| branches[i + 1..].contains(&branches[i]))
+        {
+            return Err(invalid(
+                "checks branches filter requires 1..=16 unique canonical ordinary branch names",
+            ));
+        }
     }
     Ok(Some(RequiredChecks {
         blob_oid: entry.oid().to_string(),
-        commands: config.commands,
+        commands,
+        steps,
         auto_run: config.auto_run,
+        branches: config.branches,
     }))
 }
 

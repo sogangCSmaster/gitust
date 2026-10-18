@@ -76,7 +76,7 @@ pub use browse::{
     CommitEntry, RepoBlobSnapshot, RepoCommitList, RepoTreeNode, RepoTreeSnapshot,
     MAX_BLOB_VIEW_BYTES, MAX_TREE_ENTRIES,
 };
-pub use checks::RequiredChecks;
+pub use checks::{ChecksWorkflowStep, RequiredChecks};
 pub use diff::{
     DiffLineKind, RepoDiffFileSummary, RepoDiffLine, RepoDiffSnapshot, MAX_DIFF_BYTES,
     MAX_DIFF_LINES,

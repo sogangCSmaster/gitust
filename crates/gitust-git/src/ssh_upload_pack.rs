@@ -178,15 +178,19 @@ impl Prepared {
         result
     }
 
-    fn signal_group(&self) -> Result<(), SshUploadPackError> {
+    fn signal_group(&mut self) -> Result<(), SshUploadPackError> {
         #[cfg(unix)]
         {
             let group = i32::try_from(self.process_group)
                 .map_err(|_| SshUploadPackError::CleanupIncomplete)?;
             // SAFETY: this child was created in its own process group and the group is signalled only once.
-            if unsafe { libc::killpg(group, libc::SIGKILL) } != 0
-                && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
-            {
+            if unsafe { libc::killpg(group, libc::SIGKILL) } != 0 {
+                let err = std::io::Error::last_os_error().raw_os_error();
+                if err == Some(libc::ESRCH)
+                    || (err == Some(libc::EPERM) && self.exited_without_reaping()?)
+                {
+                    return Ok(());
+                }
                 return Err(SshUploadPackError::CleanupIncomplete);
             }
             Ok(())
@@ -228,6 +232,8 @@ where
         "transfer.fsckObjects=true",
         "-c",
         "transfer.hideRefs=refs/remotes/",
+        "-c",
+        "transfer.hideRefs=refs/heads/agent/cli/",
         "upload-pack",
         "--strict",
         "--",

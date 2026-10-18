@@ -1,6 +1,6 @@
 import { createEffect, createSignal } from "solid-js";
-import type { ConnectedRepository } from "./connected-repository-client";
-import { getLiveToken } from "./live-repo-client";
+import type { ConnectedRepository } from "./connected-repository-session";
+import { getLiveToken } from "./live-repo-context";
 import type { NewWorktreeInput, NewWorktreeResult } from "./new-worktree-input";
 
 export const createNewWorktreeController = (options: {

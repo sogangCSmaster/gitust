@@ -56,6 +56,7 @@ mod ssh_git_stream;
 mod ssh_git_target;
 mod ssh_git_write;
 pub mod state;
+mod state_oauth;
 mod transports;
 pub mod webui;
 mod worktree_owners;

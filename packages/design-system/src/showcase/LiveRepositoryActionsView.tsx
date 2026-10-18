@@ -28,6 +28,7 @@ export interface RepositoryActionsProps {
   selectionEpoch: number;
   canRunChecks?: boolean;
   canViewLocalChecksAutomatic?: boolean;
+  selectedBranch?: string;
   defaultRef?: string;
   defaultCommit?: string | null;
   refreshRepository?: (isCurrent: () => boolean) => Promise<boolean>;
@@ -36,7 +37,8 @@ export interface RepositoryActionsProps {
 export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
   props,
 ) => {
-  const [mode, setMode] = createSignal("automatic");
+  const defaultMode = () => (props.isPrimary ? "automatic" : "local");
+  const [mode, setMode] = createSignal(defaultMode());
   // Unrelated catalog/account refreshes must not restart diagnostic requests or change the selected tab.
   const repositoryId = createMemo(() => props.repositoryId);
   const role = createMemo(() => props.role);
@@ -46,22 +48,24 @@ export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
   const canViewAutomatic = createMemo(
     () => props.canViewLocalChecksAutomatic === true,
   );
+  const selectedBranch = createMemo(() => props.selectedBranch);
   const defaultRef = createMemo(() => props.defaultRef);
   const defaultCommit = createMemo(() => props.defaultCommit);
-  const canRead = () => primary() && role() === "SiteAdmin";
+  const canRead = () =>
+    role() === "SiteAdmin" &&
+    (primary() || canRun() || canViewAutomatic());
   createEffect(() => {
     repositoryId();
     epoch();
     role();
-    primary();
-    setMode("automatic");
+    setMode(primary() ? "automatic" : "local");
   });
   return (
     <Tabs
       value={mode()}
-      onChange={(value) => setMode(canRead() ? value : "automatic")}
+      onChange={(value) => setMode(canRead() ? value : defaultMode())}
     >
-      <Show when={canRead()}>
+      <Show when={primary() && canRead()}>
         <TabsList class="w-full sm:w-auto" aria-label="Checks diagnostics">
           <TabsTrigger value="automatic" class="flex-1">
             Automatic
@@ -86,6 +90,7 @@ export const LiveRepositoryActionsView: Component<RepositoryActionsProps> = (
               selectionEpoch={epoch()}
               canRunChecks={canRun()}
               canViewLocalChecksAutomatic={canViewAutomatic()}
+              selectedBranch={selectedBranch()}
               defaultRef={defaultRef()}
               defaultCommit={defaultCommit()}
               refreshRepository={props.refreshRepository}

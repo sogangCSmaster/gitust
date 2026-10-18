@@ -1,4 +1,4 @@
-import { For, Show, type Component, type JSX } from "solid-js";
+import { Show, type Component, type JSX } from "solid-js";
 import { Badge } from "../ui/badge";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import {
@@ -9,8 +9,8 @@ import {
   CardContent,
 } from "../ui/card";
 import { TextField, TextFieldInput, TextFieldLabel } from "../ui/text-field";
-import { formatShortcutKeys } from "../../keyboard/shortcut-manager";
 import { cn } from "../../lib/utils";
+export { KeyHint } from "./key-hint";
 
 export type StatusTone =
   "neutral" | "accent" | "success" | "warning" | "danger" | "merged" | "info";
@@ -54,17 +54,6 @@ export const PersonAvatar: Component<{ name: string; class?: string }> = (
         .join("")}
     </AvatarFallback>
   </Avatar>
-);
-export const KeyHint: Component<{ keys: string }> = (props) => (
-  <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
-    <For each={formatShortcutKeys(props.keys)}>
-      {(key) => (
-        <kbd class="inline-flex min-w-5 items-center justify-center rounded border bg-muted px-1 py-0.5 font-mono text-[10px]">
-          {key}
-        </kbd>
-      )}
-    </For>
-  </span>
 );
 export const Field: Component<{
   label: string;
@@ -111,29 +100,7 @@ export const Section: Component<{
     <CardContent class="space-y-3">{props.children}</CardContent>
   </Card>
 );
-export const PageHeading: Component<{
-  title: string;
-  description: string;
-  action?: JSX.Element;
-}> = (props) => (
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div class="min-w-0 flex-1">
-      <h1
-        class="truncate text-lg font-semibold tracking-tight"
-        title={props.title}
-      >
-        {props.title}
-      </h1>
-      <p
-        class="mt-1 hidden max-w-2xl truncate text-xs text-muted-foreground lg:block"
-        title={props.description}
-      >
-        {props.description}
-      </p>
-    </div>
-    {props.action}
-  </div>
-);
+export { PageHeading } from "./page-heading";
 export const EmptyState: Component<{ title: string; description: string }> = (
   props,
 ) => (

@@ -2,8 +2,8 @@
 // Shared menu-button rendering from solid-ui; see LICENSE.solid-ui and PROVENANCE.md.
 import type { ComponentProps, ValidComponent } from "solid-js";
 import { mergeProps, splitProps } from "solid-js";
-import type { PolymorphicProps } from "@kobalte/core";
-import { Polymorphic } from "@kobalte/core";
+import type { PolymorphicProps } from "@kobalte/core/polymorphic";
+import { Polymorphic } from "@kobalte/core/polymorphic";
 import type { VariantProps } from "class-variance-authority";
 import { cva } from "class-variance-authority";
 import { cn } from "../../lib/utils";

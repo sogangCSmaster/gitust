@@ -77,19 +77,19 @@ struct PreparedIntents {
 }
 
 impl PreparedIntents {
-    fn reject_all(&mut self, state: &AppState) {
+    fn reject_all(&mut self, state: &AppState, repo: &ReadRepository) {
         let intents = std::mem::take(&mut self.worktree_intents);
         crate::git_http_automatic::reject_all(state, intents);
         if let Some(intent) = self.local_intent.take() {
-            if crate::local_checks_automatic::reject(state, intent).is_err() {
+            if crate::local_checks_automatic::reject_for_repo(repo, intent).is_err() {
                 tracing::warn!("automatic local Checks preparation recovery is required");
             }
         }
     }
 
-    fn finish(&mut self, state: &AppState) {
+    fn finish(&mut self, state: &AppState, repo: &ReadRepository) {
         if !self.gate_succeeded {
-            self.reject_all(state);
+            self.reject_all(state, repo);
             return;
         }
         let intents = std::mem::take(&mut self.worktree_intents);
@@ -97,7 +97,7 @@ impl PreparedIntents {
             tracing::warn!(%status, "SSH push completed but automatic Checks scheduling is unavailable");
         }
         if let Some(intent) = self.local_intent.take() {
-            if crate::local_checks_automatic::confirm(state, intent).is_err() {
+            if crate::local_checks_automatic::confirm_for_repo(repo, intent).is_err() {
                 tracing::warn!(
                     "SSH push completed but automatic local Checks scheduling is unavailable"
                 );
@@ -125,9 +125,35 @@ fn check_commands(
         if updates.iter().any(|u| u.is_agent_branch) {
             return Err(());
         }
-        #[cfg(test)]
-        crate::repository_reads::after_read(&auth.state);
-        auth.verify()?;
+        let step = (|| -> Result<(), ()> {
+            match crate::local_checks_automatic::prepare_for_repo(
+                &auth.state,
+                &auth.repository,
+                &caller,
+                &updates,
+            )
+            .map_err(|_| ())?
+            {
+                crate::local_checks_automatic::Eligibility::Prepared(intent) => {
+                    prepared.lock().local_intent = Some(intent);
+                }
+                crate::local_checks_automatic::Eligibility::ConsentUnproven(reason) => {
+                    tracing::warn!(
+                        ?reason,
+                        "automatic local Checks consent could not be established; no execution scheduled"
+                    );
+                }
+                crate::local_checks_automatic::Eligibility::Ineligible => {}
+            }
+            #[cfg(test)]
+            crate::repository_reads::after_read(&auth.state);
+            auth.verify().map(|_| ())
+        })();
+        if step.is_err() {
+            prepared.lock().reject_all(&auth.state, &auth.repository);
+            return Err(());
+        }
+        prepared.lock().gate_succeeded = true;
         return Ok(());
     }
 
@@ -190,8 +216,13 @@ fn check_commands(
             crate::git_http_automatic::prepare(&auth.state, &caller, &matched_worktrees, &updates)
                 .map_err(|_| ())?;
         prepared.lock().worktree_intents = intents;
-        match crate::local_checks_automatic::prepare(&auth.state, &caller, &updates)
-            .map_err(|_| ())?
+        match crate::local_checks_automatic::prepare_for_repo(
+            &auth.state,
+            &auth.repository,
+            &caller,
+            &updates,
+        )
+        .map_err(|_| ())?
         {
             crate::local_checks_automatic::Eligibility::Prepared(intent) => {
                 prepared.lock().local_intent = Some(intent);
@@ -226,7 +257,7 @@ fn check_commands(
     })();
 
     if step.is_err() {
-        prepared.lock().reject_all(&auth.state);
+        prepared.lock().reject_all(&auth.state, &auth.repository);
         return Err(());
     }
     for (wt_id, _, _) in &matched_worktrees {
@@ -290,6 +321,7 @@ pub(crate) async fn start(
     }
 
     let engine = auth.repository.engine.clone();
+    let finish_repo = auth.repository.clone();
     let exec_locks = Arc::new(Mutex::new(Vec::new()));
     let target = WriteTarget {
         _inventory: inventory,
@@ -311,7 +343,7 @@ pub(crate) async fn start(
             move || spawn_auth.verify().map(|_| ()),
             move |updates| check_commands(&cmd_auth, &exec_locks, &cmd_prepared, updates),
             move |_outcome| {
-                prepared.lock().finish(&finish_state);
+                prepared.lock().finish(&finish_state, &finish_repo);
             },
         )
         .map_err(|_| ())?;

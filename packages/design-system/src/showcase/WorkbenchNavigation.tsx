@@ -88,6 +88,7 @@ export const WorkbenchNavigation: Component<{
   active: WorkbenchTab;
   repositoryName?: string;
   browseOnly?: boolean;
+  canActions?: boolean;
   liveMode: boolean;
   username?: string;
   onSelect: (tab: WorkbenchTab) => void;
@@ -108,7 +109,11 @@ export const WorkbenchNavigation: Component<{
         each={props.items.filter(
           (item) =>
             item.group === group &&
-            (!props.browseOnly || !["swarm", "actions"].includes(item.id)),
+            (item.id === "swarm"
+              ? !props.browseOnly
+              : item.id === "actions"
+                ? (props.canActions ?? !props.browseOnly)
+                : true),
         )}
       >
         {(item) => (

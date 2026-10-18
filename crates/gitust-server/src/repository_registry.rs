@@ -17,6 +17,8 @@ pub(crate) struct ReadRepository {
     pub(crate) is_default: bool,
     pub(crate) git_write: bool,
     pub(crate) mutation: Arc<tokio::sync::Mutex<()>>,
+    pub(crate) local_checks_lock: Arc<tokio::sync::Mutex<()>>,
+    pub(crate) local_checks_automatic: Arc<crate::local_checks_automatic::Registry>,
 }
 
 pub(crate) struct RepositoryRegistry {
@@ -53,6 +55,8 @@ impl RepositoryRegistry {
                 is_default: true,
                 git_write: true,
                 mutation: state.repo_mutation_lock.clone(),
+                local_checks_lock: state.local_checks_lock.clone(),
+                local_checks_automatic: state.local_checks_automatic.clone(),
             },
         );
         let mut ownership = vec![state.git_engine.lock_worktree_service()?];
@@ -99,6 +103,10 @@ impl RepositoryRegistry {
                     is_default: false,
                     git_write,
                     mutation: Arc::new(tokio::sync::Mutex::new(())),
+                    local_checks_lock: Arc::new(tokio::sync::Mutex::new(())),
+                    local_checks_automatic: Arc::new(
+                        crate::local_checks_automatic::Registry::default(),
+                    ),
                 },
             );
             ownership.push(guard);
@@ -119,6 +127,18 @@ impl RepositoryRegistry {
 }
 
 impl AppState {
+    fn primary_read_repository(&self) -> ReadRepository {
+        ReadRepository {
+            engine: self.git_engine.clone(),
+            access: self.repo_access,
+            is_default: true,
+            git_write: true,
+            mutation: self.repo_mutation_lock.clone(),
+            local_checks_lock: self.local_checks_lock.clone(),
+            local_checks_automatic: self.local_checks_automatic.clone(),
+        }
+    }
+
     pub(crate) fn read_repositories(&self) -> Vec<ReadRepository> {
         match &self.repository_registry {
             Some(registry) => {
@@ -126,27 +146,22 @@ impl AppState {
                 rows.sort_by_key(|row| row.access.repo_id.0);
                 rows
             }
-            None => vec![ReadRepository {
-                engine: self.git_engine.clone(),
-                access: self.repo_access,
-                is_default: true,
-                git_write: true,
-                mutation: self.repo_mutation_lock.clone(),
-            }],
+            None => vec![self.primary_read_repository()],
         }
     }
 
     pub(crate) fn read_repository(&self, id: RepoId) -> Option<ReadRepository> {
         match &self.repository_registry {
             Some(registry) => registry.entries.get(&id).cloned(),
-            None if id == self.repo_id => Some(ReadRepository {
-                engine: self.git_engine.clone(),
-                access: self.repo_access,
-                is_default: true,
-                git_write: true,
-                mutation: self.repo_mutation_lock.clone(),
-            }),
+            None if id == self.repo_id => Some(self.primary_read_repository()),
             None => None,
         }
+    }
+
+    pub(crate) fn writable_repository(&self, id: RepoId) -> Option<ReadRepository> {
+        if id == self.repo_id {
+            return Some(self.primary_read_repository());
+        }
+        self.read_repository(id).filter(|r| r.git_write)
     }
 }

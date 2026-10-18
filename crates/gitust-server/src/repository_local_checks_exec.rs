@@ -4,6 +4,7 @@ use crate::{
     ephemeral_sandbox::{run_prepared_sandbox, RunCommands, RunContext, RunError},
     local_checks_history::LocalChecksRecord,
     repository_local_checks_result::{save, Failure, Report},
+    repository_registry::ReadRepository,
     state::{check_repo_bola, AppState},
 };
 use axum::{
@@ -35,24 +36,34 @@ fn auth_error((status, _): (StatusCode, String), final_check: bool) -> Failure {
         forbidden()
     }
 }
-fn authorize(state: &AppState, headers: &HeaderMap, origin: UserId) -> Result<(), Failure> {
+fn authorize(
+    state: &AppState,
+    repo: &ReadRepository,
+    headers: &HeaderMap,
+    origin: UserId,
+) -> Result<(), Failure> {
     let current = extract_principal(headers, &state.auth_store).map_err(|e| auth_error(e, true))?;
     if current.user_id != origin || current.role != EnterpriseRole::SiteAdmin {
         return Err(forbidden());
     }
+    let expected_id = if repo.is_default {
+        state.repo_id
+    } else {
+        repo.access.repo_id
+    };
     check_repo_bola(
         &state.auth_store,
-        state.repo_id,
-        state.repo_access,
+        expected_id,
+        repo.access,
         &current,
-        state.repo_id,
+        repo.access.repo_id,
     )
     .map_err(|e| auth_error(e, true))?;
-    if state
-        .git_engine
+    if repo
+        .engine
         .load_existing_repository_id()
         .map_err(|_| Failure::unavailable())?
-        != state.repo_id
+        != repo.access.repo_id
     {
         return Err(Failure::unavailable());
     }
@@ -61,22 +72,22 @@ fn authorize(state: &AppState, headers: &HeaderMap, origin: UserId) -> Result<()
     }
     Ok(())
 }
-fn selected(state: &AppState, source: &str, expected: &CommitSha) -> Result<String, Failure> {
+fn selected(repo: &ReadRepository, source: &str, expected: &CommitSha) -> Result<String, Failure> {
     let changed = || Failure::new(StatusCode::CONFLICT, "local_checks_target_changed");
-    let base = state
-        .git_engine
+    let _base = repo
+        .engine
         .committed_default_branch()
         .map_err(|_| changed())?;
-    if format!("refs/heads/{base}") != source
-        || state
-            .git_engine
-            .resolve_checks_ref(source)
-            .map_err(|_| changed())?
-            != *expected
+    let short_branch = source.strip_prefix("refs/heads/").ok_or_else(changed)?;
+    if repo
+        .engine
+        .resolve_checks_ref(source)
+        .map_err(|_| changed())?
+        != *expected
     {
         return Err(changed());
     }
-    Ok(base)
+    Ok(short_branch.to_owned())
 }
 pub(crate) async fn run(
     State(state): State<AppState>,
@@ -98,12 +109,12 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Respons
     if origin.role != EnterpriseRole::SiteAdmin {
         return Err(forbidden());
     }
-    if repo_id != state.repo_id {
+    let Some(repo) = state.writable_repository(repo_id) else {
         return Err(Failure::new(
             StatusCode::NOT_FOUND,
             "local_checks_not_hosted",
         ));
-    }
+    };
     let bytes = axum::body::to_bytes(body, 256 * 1024).await.map_err(|_| {
         Failure::new(
             StatusCode::PAYLOAD_TOO_LARGE,
@@ -123,13 +134,14 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Respons
         ));
     }
     let expected = CommitSha(input.expected_commit.to_ascii_lowercase());
-    let operation = state
+    let operation = repo
         .local_checks_lock
         .clone()
         .try_lock_owned()
         .map(Arc::new)
         .map_err(|_| Failure::new(StatusCode::CONFLICT, "local_checks_busy"))?;
     let snapshot = state.clone();
+    let prep_repo = repo.clone();
     let headers = parts.headers.clone();
     let origin_id = origin.user_id;
     let source = input.expected_source_ref.clone();
@@ -138,18 +150,18 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Respons
     let (owner, base, checks) = tokio::task::spawn_blocking(move || {
         let _operation = held;
         let _inventory = snapshot.repository_registry.clone();
-        authorize(&snapshot, &headers, origin_id)?;
-        let owner = snapshot
-            .git_engine
+        authorize(&snapshot, &prep_repo, &headers, origin_id)?;
+        let owner = prep_repo
+            .engine
             .lock_worktree_service()
             .map_err(|_| Failure::unavailable())?;
-        snapshot
-            .git_engine
+        prep_repo
+            .engine
             .ensure_config_has_no_credentials()
             .map_err(|_| Failure::unavailable())?;
-        let base = selected(&snapshot, &source, &commit)?;
-        let checks = snapshot
-            .git_engine
+        let base = selected(&prep_repo, &source, &commit)?;
+        let checks = prep_repo
+            .engine
             .required_checks_at_commit(&commit)
             .map_err(|_| Failure::new(StatusCode::BAD_REQUEST, "local_checks_policy_invalid"))?
             .ok_or_else(|| Failure::new(StatusCode::BAD_REQUEST, "local_checks_policy_missing"))?;
@@ -160,6 +172,7 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Respons
     let denied = Arc::new(Mutex::new(None));
     let gate_denied = denied.clone();
     let snapshot = state.clone();
+    let gate_repo = repo.clone();
     let headers = parts.headers.clone();
     let held = operation.clone();
     let gate_owner = owner.clone();
@@ -169,8 +182,8 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Respons
         let check = tokio::task::spawn_blocking(move || {
             let _operation = held;
             let _owner = gate_owner;
-            authorize(&snapshot, &headers, origin_id)?;
-            selected(&snapshot, &source, &commit).map(|_| ())
+            authorize(&snapshot, &gate_repo, &headers, origin_id)?;
+            selected(&gate_repo, &source, &commit).map(|_| ())
         })
         .await;
         let error = match check {
@@ -187,7 +200,7 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Respons
         None => state.sandbox_executor.clone(),
     };
     let outcome = run_prepared_sandbox(
-        state.git_engine.clone(),
+        repo.engine.clone(),
         owner.clone(),
         base,
         RunCommands::Checks {
@@ -228,7 +241,7 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Respons
                 report.cleanup = "confirmed";
                 report.reason = None;
                 report.history = save(
-                    state.git_engine.clone(),
+                    repo.engine.clone(),
                     owner.clone(),
                     operation.clone(),
                     repo_id,
@@ -256,12 +269,13 @@ async fn value(state: AppState, raw: String, request: Request) -> Result<Respons
     }
     // This includes output-bearing storage-failed responses; user activity alone is insufficient.
     let snapshot = state;
+    let final_repo = repo;
     let headers = parts.headers;
     tokio::task::spawn_blocking(move || {
         let _owner = owner;
         let _operation = operation;
         let response = report.response(status);
-        authorize(&snapshot, &headers, origin_id)?;
+        authorize(&snapshot, &final_repo, &headers, origin_id)?;
         Ok(response)
     })
     .await

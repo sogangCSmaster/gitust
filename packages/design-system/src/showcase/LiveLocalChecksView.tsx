@@ -38,10 +38,15 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
     records: [],
   });
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  const canReadHistory = () =>
+    props.role === "SiteAdmin" &&
+    (props.isPrimary ||
+      props.canRunChecks === true ||
+      props.canViewLocalChecksAutomatic === true);
   const client = createLocalChecksClient(setState, {
     repositoryId: () => props.repositoryId,
     selectionEpoch: () => props.selectionEpoch,
-    canRead: () => props.isPrimary && props.role === "SiteAdmin",
+    canRead: canReadHistory,
   });
   const [runState, setRunState] = createSignal<LocalChecksRunState>({
     status: "idle",
@@ -54,7 +59,6 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
   // A catalog refresh owns hint changes only while its original selection is current.
   let automaticRefreshOwner: (() => boolean) | undefined;
   const canRun = () =>
-    props.isPrimary &&
     props.role === "SiteAdmin" &&
     props.canRunChecks === true &&
     sessionAvailable() &&
@@ -70,7 +74,6 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
   const [automaticState, setAutomaticState] =
     createSignal<LocalChecksAutomaticState>({ status: "idle", runs: [] });
   const canViewAutomatic = () =>
-    props.isPrimary &&
     props.role === "SiteAdmin" &&
     props.canViewLocalChecksAutomatic === true;
   const automaticClient = createLocalChecksAutomaticClient(setAutomaticState, {
@@ -154,7 +157,7 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
   createEffect(() => {
     const id = props.repositoryId;
     const epoch = props.selectionEpoch;
-    const allowed = props.isPrimary && props.role === "SiteAdmin";
+    const allowed = canReadHistory();
     refreshGeneration++;
     setRefreshing(false);
     setRefreshError(undefined);
@@ -194,7 +197,8 @@ export const LiveLocalChecksView: Component<RepositoryActionsProps> = (
           <p>Latest five recorded runs. Diagnostics only.</p>
           <Show when={canRun()}>
             <p class="truncate" title={props.defaultRef}>
-              Default: {props.defaultRef?.slice(11)} ·{" "}
+              {props.selectedBranch ? "Branch" : "Default"}:{" "}
+              {props.defaultRef?.slice(11)} ·{" "}
               {props.defaultCommit?.slice(0, 7)}
             </p>
           </Show>

@@ -78,3 +78,8 @@ export {
   type AgentProvider,
 } from "./patterns/AgentSwarmView";
 export { ActiveChordHUD } from "./patterns/ActiveChordHUD";
+export {
+  SidebarMenuButton,
+  SidebarInput,
+  type SidebarMenuButtonProps,
+} from "./components/ui/sidebar-extras";

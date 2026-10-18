@@ -1,13 +1,11 @@
 import type { GroupInviteDraft } from "./repository-group-invite";
-import { createEffect, createMemo, createSignal, untrack } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import type { WorkbenchTab } from "./WorkbenchApp";
 import {
-  createConnectedRepositoryClient,
   canCloneRepository,
+  executeConnectedRepositoryRename,
   type ConnectedRepository,
-  type ConnectedRepositoryState,
 } from "./connected-repository-client";
-import { DEMO_REPOSITORY } from "./repository-demo";
 import { getLiveToken } from "./live-repo-client";
 import type { RepositoryRenameActions } from "./repository-rename-types";
 import type {
@@ -18,30 +16,27 @@ import type {
   DefaultBranchActions,
   DefaultBranchIntent,
 } from "./repository-default-branch";
+import {
+  createRepositoryWorkspaceCore,
+  isRepositoryTab,
+  type RepositoryActionsContext,
+  type RepositoryWorkspaceCore,
+} from "./repository-workspace-core";
 
-export interface RepositoryActionsContext {
-  selectionEpoch: () => number;
-  refresh: (isCurrent: () => boolean) => Promise<boolean>;
-}
+export {
+  createRepositoryWorkspaceCore,
+  isRepositoryTab,
+  type RepositoryActionsContext,
+  type RepositoryWorkspaceCore,
+};
 
-export const isRepositoryTab = (tab: WorkbenchTab, liveMode: boolean) =>
-  ["overview", "swarm", "tree", "diff"].includes(tab) ||
-  (liveMode && tab === "actions");
+const attachedWorkspaces = new WeakMap<
+  RepositoryWorkspaceCore,
+  ReturnType<typeof buildRepositoryOverviewActions>
+>();
 
-export const createRepositoryWorkspace = (options: {
-  liveMode: () => boolean;
-  setActiveTab: (tab: WorkbenchTab) => void;
-  clearView: () => void;
-  hydrate: (repository: ConnectedRepository) => void;
-}) => {
-  const [state, setState] = createSignal<ConnectedRepositoryState>({
-    repositories: [],
-    loading: false,
-    error: null,
-  });
-  const [selectedId, setSelectedId] = createSignal<string | null>(null);
-  const client = createConnectedRepositoryClient(setState);
-  const [selectionEpoch, setSelectionEpoch] = createSignal(0);
+const buildRepositoryOverviewActions = (core: RepositoryWorkspaceCore) => {
+  const { selected, selectionEpoch, unavailable, client, liveMode } = core;
   let renameKey = 0;
   let defaultKey = 0;
   let activeDefaultKey: number | undefined;
@@ -51,129 +46,19 @@ export const createRepositoryWorkspace = (options: {
   } | null>(null);
   let visibilityKey = 0;
   let activeVisibilityKey: number | undefined;
-  const invalidateRename = () => {
-    setSelectionEpoch((value) => value + 1);
-    client.cancelRename();
+
+  core.onInvalidate(() => {
     activeDefaultKey = undefined;
     activeVisibilityKey = undefined;
     setInviteDraft(null);
-  };
-  const repositories = createMemo(() =>
-    options.liveMode() ? state().repositories : [DEMO_REPOSITORY],
-  );
-  const selected = () => {
-    // Read reactive inputs before the session guard; browser storage itself is not reactive.
-    const rows = repositories();
-    const id = selectedId();
-    const error = state().error;
-    if (options.liveMode() && (!client.isCurrentSession() || error))
-      return null;
-    return rows.find((repo) => repo.id === id) ?? null;
-  };
-  let observedHead: { id: string; head: string | null } | undefined;
-  createEffect(() => {
-    const repository = selected();
-    const previous = observedHead;
-    observedHead = repository
-      ? { id: repository.id, head: repository.headCommit }
-      : undefined;
-    if (
-      repository &&
-      previous?.id === repository.id &&
-      previous.head !== repository.headCommit
-    )
-      untrack(() => options.hydrate(repository));
   });
-  const canWorkbench = () => {
-    const repository = selected();
-    return repository?.capability === "workbench" && repository.isDefault;
-  };
-  const browseOnly = () => selected()?.capability === "browse";
-  const canNavigate = (tab: WorkbenchTab) =>
-    !["swarm", "actions"].includes(tab) || !browseOnly();
-  const clearSelection = () => {
-    invalidateRename();
-    options.clearView();
-    setSelectedId(null);
-    options.setActiveTab("repositories");
-  };
-  const open = (repo: ConnectedRepository, tab: WorkbenchTab = "overview") => {
-    if (options.liveMode() && !client.isCurrentSession()) {
-      clearSelection();
-      void client.refresh();
-      return;
-    }
-    const target = repositories().find((entry) => entry.id === repo.id);
-    if (!target) return;
-    invalidateRename();
-    options.clearView();
-    setSelectedId(target.id);
-    options.setActiveTab(canNavigate(tab) ? tab : "overview");
-    if (options.liveMode()) options.hydrate(target);
-  };
-  const navigate = (tab: WorkbenchTab) => {
-    if (tab === "repositories") clearSelection();
-    else if (!canNavigate(tab)) return;
-    else if (isRepositoryTab(tab, options.liveMode()) && !selected()) {
-      const repo = repositories().find((entry) => entry.isDefault);
-      if (repo) open(repo, tab);
-      else options.setActiveTab("repositories");
-    } else options.setActiveTab(tab);
-  };
-  createEffect(() => {
-    if (selectedId() && !state().loading && !selected()) clearSelection();
-  });
-  const reset = () => {
-    client.reset();
-    clearSelection();
-  };
-  const unavailable = (id: string) => {
-    if (selectedId() !== id) return;
-    clearSelection();
-    client.reset();
-    void client.refresh();
-  };
-  const refreshViews = async () => {
-    const origin = selected();
-    const epoch = selectionEpoch();
-    const token = getLiveToken();
-    if (!origin || !options.liveMode() || !token) return;
-    const current = () =>
-      epoch === selectionEpoch() &&
-      token === getLiveToken() &&
-      selected()?.id === origin.id;
-    await client.refreshIfCurrent(current);
-    const repository = selected();
-    if (current() && repository && repository.headCommit === origin.headCommit)
-      options.hydrate(repository);
-  };
-  const actions: RepositoryActionsContext = {
-    selectionEpoch,
-    refresh: async (viewCurrent) => {
-      const origin = selected();
-      const epoch = selectionEpoch();
-      const token = getLiveToken();
-      if (!origin || !token || !options.liveMode()) return false;
-      const current = () => {
-        const repository = selected();
-        return (
-          viewCurrent() &&
-          epoch === selectionEpoch() &&
-          token === getLiveToken() &&
-          repository?.id === origin.id &&
-          client.isCurrentSession()
-        );
-      };
-      await client.refreshIfCurrent(current);
-      return current() && state().error === null;
-    },
-  };
+
   const clone = () => {
     const repository = selected();
     const epoch = selectionEpoch();
     const token = getLiveToken();
     if (
-      !options.liveMode() ||
+      !liveMode() ||
       !repository ||
       !canCloneRepository(repository) ||
       !token ||
@@ -187,7 +72,7 @@ export const createRepositoryWorkspace = (options: {
         const current = selected();
         const currentEpoch = selectionEpoch();
         return (
-          options.liveMode() &&
+          liveMode() &&
           current?.id === repoId &&
           canCloneRepository(current) &&
           epoch === currentEpoch &&
@@ -202,7 +87,7 @@ export const createRepositoryWorkspace = (options: {
       const repository = selected();
       const token = getLiveToken();
       if (
-        !options.liveMode() ||
+        !liveMode() ||
         !repository?.canRename ||
         !token ||
         !client.isCurrentSession()
@@ -220,7 +105,7 @@ export const createRepositoryWorkspace = (options: {
       const repository = selected();
       const epoch = selectionEpoch();
       return (
-        options.liveMode() &&
+        liveMode() &&
         repository?.id === intent.repoId &&
         repository.canRename === true &&
         epoch === intent.epoch &&
@@ -229,8 +114,11 @@ export const createRepositoryWorkspace = (options: {
       );
     },
     save: async (intent, name) => {
-      const result = await client.rename(intent, name, () =>
-        rename.isCurrent(intent),
+      const result = await executeConnectedRepositoryRename(
+        client,
+        intent,
+        name,
+        () => rename.isCurrent(intent),
       );
       if (result.kind === "saved" && rename.isCurrent(intent))
         void client.refresh();
@@ -242,7 +130,7 @@ export const createRepositoryWorkspace = (options: {
     const repository = selected();
     const epoch = selectionEpoch();
     return (
-      options.liveMode() &&
+      liveMode() &&
       repository?.id === intent.repoId &&
       repository.canChangeDefaultBranch === true &&
       (!original ||
@@ -260,7 +148,7 @@ export const createRepositoryWorkspace = (options: {
       if (
         !repository?.canChangeDefaultBranch ||
         !token ||
-        !options.liveMode() ||
+        !liveMode() ||
         !client.isCurrentSession()
       )
         return null;
@@ -292,7 +180,7 @@ export const createRepositoryWorkspace = (options: {
     const repository = selected();
     const epoch = selectionEpoch();
     return (
-      options.liveMode() &&
+      liveMode() &&
       repository?.id === intent.repoId &&
       repository.canChangeVisibility === true &&
       typeof repository.isPrivate === "boolean" &&
@@ -345,7 +233,7 @@ export const createRepositoryWorkspace = (options: {
       const repository = selected();
       const token = getLiveToken();
       if (
-        !options.liveMode() ||
+        !liveMode() ||
         !repository?.canChangeVisibility ||
         typeof repository.isPrivate !== "boolean" ||
         !token ||
@@ -379,21 +267,27 @@ export const createRepositoryWorkspace = (options: {
     },
   };
   return {
-    state,
-    selected,
-    selectionEpoch,
-    actions,
-    open,
-    navigate,
-    reset,
-    canWorkbench,
-    browseOnly,
-    unavailable,
+    ...core,
     rename,
     clone,
-    refresh: client.refresh,
-    refreshViews,
     defaultBranch,
     visibility,
   };
 };
+
+export const attachRepositoryOverviewActions = (
+  core: RepositoryWorkspaceCore,
+) => {
+  const existing = attachedWorkspaces.get(core);
+  if (existing) return existing;
+  const attached = buildRepositoryOverviewActions(core);
+  attachedWorkspaces.set(core, attached);
+  return attached;
+};
+
+export const createRepositoryWorkspace = (options: {
+  liveMode: () => boolean;
+  setActiveTab: (tab: WorkbenchTab) => void;
+  clearView: () => void;
+  hydrate: (repository: ConnectedRepository) => void;
+}) => attachRepositoryOverviewActions(createRepositoryWorkspaceCore(options));

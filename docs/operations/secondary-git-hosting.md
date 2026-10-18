@@ -55,11 +55,14 @@ from Overview. The separate `can_change_default_branch` hint controls this entry
 ordinary push permission does not grant it. The change updates only that
 repository's symbolic HEAD and does not add workbench capabilities.
 
-Git hosting on a secondary does not start its managed worktrees, automatic Checks,
-MCP execution, synchronization or approval/publication workflow. Those operations
-continue to use the configured primary. UUID and registration anchors remain
-stable across restart; the startup flag determines whether ordinary pushes are
-enabled for that service instance.
+SiteAdmins can also inspect and run [explicit](local-checks.md) and
+[automatic](default-branch-checks.md) ordinary-branch Local Checks on a writable
+secondary repository when `--trusted-single-user-sandbox` is enabled. Git hosting
+on a secondary does not start managed agent worktrees, agent-branch automatic
+Checks, MCP execution, synchronization or approval/publication workflows; those
+operations continue to use the configured primary. UUID and registration anchors
+remain stable across restart; the startup flag determines whether ordinary pushes
+and writable-secondary Local Checks are enabled for that service instance.
 
 Include every configured repository and the shared auth database in a stopped
 [backup](backup-restore.md#include-configured-read-only-repositories). The backup

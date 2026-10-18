@@ -1,7 +1,7 @@
 //! Current administrators can inspect disabled scheduling without granting execution.
 use crate::{
     auth::extract_principal,
-    local_checks_automatic::identity,
+    local_checks_automatic::identity_for_repo,
     local_checks_automatic_model::{View, MAX_BYTES},
     repository_local_checks_result::Failure,
     state::{check_repo_bola, AppState},
@@ -54,35 +54,30 @@ pub(crate) async fn list(
                 "invalid_local_checks_automatic_request",
             )
         })?;
-        if id != state.repo_id {
+        let Some(repo) = state.writable_repository(id) else {
             return Err(Failure::new(
                 StatusCode::NOT_FOUND,
                 "local_checks_automatic_not_hosted",
             ));
-        }
-        check_repo_bola(
-            &state.auth_store,
-            state.repo_id,
-            state.repo_access,
-            &origin,
-            id,
-        )
-        .map_err(auth_error)?;
-        let _owner = state
-            .git_engine
+        };
+        let expected_id = if repo.is_default { state.repo_id } else { id };
+        check_repo_bola(&state.auth_store, expected_id, repo.access, &origin, id)
+            .map_err(auth_error)?;
+        let _owner = repo
+            .engine
             .lock_worktree_service()
             .map_err(|_| unavailable())?;
-        identity(&state).map_err(|_| unavailable())?;
-        if state
+        identity_for_repo(&repo).map_err(|_| unavailable())?;
+        if repo
             .local_checks_automatic
             .unavailable
             .load(std::sync::atomic::Ordering::SeqCst)
         {
             return Err(unavailable());
         }
-        let doc = state
+        let doc = repo
             .local_checks_automatic
-            .store(&state)
+            .store_for_repo(&repo)
             .and_then(|store| store.read())
             .map_err(|_| unavailable())?;
         let payload = serde_json::to_vec(&Page {
@@ -94,7 +89,7 @@ pub(crate) async fn list(
         if payload.len() as u64 > MAX_BYTES {
             return Err(unavailable());
         }
-        identity(&state).map_err(|_| unavailable())?;
+        identity_for_repo(&repo).map_err(|_| unavailable())?;
         let current = extract_principal(&headers, &state.auth_store).map_err(auth_error)?;
         if current.user_id != origin.user_id || current.role != EnterpriseRole::SiteAdmin {
             return Err(Failure::new(
@@ -102,14 +97,8 @@ pub(crate) async fn list(
                 "local_checks_automatic_forbidden",
             ));
         }
-        check_repo_bola(
-            &state.auth_store,
-            state.repo_id,
-            state.repo_access,
-            &current,
-            id,
-        )
-        .map_err(auth_error)?;
+        check_repo_bola(&state.auth_store, expected_id, repo.access, &current, id)
+            .map_err(auth_error)?;
         Ok(payload)
     })
     .await;

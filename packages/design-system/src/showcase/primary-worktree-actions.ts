@@ -1,5 +1,5 @@
 import type { AgentSandboxTask } from "../patterns/AgentSwarmView";
-import { getLiveToken } from "./live-repo-client";
+import { getLiveToken } from "./live-repo-context";
 
 /** Every entry point keeps the primary workbench boundary, including stale UI callbacks. */
 export const createPrimaryWorktreeActions = (options: {

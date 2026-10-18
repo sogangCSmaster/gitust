@@ -83,15 +83,20 @@ pub async fn run_prepared_sandbox(
 ) -> Result<RunOutcome, RunError> {
     let cancelled = Arc::new(AtomicBool::new(false));
     let slot = Arc::new(Mutex::new(None));
+    let worktree_id = WorktreeId::new();
+    if !keep {
+        owner.register_ephemeral_worktree(worktree_id);
+    }
     let guard = CheckoutGuard {
+        worktree_id,
         engine: engine.clone(),
         owner: owner.clone(),
         materialized: slot.clone(),
         keep,
         cancelled: cancelled.clone(),
         operation: context.operation.clone(),
+        finishing: false,
     };
-    let worktree_id = WorktreeId::new();
     let id = worktree_id.0.to_string();
     let branch = format!("agent/cli/sandbox-{}", &id[..8]);
     let spawn_engine = engine.clone();
@@ -103,7 +108,6 @@ pub async fn run_prepared_sandbox(
     };
     let repo_id = context.repo_id;
     let m = tokio::task::spawn_blocking(move || {
-        let _owner = spawn_owner;
         let _operation = operation;
         let result = spawn_engine.materialize_agent_worktree(
             worktree_id,
@@ -127,6 +131,9 @@ pub async fn run_prepared_sandbox(
                         &m.worktree.base_commit,
                     );
                 }
+            }
+            if !keep {
+                spawn_owner.unregister_ephemeral_worktree(worktree_id);
             }
         // fail-open-ok: only registers a successful checkout for cleanup; result errors still propagate.
         } else if let Ok(m) = &result {

@@ -1,4 +1,4 @@
-import { For, Show, type Component } from "solid-js";
+import { createMemo, For, Show, type Component } from "solid-js";
 import { Button } from "../components/ui/button";
 import { Icon, type IconName } from "../components/workspace/icon";
 import type { ConnectedRepository } from "./connected-repository-client";
@@ -10,20 +10,33 @@ import { RepositoryDefaultBranch } from "./RepositoryDefaultBranch";
 import type { DefaultBranchActions } from "./repository-default-branch";
 import { RepositoryVisibility } from "./RepositoryVisibility";
 import type { VisibilityActions } from "./repository-visibility";
+import {
+  attachRepositoryOverviewActions,
+  type RepositoryWorkspaceCore,
+} from "./repository-workspace";
 
 export const RepositoryOverview: Component<{
   repository: ConnectedRepository;
   liveMode: boolean;
   worktrees: number;
   onNavigate: (tab: "swarm" | "tree" | "diff" | "actions") => void;
-  actions?: {
-    rename: RepositoryRenameActions;
-    refreshViews: () => unknown;
-    clone: () => RepositoryCloneTarget | null;
-    defaultBranch?: DefaultBranchActions;
-    visibility?: VisibilityActions;
-  };
+  actions?:
+    | {
+        rename: RepositoryRenameActions;
+        refreshViews: () => unknown;
+        clone: () => RepositoryCloneTarget | null;
+        defaultBranch?: DefaultBranchActions;
+        visibility?: VisibilityActions;
+      }
+    | RepositoryWorkspaceCore;
 }> = (props) => {
+  const overviewActions = createMemo(() =>
+    props.actions
+      ? "rename" in props.actions
+        ? props.actions
+        : attachRepositoryOverviewActions(props.actions)
+      : undefined,
+  );
   const destinations: Array<{
     id: "swarm" | "tree" | "diff" | "actions";
     label: string;
@@ -77,12 +90,12 @@ export const RepositoryOverview: Component<{
           <RepositoryRename
             repository={props.repository}
             liveMode={props.liveMode}
-            actions={props.actions?.rename}
+            actions={overviewActions()?.rename}
           />
           <RepositoryClone
             repository={props.repository}
             liveMode={props.liveMode}
-            begin={props.actions?.clone}
+            begin={overviewActions()?.clone}
           />
           <Show when={!props.liveMode}>
             <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -101,7 +114,7 @@ export const RepositoryOverview: Component<{
           <RepositoryDefaultBranch
             repository={props.repository}
             liveMode={props.liveMode}
-            actions={props.actions?.defaultBranch}
+            actions={overviewActions()?.defaultBranch}
           />
           <Show when={props.repository.headCommit}>
             {(sha) => (
@@ -114,14 +127,14 @@ export const RepositoryOverview: Component<{
           <RepositoryVisibility
             repository={props.repository}
             liveMode={props.liveMode}
-            actions={props.actions?.visibility}
+            actions={overviewActions()?.visibility}
           />
         </div>
       </div>
       <Show when={props.repository.headCommit === null}>
         <RepositoryInitialCommit
           branch={props.repository.branch}
-          onRefresh={() => props.actions?.refreshViews()}
+          onRefresh={() => overviewActions()?.refreshViews()}
         />
       </Show>
       <div class="overflow-hidden rounded-xl border bg-card">
@@ -129,7 +142,12 @@ export const RepositoryOverview: Component<{
           each={destinations.filter(
             (destination) =>
               props.repository.capability === "workbench" ||
-              ["tree", "diff"].includes(destination.id),
+              ["tree", "diff"].includes(destination.id) ||
+              (destination.id === "actions" &&
+                Boolean(
+                  props.repository.canViewLocalChecksAutomatic ||
+                    props.repository.canRunLocalChecks,
+                )),
           )}
         >
           {(destination) => (

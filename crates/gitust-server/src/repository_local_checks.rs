@@ -52,26 +52,28 @@ async fn value(state: AppState, raw: String, headers: HeaderMap) -> Result<Vec<u
             return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
         }
         let repo_id = id(&raw)?;
-        if repo_id != state.repo_id {
+        let Some(repo) = state.writable_repository(repo_id) else {
             return Err((
                 StatusCode::NOT_FOUND,
                 "repository is not hosted for local Checks history".into(),
             ));
-        }
+        };
+        let expected_id = if repo.is_default {
+            state.repo_id
+        } else {
+            repo_id
+        };
         check_repo_bola(
             &state.auth_store,
-            state.repo_id,
-            state.repo_access,
+            expected_id,
+            repo.access,
             &origin,
             repo_id,
         )?;
-        let _ownership = state
-            .git_engine
-            .lock_worktree_service()
-            .map_err(unavailable)?;
+        let _ownership = repo.engine.lock_worktree_service().map_err(unavailable)?;
         let confirm_identity = || {
-            let actual = state
-                .git_engine
+            let actual = repo
+                .engine
                 .load_existing_repository_id()
                 .map_err(unavailable)?;
             if actual != repo_id {
@@ -80,8 +82,8 @@ async fn value(state: AppState, raw: String, headers: HeaderMap) -> Result<Vec<u
             Ok(())
         };
         confirm_identity()?;
-        let common = state
-            .git_engine
+        let common = repo
+            .engine
             .repository_common_directory()
             .map_err(unavailable)?;
         let records = LocalChecksHistoryStore::open(&common, repo_id)
@@ -105,8 +107,8 @@ async fn value(state: AppState, raw: String, headers: HeaderMap) -> Result<Vec<u
         }
         check_repo_bola(
             &state.auth_store,
-            state.repo_id,
-            state.repo_access,
+            expected_id,
+            repo.access,
             &current,
             repo_id,
         )?;

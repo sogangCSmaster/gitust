@@ -188,7 +188,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
             if branch_name.len() > 32 * 1024 || name.len() > 1024 {
                 return Err(unavailable("repository metadata exceeds its limit"));
             }
-            let can_run_local_checks = context.is_default
+            let can_run_local_checks = (context.is_default || context.git_write)
                 && state.trusted_sandbox_exec
                 && caller.role == gitust_core::EnterpriseRole::SiteAdmin
                 && context
@@ -214,7 +214,7 @@ async fn catalog_value(state: AppState, headers: HeaderMap) -> Result<Catalog, A
                 },
                 is_default: context.is_default,
                 can_run_local_checks,
-                can_view_local_checks_automatic: context.is_default
+                can_view_local_checks_automatic: (context.is_default || context.git_write)
                     && caller.role == gitust_core::EnterpriseRole::SiteAdmin,
                 can_rename: authorization.can_rename,
                 can_clone: true,

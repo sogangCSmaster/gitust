@@ -92,6 +92,8 @@ where
         "-c",
         "transfer.hideRefs=refs/remotes/",
         "-c",
+        "transfer.hideRefs=refs/heads/agent/cli/",
+        "-c",
         "receive.fsckObjects=true",
         "-c",
         "receive.denyNonFastForwards=true",
@@ -277,17 +279,19 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     C: FnOnce(Vec<ReceivePackRefUpdate>) -> Result<(), ()> + Send + 'static,
 {
-    let input = prepared.child.stdin.take().ok_or(SshUploadPackError::Io)?;
+    let mut input = prepared.child.stdin.take().ok_or(SshUploadPackError::Io)?;
     let output = prepared.child.stdout.take().ok_or(SshUploadPackError::Io)?;
     let stderr = prepared.child.stderr.take().ok_or(SshUploadPackError::Io)?;
     let (reader, writer) = tokio::io::split(stream);
     let (failures, mut failure) = mpsc::channel(3);
     let input_failure = failures.clone();
     let input_task = pumps.spawn(async move {
-        if let Err(error) = receive_input(reader, input, common_git_dir, command_gate).await {
+        if let Err(error) = receive_input(reader, &mut input, common_git_dir, command_gate).await {
             // fail-open-ok: a closed receiver means the supervisor already owns cleanup.
             let _ = input_failure.send(error).await;
+            std::future::pending::<()>().await;
         }
+        drop(input);
         Pump::Input
     });
     let output_failure = failures.clone();

@@ -214,6 +214,7 @@ async fn run(
         .header_read_timeout(limits.header_read_timeout)
         .keep_alive(true);
 
+    let (conn_stop, conn_receiver) = watch::channel(false);
     let mut connections = JoinSet::new();
     let mut result = loop {
         // Take the permit before accepting so excess clients never get a process fd.
@@ -261,7 +262,7 @@ async fn run(
                 req
             });
         let conn_builder = builder.clone();
-        let mut closing = receiver.clone();
+        let mut closing = conn_receiver.clone();
         connections.spawn(async move {
             let _permit = permit;
             let _ip_slot = ip_slot;
@@ -283,6 +284,7 @@ async fn run(
     };
     drop(listener);
     stop.send_replace(true);
+    conn_stop.send_replace(true);
     let drain = async {
         while let Some(connection) = connections.join_next().await {
             if connection.is_err() {

@@ -2,7 +2,6 @@ import type {
   ActionJobStep,
   AgentProvider,
   AgentSandboxTask,
-  EnterpriseUser,
   IssueItem,
 } from "../index";
 import type { WorkbenchTab } from "./WorkbenchApp";
@@ -22,9 +21,6 @@ export interface ShowcaseDemoCallbacks {
   setFocusedIssueIdx: (idx: number) => void;
   setActionJobs: (
     updater: ActionJobStep[] | ((prev: ActionJobStep[]) => ActionJobStep[])
-  ) => void;
-  setEnterpriseUsers: (
-    updater: EnterpriseUser[] | ((prev: EnterpriseUser[]) => EnterpriseUser[])
   ) => void;
   showQuickFeedback: (msg: string) => void;
 }
@@ -152,38 +148,6 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
     );
   };
 
-  const toggleEnterpriseUserRole = (userId: number) => {
-    const roles: EnterpriseUser["role"][] = [
-      "Developer",
-      "Maintainer",
-      "Site Admin",
-    ];
-    cb.setEnterpriseUsers((prev) =>
-      prev.map((u) => {
-        if (u.id !== userId) return u;
-        const nextRole =
-          roles[(roles.indexOf(u.role) + 1) % roles.length] ?? "Developer";
-        cb.showQuickFeedback(
-          `Demo role changed: @${u.username} → ${nextRole}`
-        );
-        return { ...u, role: nextRole };
-      })
-    );
-  };
-
-  const toggleEnterpriseUserStatus = (userId: number) => {
-    cb.setEnterpriseUsers((prev) =>
-      prev.map((u) => {
-        if (u.id !== userId) return u;
-        const nextStatus = u.status === "active" ? "suspended" : "active";
-        cb.showQuickFeedback(
-          `Demo account status changed: @${u.username} → ${nextStatus.toUpperCase()}`
-        );
-        return { ...u, status: nextStatus };
-      })
-    );
-  };
-
   return {
     approveDemoSwarmTask,
     discardDemoSwarmTask,
@@ -191,7 +155,5 @@ export function createShowcaseDemoActions(cb: ShowcaseDemoCallbacks) {
     toggleIssueStatus,
     createOptimisticIssue,
     rerunAllActionJobs,
-    toggleEnterpriseUserRole,
-    toggleEnterpriseUserStatus,
   };
 }

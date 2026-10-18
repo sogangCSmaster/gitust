@@ -364,6 +364,8 @@ fn run_git_stateless_rpc(
         "-c",
         "transfer.hideRefs=refs/remotes/",
         "-c",
+        "transfer.hideRefs=refs/heads/agent/cli/",
+        "-c",
         "receive.fsckObjects=true",
         "-c",
         "receive.denyNonFastForwards=true",

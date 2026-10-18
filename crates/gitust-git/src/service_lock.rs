@@ -1,12 +1,15 @@
 //! Shared process ownership and fail-closed quarantine after an unconfirmed execution.
 use std::{
+    collections::HashSet,
     fs,
     path::Path,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
+
+use gitust_core::WorktreeId;
 
 use crate::{execution_fence, io_err, GitEngine, GitEngineError};
 
@@ -15,6 +18,7 @@ pub(crate) struct WorktreeServiceLockInner {
     file: fs::File,
     quarantined: AtomicBool,
     active_fences: AtomicUsize,
+    active_ephemeral_worktrees: Mutex<HashSet<WorktreeId>>,
 }
 
 impl Drop for WorktreeServiceLockInner {
@@ -29,6 +33,33 @@ impl Drop for WorktreeServiceLockInner {
 pub struct WorktreeServiceLock(pub(crate) Arc<WorktreeServiceLockInner>);
 
 impl WorktreeServiceLock {
+    pub fn register_ephemeral_worktree(&self, id: WorktreeId) {
+        // fail-open-ok: poison recovery updates the in-memory ephemeral worktree set under exclusive service ownership.
+        self.0
+            .active_ephemeral_worktrees
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id);
+    }
+
+    pub fn unregister_ephemeral_worktree(&self, id: WorktreeId) {
+        // fail-open-ok: poison recovery removes the completed ephemeral worktree from the active set.
+        self.0
+            .active_ephemeral_worktrees
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
+    }
+
+    pub(crate) fn is_active_ephemeral_worktree(&self, id: WorktreeId) -> bool {
+        // fail-open-ok: poison recovery inspects the active ephemeral worktree set; unknown directories still fail closed.
+        self.0
+            .active_ephemeral_worktrees
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&id)
+    }
+
     pub(crate) fn quarantine(&self) {
         self.0.quarantined.store(true, Ordering::SeqCst);
     }
@@ -117,6 +148,7 @@ impl GitEngine {
                     file,
                     quarantined: AtomicBool::new(false),
                     active_fences: AtomicUsize::new(0),
+                    active_ephemeral_worktrees: Mutex::new(HashSet::new()),
                 });
                 if !operator_recovery {
                     let common = path.parent().ok_or_else(execution_fence::quarantined)?;

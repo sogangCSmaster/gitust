@@ -3,14 +3,13 @@ import {
   createMemo,
   createEffect,
   createSignal,
+  lazy,
   onCleanup,
   onMount,
   Show,
+  Suspense,
 } from "solid-js";
-import { ActiveChordHUD } from "../patterns/ActiveChordHUD";
-import { CommandPalette } from "../patterns/CommandPalette";
-import { Button } from "../components/ui/button";
-import { Icon, IconSpriteSheet } from "../components/workspace/icon";
+import { IconSpriteSheet } from "../components/workspace/icon";
 import type {
   ActionJobStep,
   AgentSandboxTask,
@@ -23,34 +22,35 @@ import type {
 } from "../index";
 import { filterAgentSwarmTasks } from "../patterns/worktree-filter";
 import { filterIssueItems } from "../patterns/issue-filter";
-import { NewWorktreeDialog } from "./NewWorktreeDialog";
 import { createNewWorktreeController } from "./new-worktree-controller";
 import { createPrimaryWorktreeActions } from "./primary-worktree-actions";
-import { createLiveAuthClient } from "./live-auth-client";
-import { createLiveRepoClient, getLiveToken } from "./live-repo-client";
-import { createLiveSwarmClient } from "./live-swarm-client";
-import {
-  generateActionLogs,
-  INITIAL_ACTION_JOBS,
-  INITIAL_AGENT_SWARM_TASKS,
-  INITIAL_ENTERPRISE_USERS,
-  INITIAL_ISSUES,
-} from "./mock-data";
+import { createLiveAuthSession } from "./live-auth-session";
+import { createLiveRepoSession } from "./live-repo-session";
+import { getLiveToken } from "./live-repo-context";
+import { createLiveSwarmSession } from "./live-swarm-session";
+import { INITIAL_AGENT_SWARM_TASKS } from "./mock-data";
 import { registerWorkbenchShortcuts } from "./register-workbench-shortcuts";
 import { createShowcaseDemoActions } from "./showcase-demo-actions";
-import { ShortcutsReferenceModal, WorkbenchHeader } from "./WorkbenchHeader";
-import { WorkbenchTabViews } from "./WorkbenchTabViews";
-import { LiveRunHistoryDialog } from "./LiveRunHistoryDialog";
+import { WorkbenchHeader } from "./WorkbenchHeader";
+import { ActiveChordHUD } from "../patterns/ActiveChordHUD";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { SidebarProvider, SidebarInset } from "../components/ui/sidebar";
 import { WorkbenchNavigation, workbenchNavItems } from "./WorkbenchNavigation";
 import { createWorkbenchRepositoryState } from "./workbench-repository-state";
 import { readWorkbenchAccessLink } from "./workbench-access-link";
 import {
-  createRepositoryWorkspace,
+  createRepositoryWorkspaceCore,
   isRepositoryTab,
-} from "./repository-workspace";
+} from "./repository-workspace-core";
 import { RepositoryLanding, RepositoryOverview } from "./RepositoryViews";
+import { RepositoryInitialCommit } from "./RepositoryInitialCommit";
+
+const WorkbenchTabViews = lazy(() =>
+  import("./WorkbenchTabViews").then((m) => ({ default: m.WorkbenchTabViews })),
+);
+const WorkbenchOverlays = lazy(() =>
+  import("./WorkbenchOverlays").then((m) => ({ default: m.WorkbenchOverlays })),
+);
 
 export type WorkbenchTab =
   | "repositories"
@@ -71,7 +71,6 @@ export const WorkbenchApp: Component = () => {
   );
   const [cmdOpen, setCmdOpen] = createSignal(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = createSignal(false);
-
   const [swarmTasks, setSwarmTasks] = createSignal<AgentSandboxTask[]>(
     liveMode() ? [] : INITIAL_AGENT_SWARM_TASKS,
   );
@@ -80,28 +79,20 @@ export const WorkbenchApp: Component = () => {
   const visibleSwarmTasks = createMemo(() =>
     filterAgentSwarmTasks(swarmTasks(), swarmFilter()),
   );
-
-  const [issues, setIssues] = createSignal<IssueItem[]>(INITIAL_ISSUES);
+  const [issues, setIssues] = createSignal<IssueItem[]>([]);
   const [issueFilter, setIssueFilter] = createSignal("");
   const [focusedIssueIdx, setFocusedIssueIdx] = createSignal(0);
   const visibleIssues = createMemo(() =>
     filterIssueItems(issues(), issueFilter()),
   );
-
   const [optimisticToast, setOptimisticToast] = createSignal<string | null>(
     null,
   );
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const [actionJobs, setActionJobs] =
-    createSignal<ActionJobStep[]>(INITIAL_ACTION_JOBS);
+  const [actionJobs, setActionJobs] = createSignal<ActionJobStep[]>([]);
   const [activeJobId, setActiveJobId] = createSignal("job-docker");
-  const actionLogs = createMemo(() =>
-    !liveMode() && activeTab() === "actions" ? generateActionLogs(10000) : [],
-  );
-
   const [enterpriseUsers, setEnterpriseUsers] = createSignal<EnterpriseUser[]>(
-    liveMode() ? [] : INITIAL_ENTERPRISE_USERS,
+    [],
   );
   const [liveSession, setLiveSession] =
     createSignal<LiveAuthSessionInfo | null>(null);
@@ -121,7 +112,6 @@ export const WorkbenchApp: Component = () => {
     string | null
   >(null);
   const [liveSshKeys, setLiveSshKeys] = createSignal<LiveSshKeyItem[]>([]);
-
   let filterInputRef: HTMLInputElement | undefined;
 
   const {
@@ -149,7 +139,7 @@ export const WorkbenchApp: Component = () => {
     fileTreeNodes,
     selectedTreePath,
     blobLines,
-  } = createWorkbenchRepositoryState(liveMode, activeTab);
+  } = createWorkbenchRepositoryState(liveMode);
 
   const showQuickFeedback = (msg: string) => {
     if (toastTimer) {
@@ -162,7 +152,7 @@ export const WorkbenchApp: Component = () => {
     }, 2200);
   };
 
-  const liveClient = createLiveRepoClient({
+  const liveClient = createLiveRepoSession({
     getRepositoryId: () => connectedRepository.selected()?.id,
     getRepositoryHead: () => connectedRepository.selected()?.headCommit,
     onRepositoryChanged: () => connectedRepository.refreshViews(),
@@ -183,7 +173,7 @@ export const WorkbenchApp: Component = () => {
     setWorktreeReview,
     showQuickFeedback,
   });
-  const liveSwarmClient = createLiveSwarmClient({
+  const liveSwarmClient = createLiveSwarmSession({
     getSwarmTasks: swarmTasks,
     setSwarmTasks,
     onRepoMutated: () => {
@@ -206,7 +196,7 @@ export const WorkbenchApp: Component = () => {
       setLiveFileTreeNodes(null);
     }
   };
-  const connectedRepository = createRepositoryWorkspace({
+  const connectedRepository = createRepositoryWorkspaceCore({
     liveMode,
     setActiveTab,
     clearView: clearRepositoryView,
@@ -256,7 +246,7 @@ export const WorkbenchApp: Component = () => {
     },
   });
 
-  const liveAuthClient = createLiveAuthClient({
+  const liveAuthClient = createLiveAuthSession({
     setLiveSession,
     setEnterpriseUsers,
     setLiveInvites,
@@ -265,7 +255,6 @@ export const WorkbenchApp: Component = () => {
     setLastIssuedPatToken,
     setLiveSshKeys,
     setRedeemToken,
-    fallbackUsers: INITIAL_ENTERPRISE_USERS,
     onTokenAuthenticated: () => {
       accessLink = null;
       clearRepositoryView();
@@ -311,7 +300,6 @@ export const WorkbenchApp: Component = () => {
     setActiveTab: navigate,
     setFocusedIssueIdx,
     setActionJobs,
-    setEnterpriseUsers,
     showQuickFeedback,
   });
 
@@ -393,6 +381,7 @@ export const WorkbenchApp: Component = () => {
         onSelect={navigate}
         repositoryName={selectedRepository()?.name}
         browseOnly={connectedRepository.browseOnly()}
+        canActions={connectedRepository.canViewActions()}
         liveMode={liveMode()}
         username={liveSession()?.username}
       />
@@ -447,152 +436,147 @@ export const WorkbenchApp: Component = () => {
             )}
           </Show>
 
-          <WorkbenchTabViews
-            branches={liveClient.branches}
-            repository={selectedRepository()}
-            repositoryActions={connectedRepository.actions}
-            canWorkbench={connectedRepository.canWorkbench()}
-            activeTab={activeTab()}
-            liveMode={liveMode()}
-            swarmTasks={swarmTasks()}
-            focusedSwarmIdx={focusedSwarmIdx()}
-            onFocusedSwarmIdxChange={setFocusedSwarmIdx}
-            onApproveMergeSwarmTask={approveAndMergeSwarmTask}
-            onDiscardSwarmTask={discardSwarmTask}
-            onPublishSwarmTask={publishSwarmTask}
-            onReviewSwarmTask={reviewSwarmTask}
-            onVerifySwarmTask={(id, command) => {
-              if (connectedRepository.canWorkbench() && activeTab() === "swarm")
-                void liveSwarmClient.verifyLiveWorktree(id, command);
-            }}
-            onRefreshSwarmTasks={() => {
-              void connectedRepository.refreshViews();
-              if (connectedRepository.canWorkbench())
-                void liveSwarmClient.hydrateSwarmWorktrees();
-            }}
-            onViewRunHistory={(id) => {
-              const task = swarmTasks().find((task) => task.liveId === id);
-              if (
-                task &&
-                connectedRepository.canWorkbench() &&
-                liveMode() &&
-                liveSession()?.role === "SiteAdmin"
-              )
-                setHistoryTask(task);
-            }}
-            onSpawnBatchAgentSwarm={spawnBatchAgentSwarm}
-            onTriggerGithubSync={liveClient.triggerGithubSync}
-            swarmFilter={swarmFilter()}
-            onSwarmFilterChange={setSwarmFilter}
-            issues={issues()}
-            focusedIssueIdx={focusedIssueIdx()}
-            onFocusedIssueIdxChange={setFocusedIssueIdx}
-            onToggleIssueStatus={demoActions.toggleIssueStatus}
-            onCreateOptimisticIssue={demoActions.createOptimisticIssue}
-            filterRef={(el) => (filterInputRef = el)}
-            issueFilter={issueFilter()}
-            onIssueFilterChange={setIssueFilter}
-            liveCommits={liveCommits()}
-            worktreeReview={worktreeReview()}
-            activeCommitRev={activeCommitRev()}
-            onSelectCommitDiff={(sha) =>
-              void liveClient.loadLiveCommitDiff(sha)
+          <Show
+            when={
+              activeTab() !== "repositories" && activeTab() !== "overview"
             }
-            lookupMicros={lookupMicros()}
-            selectedFilePath={selectedFilePath()}
-            diffLines={diffLines()}
-            selectedTreePath={selectedTreePath()}
-            blobLines={blobLines()}
-            liveDiffFiles={liveDiffFiles()}
-            diffTruncated={diffTruncated()}
-            treeTruncated={treeTruncated()}
-            onSelectCommitDiffFile={(path) =>
-              void liveClient.selectCommitDiffFile(path)
-            }
-            actionJobs={actionJobs()}
-            activeJobId={activeJobId()}
-            onSelectJob={setActiveJobId}
-            onRerunAllActionJobs={demoActions.rerunAllActionJobs}
-            actionLogs={actionLogs()}
-            enterpriseUsers={enterpriseUsers()}
-            onToggleEnterpriseUserRole={demoActions.toggleEnterpriseUserRole}
-            onToggleEnterpriseUserStatus={
-              demoActions.toggleEnterpriseUserStatus
-            }
-            onPolicyFeedback={showQuickFeedback}
-            adminAuthProps={{
-              liveMode: liveMode(),
-              liveSession: liveSession(),
-              onSignIn: (id, pwd) => void liveAuthClient.signIn(id, pwd),
-              onSignOut: () => void liveAuthClient.signOut(),
-              redeemMode: redeemMode(),
-              onChangeRedeemMode: setRedeemMode,
-              redeemToken: redeemToken(),
-              onRedeemTokenInput: setRedeemToken,
-              onRedeemInvite: (tok, user, pwd) =>
-                void liveAuthClient.redeemInvite(tok, user, pwd),
-              onRedeemPasswordReset: (tok, pwd) =>
-                void liveAuthClient.redeemPasswordReset(tok, pwd),
-              liveInvites: liveInvites(),
-              lastIssuedInviteUrl: lastIssuedInviteUrl(),
-              onIssueInvite: (email, role) =>
-                void liveAuthClient.issueInvite(email, role),
-              onRevokeInvite: (id) => void liveAuthClient.revokeInvite(id),
-              onIssuePasswordReset: (uid) =>
-                void liveAuthClient.issuePasswordReset(uid),
-              onDeactivateLiveUser: (uid) =>
-                void liveAuthClient.deactivateUser(uid),
-              livePats: livePats(),
-              lastIssuedPatToken: lastIssuedPatToken(),
-              onCreatePat: (name) => void liveAuthClient.createPat(name),
-              onRevokePat: (id) => void liveAuthClient.revokePat(id),
-              liveSshKeys: liveSshKeys(),
-              onRegisterSshKey: (title, key) =>
-                void liveAuthClient.registerSshKey(title, key),
-              onRevokeSshKey: (id) => void liveAuthClient.revokeSshKey(id),
-            }}
-            fileTreeNodes={fileTreeNodes()}
-            onSelectFileFromTree={(node) =>
-              void liveClient.selectFileFromTree(node)
-            }
-          />
+          >
+            <Suspense
+              fallback={
+                <Show
+                  when={
+                    (activeTab() === "diff" || activeTab() === "tree") &&
+                    liveMode() &&
+                    selectedRepository() &&
+                    selectedRepository()?.headCommit === null &&
+                    !liveClient.branches.state().selected &&
+                    !(activeTab() === "diff" && worktreeReview())
+                  }
+                >
+                  <RepositoryInitialCommit
+                    branch={selectedRepository()?.branch ?? ""}
+                    onRefresh={() => {
+                      void connectedRepository.refreshViews();
+                      if (connectedRepository.canWorkbench())
+                        void liveSwarmClient.hydrateSwarmWorktrees();
+                    }}
+                  />
+                </Show>
+              }
+            >
+              <WorkbenchTabViews
+                branches={liveClient.branches}
+                repoSession={liveClient}
+                swarmSession={liveSwarmClient}
+                repository={selectedRepository()}
+                repositoryActions={connectedRepository.actions}
+                canWorkbench={connectedRepository.canWorkbench()}
+                activeTab={activeTab()}
+                liveMode={liveMode()}
+                swarmTasks={swarmTasks()}
+                focusedSwarmIdx={focusedSwarmIdx()}
+                onFocusedSwarmIdxChange={setFocusedSwarmIdx}
+                onApproveMergeSwarmTask={approveAndMergeSwarmTask}
+                onDiscardSwarmTask={discardSwarmTask}
+                onPublishSwarmTask={publishSwarmTask}
+                onReviewSwarmTask={reviewSwarmTask}
+                onRefreshSwarmTasks={() => {
+                  void connectedRepository.refreshViews();
+                  if (connectedRepository.canWorkbench())
+                    void liveSwarmClient.hydrateSwarmWorktrees();
+                }}
+                onViewRunHistory={(id) => {
+                  const task = swarmTasks().find((task) => task.liveId === id);
+                  if (
+                    task &&
+                    connectedRepository.canWorkbench() &&
+                    liveMode() &&
+                    liveSession()?.role === "SiteAdmin"
+                  )
+                    setHistoryTask(task);
+                }}
+                onSpawnBatchAgentSwarm={spawnBatchAgentSwarm}
+                swarmFilter={swarmFilter()}
+                onSwarmFilterChange={setSwarmFilter}
+                issues={issues()}
+                focusedIssueIdx={focusedIssueIdx()}
+                onFocusedIssueIdxChange={setFocusedIssueIdx}
+                onToggleIssueStatus={demoActions.toggleIssueStatus}
+                onCreateOptimisticIssue={demoActions.createOptimisticIssue}
+                filterRef={(el) => (filterInputRef = el)}
+                issueFilter={issueFilter()}
+                onIssueFilterChange={setIssueFilter}
+                liveCommits={liveCommits()}
+                worktreeReview={worktreeReview()}
+                activeCommitRev={activeCommitRev()}
+                onSelectCommitDiff={(sha) =>
+                  void liveClient.loadLiveCommitDiff(sha)
+                }
+                lookupMicros={lookupMicros()}
+                selectedFilePath={selectedFilePath()}
+                diffLines={diffLines()}
+                selectedTreePath={selectedTreePath()}
+                blobLines={blobLines()}
+                liveDiffFiles={liveDiffFiles()}
+                diffTruncated={diffTruncated()}
+                treeTruncated={treeTruncated()}
+                actionJobs={actionJobs()}
+                activeJobId={activeJobId()}
+                onSelectJob={setActiveJobId}
+                onRerunAllActionJobs={demoActions.rerunAllActionJobs}
+                enterpriseUsers={enterpriseUsers()}
+                setEnterpriseUsers={setEnterpriseUsers}
+                onPolicyFeedback={showQuickFeedback}
+                adminAuthSource={{
+                  liveMode: liveMode(),
+                  liveSession: liveSession(),
+                  redeemMode: redeemMode(),
+                  setRedeemMode,
+                  redeemToken: redeemToken(),
+                  setRedeemToken,
+                  liveInvites: liveInvites(),
+                  lastIssuedInviteUrl: lastIssuedInviteUrl(),
+                  livePats: livePats(),
+                  lastIssuedPatToken: lastIssuedPatToken(),
+                  liveSshKeys: liveSshKeys(),
+                  session: liveAuthClient,
+                }}
+                fileTreeNodes={fileTreeNodes()}
+                onSeedDemoData={(data) => {
+                  if (data.issues && issues().length === 0)
+                    setIssues(data.issues);
+                  if (data.actionJobs && actionJobs().length === 0)
+                    setActionJobs(data.actionJobs);
+                }}
+              />
+            </Suspense>
+          </Show>
         </main>
       </SidebarInset>
-
-      <Show when={newWorktree.target()} keyed>
-        {(repository) => (
-          <NewWorktreeDialog
-            repository={repository}
-            submitting={newWorktree.submitting()}
-            onSubmit={newWorktree.submit}
-            onClose={newWorktree.close}
-            onRefresh={() => {
+      <Show
+        when={Boolean(
+          newWorktree.target() ||
+            historyTarget() ||
+            cmdOpen() ||
+            shortcutsModalOpen(),
+        )}
+      >
+        <Suspense>
+          <WorkbenchOverlays
+            newWorktree={newWorktree}
+            onRefreshWorktrees={() => {
               if (connectedRepository.canWorkbench())
                 void liveSwarmClient.hydrateSwarmWorktrees();
             }}
+            historyTarget={historyTarget()}
+            onCloseHistory={() => setHistoryTask(null)}
+            cmdOpen={cmdOpen()}
+            onCloseCmd={() => setCmdOpen(false)}
+            shortcutsModalOpen={shortcutsModalOpen()}
+            onCloseShortcutsModal={() => setShortcutsModalOpen(false)}
           />
-        )}
+        </Suspense>
       </Show>
-
-      {/* Global Command Palette (Cmd+K) */}
-      <Show when={historyTarget()} keyed>
-        {(task) => (
-          <LiveRunHistoryDialog
-            worktreeId={task.liveId!}
-            branch={task.branch}
-            onClose={() => setHistoryTask(null)}
-          />
-        )}
-      </Show>
-      <CommandPalette open={cmdOpen()} onClose={() => setCmdOpen(false)} />
-
-      {/* Keyboard Shortcuts Reference Modal */}
-      <ShortcutsReferenceModal
-        open={shortcutsModalOpen()}
-        onClose={() => setShortcutsModalOpen(false)}
-      />
-
-      {/* Floating Chord Indicator when 'g' is pressed */}
       <ActiveChordHUD />
     </SidebarProvider>
   );

@@ -8,14 +8,31 @@ fn unavailable() -> GitEngineError {
             .into(),
     )
 }
-fn absent_or_empty(path: &Path) -> Result<(), GitEngineError> {
+fn absent_or_only_ephemeral(
+    path: &Path,
+    ownership: &crate::WorktreeServiceLock,
+) -> Result<(), GitEngineError> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-            match fs::read_dir(path).map_err(|_| unavailable())?.next() {
-                None => Ok(()),
-                Some(_) => Err(unavailable()),
+            for entry in fs::read_dir(path).map_err(|_| unavailable())? {
+                let entry = entry.map_err(|_| unavailable())?;
+                let ft = entry.file_type().map_err(|_| unavailable())?;
+                if !ft.is_dir() || ft.is_symlink() {
+                    return Err(unavailable());
+                }
+                let Some(id) = entry
+                    .file_name()
+                    .to_str()
+                    .and_then(gitust_core::WorktreeId::parse_str)
+                else {
+                    return Err(unavailable());
+                };
+                if !ownership.is_active_ephemeral_worktree(id) {
+                    return Err(unavailable());
+                }
             }
+            Ok(())
         }
         _ => Err(unavailable()),
     }
@@ -23,14 +40,14 @@ fn absent_or_empty(path: &Path) -> Result<(), GitEngineError> {
 impl GitEngine {
     /// Validate both at stopped configuration and under the selected mutation guard before RPC.
     pub fn validate_ordinary_git_service(&self) -> Result<(), GitEngineError> {
-        let _ownership = self.lock_worktree_service()?;
+        let ownership = self.lock_worktree_service()?;
         let repo = gix::open(&self.repo_path).map_err(|_| unavailable())?;
         if repo.work_dir().is_some() {
             return Err(unavailable());
         }
         let common = Self::common_git_dir(&repo);
-        absent_or_empty(&common.join("worktrees"))?;
-        absent_or_empty(&self.worktrees_base(&repo, &common))
+        absent_or_only_ephemeral(&common.join("worktrees"), &ownership)?;
+        absent_or_only_ephemeral(&self.worktrees_base(&repo, &common), &ownership)
     }
 }
 

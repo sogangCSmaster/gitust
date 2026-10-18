@@ -1,11 +1,12 @@
-//! One primary ordinary-branch queue; original Git credentials never enter durable jobs.
+//! Ordinary-branch automatic Checks queue per writable repository; credentials never enter durable jobs.
 use super::{
     local_checks_automatic_model::{History, Job, Phase, Reason},
     local_checks_automatic_store::{Error, Store},
+    repository_registry::ReadRepository,
     state::AppState,
 };
 use gitust_core::{AuthenticatedPrincipal, CommitSha, EnterpriseRole, SandboxRunId};
-use gitust_git::{ReceivePackRefUpdate, WorktreeServiceLock};
+use gitust_git::{GitEngine, GitEngineError, ReceivePackRefUpdate, WorktreeServiceLock};
 use parking_lot::Mutex;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -27,30 +28,35 @@ impl Registry {
     pub fn mark_unavailable(&self) {
         self.unavailable.store(true, Ordering::SeqCst);
     }
-    pub fn store(&self, state: &AppState) -> Result<Arc<Store>, Error> {
-        identity(state)?;
+    pub fn store_for_repo(&self, repo: &ReadRepository) -> Result<Arc<Store>, Error> {
+        identity_for_repo(repo)?;
         let mut slot = self.store.lock();
         if let Some(store) = slot.as_ref() {
             return Ok(store.clone());
         }
-        let common = state
-            .git_engine
+        let common = repo
+            .engine
             .repository_common_directory()
             .map_err(|_| Error)?;
-        let store = Arc::new(Store::open(&common, state.repo_id)?);
+        let store = Arc::new(Store::open(&common, repo.access.repo_id)?);
         *slot = Some(store.clone());
         Ok(store)
+    }
+    #[cfg(test)]
+    pub fn store(&self, state: &AppState) -> Result<Arc<Store>, Error> {
+        let repo = state.writable_repository(state.repo_id).ok_or(Error)?;
+        self.store_for_repo(&repo)
     }
     pub fn notify(&self) {
         self.wake.notify_one();
     }
 }
-pub(crate) fn identity(state: &AppState) -> Result<(), Error> {
-    if state
-        .git_engine
+pub(crate) fn identity_for_repo(repo: &ReadRepository) -> Result<(), Error> {
+    if repo
+        .engine
         .load_existing_repository_id()
         .map_err(|_| Error)?
-        != state.repo_id
+        != repo.access.repo_id
     {
         return Err(Error);
     }
@@ -76,10 +82,22 @@ pub(crate) fn prepare(
     caller: &AuthenticatedPrincipal,
     updates: &[ReceivePackRefUpdate],
 ) -> Result<Eligibility, Error> {
-    if !state.trusted_sandbox_exec || caller.role != EnterpriseRole::SiteAdmin {
+    let repo = state.writable_repository(state.repo_id).ok_or(Error)?;
+    prepare_for_repo(state, &repo, caller, updates)
+}
+pub(crate) fn prepare_for_repo(
+    state: &AppState,
+    repo: &ReadRepository,
+    caller: &AuthenticatedPrincipal,
+    updates: &[ReceivePackRefUpdate],
+) -> Result<Eligibility, Error> {
+    if !state.trusted_sandbox_exec
+        || caller.role != EnterpriseRole::SiteAdmin
+        || !(repo.is_default || repo.git_write)
+    {
         return Ok(Eligibility::Ineligible);
     }
-    let base = match state.git_engine.committed_default_branch() {
+    let base = match repo.engine.committed_default_branch() {
         Ok(base) => base,
         Err(_) => {
             return Ok(Eligibility::ConsentUnproven(
@@ -87,51 +105,92 @@ pub(crate) fn prepare(
             ))
         }
     };
-    let source = format!("refs/heads/{base}");
-    let Some(update) = updates
-        .iter()
-        .find(|u| u.refname == source && !u.is_deletion && u.old_oid != u.new_oid)
-    else {
-        return Ok(Eligibility::Ineligible);
-    };
-    let actual = match state.git_engine.resolve_checks_ref(&source) {
-        Ok(sha) => sha,
-        Err(_) => {
-            return Ok(Eligibility::ConsentUnproven(
-                ConsentFailure::PolicyUnavailable,
-            ))
+    let mut selected = None;
+    for update in updates {
+        if update.is_agent_branch || update.is_deletion || update.old_oid == update.new_oid {
+            continue;
         }
-    };
-    if actual.0 != update.old_oid {
-        return Ok(Eligibility::Ineligible);
+        let Some(short_branch) = update.refname.strip_prefix("refs/heads/") else {
+            continue;
+        };
+        if !GitEngine::validate_outbound_branch(short_branch)
+            .is_ok_and(|clean| clean == short_branch)
+        {
+            continue;
+        }
+        let actual = if update.old_oid.bytes().all(|b| b == b'0') {
+            if base == short_branch {
+                continue;
+            }
+            match repo.engine.resolve_checks_ref(&update.refname) {
+                Err(GitEngineError::RevisionNotFound(_)) => {}
+                Ok(_) => continue,
+                Err(_) => {
+                    return Ok(Eligibility::ConsentUnproven(
+                        ConsentFailure::PolicyUnavailable,
+                    ))
+                }
+            }
+            match repo
+                .engine
+                .resolve_checks_ref(&format!("refs/heads/{base}"))
+            {
+                Ok(sha) => sha,
+                Err(_) => {
+                    return Ok(Eligibility::ConsentUnproven(
+                        ConsentFailure::PolicyUnavailable,
+                    ))
+                }
+            }
+        } else {
+            match repo.engine.resolve_checks_ref(&update.refname) {
+                Ok(sha) if sha.0 == update.old_oid => sha,
+                Ok(_) | Err(GitEngineError::RevisionNotFound(_)) => continue,
+                Err(_) => {
+                    return Ok(Eligibility::ConsentUnproven(
+                        ConsentFailure::PolicyUnavailable,
+                    ))
+                }
+            }
+        };
+        let policy = match repo.engine.required_checks_at_commit(&actual) {
+            Ok(Some(policy)) if policy.allows_auto_run_for_branch(short_branch) => policy,
+            Ok(_) => continue,
+            Err(GitEngineError::VerificationInvalid(_)) => {
+                return Ok(Eligibility::ConsentUnproven(ConsentFailure::PolicyInvalid))
+            }
+            Err(_) => {
+                return Ok(Eligibility::ConsentUnproven(
+                    ConsentFailure::PolicyUnavailable,
+                ))
+            }
+        };
+        selected = Some((
+            update.refname.clone(),
+            actual,
+            update.new_oid.clone(),
+            policy,
+        ));
+        break;
     }
-    let policy = match state.git_engine.required_checks_at_commit(&actual) {
-        Ok(Some(policy)) if policy.auto_run => policy,
-        Ok(_) => return Ok(Eligibility::Ineligible),
-        Err(gitust_git::GitEngineError::VerificationInvalid(_)) => {
-            return Ok(Eligibility::ConsentUnproven(ConsentFailure::PolicyInvalid))
-        }
-        Err(_) => {
-            return Ok(Eligibility::ConsentUnproven(
-                ConsentFailure::PolicyUnavailable,
-            ))
-        }
+    let Some((source, actual, new_oid, policy)) = selected else {
+        return Ok(Eligibility::Ineligible);
     };
     let persist = || {
-        if state
+        if repo
             .local_checks_automatic
             .unavailable
             .load(Ordering::SeqCst)
-            || !state.local_checks_automatic.started.load(Ordering::SeqCst)
+            || !repo.local_checks_automatic.started.load(Ordering::SeqCst)
         {
             return Err(Error);
         }
-        let store = state.local_checks_automatic.store(state)?;
+        let store = repo.local_checks_automatic.store_for_repo(repo)?;
         let job = Job::new(
             caller.user_id,
             source,
             actual,
-            CommitSha(update.new_oid.clone()),
+            CommitSha(new_oid),
             policy.blob_oid,
         );
         let run_id = job.run_id;
@@ -144,9 +203,13 @@ pub(crate) fn prepare(
         })?;
         Ok(Eligibility::Prepared(Intent { run_id, store }))
     };
-    persist().inspect_err(|_| state.local_checks_automatic.mark_unavailable())
+    persist().inspect_err(|_| repo.local_checks_automatic.mark_unavailable())
 }
 pub(crate) fn reject(state: &AppState, intent: Intent) -> Result<(), Error> {
+    let repo = state.writable_repository(state.repo_id).ok_or(Error)?;
+    reject_for_repo(&repo, intent)
+}
+pub(crate) fn reject_for_repo(repo: &ReadRepository, intent: Intent) -> Result<(), Error> {
     let result = intent.store.update(|doc| {
         if doc
             .prepared
@@ -165,14 +228,18 @@ pub(crate) fn reject(state: &AppState, intent: Intent) -> Result<(), Error> {
         Ok(())
     });
     if result.is_err() {
-        state.local_checks_automatic.mark_unavailable()
+        repo.local_checks_automatic.mark_unavailable()
     }
     result
 }
 /// Post-RPC ref observation is not a recoverable per-request Git receipt.
 pub(crate) fn confirm(state: &AppState, intent: Intent) -> Result<(), Error> {
+    let repo = state.writable_repository(state.repo_id).ok_or(Error)?;
+    confirm_for_repo(&repo, intent)
+}
+pub(crate) fn confirm_for_repo(repo: &ReadRepository, intent: Intent) -> Result<(), Error> {
     let result = (|| {
-        identity(state)?;
+        identity_for_repo(repo)?;
         let job = intent
             .store
             .read()?
@@ -180,15 +247,16 @@ pub(crate) fn confirm(state: &AppState, intent: Intent) -> Result<(), Error> {
             .filter(|j| j.run_id == intent.run_id)
             .ok_or(Error)?;
         let outcome = (|| {
-            let base = state
-                .git_engine
+            let _base = repo
+                .engine
                 .committed_default_branch()
                 .map_err(|_| Reason::DefaultChanged)?;
-            if format!("refs/heads/{base}") != job.source_ref {
-                return Err(Reason::DefaultChanged);
-            }
-            let actual = state
-                .git_engine
+            let short_branch = job
+                .source_ref
+                .strip_prefix("refs/heads/")
+                .ok_or(Reason::TargetChanged)?;
+            let actual = repo
+                .engine
                 .resolve_checks_ref(&job.source_ref)
                 .map_err(|_| Reason::PushNotConfirmed)?;
             if actual != job.expected_commit {
@@ -198,12 +266,12 @@ pub(crate) fn confirm(state: &AppState, intent: Intent) -> Result<(), Error> {
                     Reason::TargetChanged
                 });
             }
-            let policy = state
-                .git_engine
+            let policy = repo
+                .engine
                 .required_checks_at_commit(&job.expected_commit)
                 .map_err(|_| Reason::PolicyInvalid)?
                 .ok_or(Reason::PolicyMissing)?;
-            if !policy.auto_run {
+            if !policy.allows_auto_run_for_branch(short_branch) {
                 return Err(Reason::PolicyDisabled);
             }
             Ok(policy.blob_oid)
@@ -234,28 +302,28 @@ pub(crate) fn confirm(state: &AppState, intent: Intent) -> Result<(), Error> {
             }
             Ok(())
         })?;
-        identity(state)?;
+        identity_for_repo(repo)?;
         Ok(())
     })();
     if result.is_err() {
-        state.local_checks_automatic.mark_unavailable()
+        repo.local_checks_automatic.mark_unavailable()
     } else {
-        state.local_checks_automatic.notify()
+        repo.local_checks_automatic.notify()
     }
     result
 }
 pub(crate) struct Service {
     shutdown: watch::Sender<bool>,
-    task: Option<JoinHandle<Result<(), Error>>>,
-    _owner: WorktreeServiceLock,
+    tasks: Vec<JoinHandle<Result<(), Error>>>,
+    _owners: Vec<WorktreeServiceLock>,
 }
 impl Service {
     pub async fn shutdown(mut self) -> Result<(), std::io::Error> {
         self.shutdown.send_replace(true);
-        if let Some(task) = self.task.take() {
+        for task in self.tasks.drain(..) {
             task.await
                 .map_err(std::io::Error::other)?
-                .map_err(std::io::Error::other)?
+                .map_err(std::io::Error::other)?;
         }
         Ok(())
     }
@@ -278,54 +346,75 @@ impl Drop for Activity {
     }
 }
 pub(crate) async fn start(state: &AppState) -> Result<Service, std::io::Error> {
-    let registry = state.local_checks_automatic.clone();
-    if registry
-        .started
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return Err(std::io::Error::other(
-            "local automatic Checks already started",
-        ));
+    let repos: Vec<ReadRepository> = state
+        .read_repositories()
+        .into_iter()
+        .filter(|r| r.is_default || r.git_write)
+        .collect();
+    let mut activities = Vec::with_capacity(repos.len());
+    for repo in &repos {
+        let registry = repo.local_checks_automatic.clone();
+        if registry
+            .started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(std::io::Error::other(
+                "local automatic Checks already started",
+            ));
+        }
+        activities.push(Activity {
+            registry,
+            finished: false,
+        });
     }
-    let activity = Activity {
-        registry: registry.clone(),
-        finished: false,
-    };
     let snapshot = state.clone();
-    let (store, owner, activity) = tokio::task::spawn_blocking(move || {
-        let activity = activity;
-        let owner = snapshot
-            .git_engine
-            .lock_worktree_service()
-            .map_err(|_| Error)?;
-        let store = snapshot.local_checks_automatic.store(&snapshot)?;
-        super::local_checks_automatic_worker::recover(&snapshot, &store)?;
-        Ok::<_, Error>((store, owner, activity))
+    let recover_repos = repos.clone();
+    let (prepared, activities) = tokio::task::spawn_blocking(move || {
+        let mut prepared = Vec::with_capacity(recover_repos.len());
+        for repo in &recover_repos {
+            let owner = repo.engine.lock_worktree_service().map_err(|_| Error)?;
+            let store = repo.local_checks_automatic.store_for_repo(repo)?;
+            super::local_checks_automatic_worker::recover_for_repo(&snapshot, repo, &store)?;
+            prepared.push((repo.clone(), store, owner));
+        }
+        Ok::<_, Error>((prepared, activities))
     })
     .await
     .map_err(std::io::Error::other)?
     .map_err(std::io::Error::other)?;
-    registry.unavailable.store(false, Ordering::SeqCst);
     let (shutdown, receiver) = watch::channel(false);
-    let snapshot = state.clone();
-    let task_owner = owner.clone();
-    let task = tokio::spawn(async move {
-        let mut activity = activity;
-        let _owner = task_owner;
-        let result = super::local_checks_automatic_worker::run(snapshot, store, receiver).await;
-        if result.is_ok() {
-            activity.finished = true
-        }
-        result
-    });
-    registry.notify();
+    let mut tasks = Vec::with_capacity(prepared.len());
+    let mut owners = Vec::with_capacity(prepared.len());
+    for ((repo, store, owner), activity) in prepared.into_iter().zip(activities) {
+        repo.local_checks_automatic
+            .unavailable
+            .store(false, Ordering::SeqCst);
+        let snapshot = state.clone();
+        let task_repo = repo.clone();
+        let task_owner = owner.clone();
+        let rx = receiver.clone();
+        let task = tokio::spawn(async move {
+            let mut activity = activity;
+            let _owner = task_owner;
+            let result =
+                super::local_checks_automatic_worker::run_for_repo(snapshot, task_repo, store, rx)
+                    .await;
+            if result.is_ok() {
+                activity.finished = true
+            }
+            result
+        });
+        repo.local_checks_automatic.notify();
+        tasks.push(task);
+        owners.push(owner);
+    }
     Ok(Service {
         shutdown,
-        task: Some(task),
-        _owner: owner,
+        tasks,
+        _owners: owners,
     })
 }
-pub(super) async fn notified(state: &AppState) {
-    state.local_checks_automatic.wake.notified().await
+pub(super) async fn notified_for_repo(repo: &ReadRepository) {
+    repo.local_checks_automatic.wake.notified().await
 }

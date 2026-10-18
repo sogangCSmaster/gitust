@@ -45,7 +45,11 @@ pub(crate) fn secondary_id(state: &AppState, raw: &str) -> Option<RepoId> {
         _ => None,
     }
 }
-fn current(state: &AppState, headers: &HeaderMap, target: &Target) -> Result<(), Failure> {
+fn current(
+    state: &AppState,
+    headers: &HeaderMap,
+    target: &Target,
+) -> Result<gitust_core::AuthenticatedPrincipal, Failure> {
     let caller = extract_git_http_principal(headers, &state.auth_store)?;
     if caller.user_id != target.user || caller.role != target.role {
         return Err((StatusCode::FORBIDDEN, "Git push authority changed".into()));
@@ -61,7 +65,7 @@ fn current(state: &AppState, headers: &HeaderMap, target: &Target) -> Result<(),
                 .into(),
         ));
     }
-    Ok(())
+    Ok(caller)
 }
 async fn prepare(state: AppState, raw: String, headers: HeaderMap) -> Result<Target, Failure> {
     tokio::task::spawn_blocking(move || {
@@ -120,7 +124,7 @@ async fn execute(
         let target = target;
         let _guard = guard;
         current(&state, &headers, &target)?;
-        if let Operation::Receive(body) = &operation {
+        let updates = if let Operation::Receive(body) = &operation {
             let updates = inspect_receive_pack_updates(body).map_err(map_git_err)?;
             if updates.iter().any(|update| update.is_agent_branch) {
                 return Err((
@@ -128,7 +132,10 @@ async fn execute(
                     "secondary Git hosting does not accept managed agent refs".into(),
                 ));
             }
-        }
+            updates
+        } else {
+            Vec::new()
+        };
         target
             .repository
             .engine
@@ -146,19 +153,68 @@ async fn execute(
                 .engine
                 .smart_http_advertise_refs(SmartHttpService::ReceivePack),
             Operation::Receive(body) => {
+                let mut local_intent = None;
                 let mut authority_error = None;
                 let result =
                     target
                         .repository
                         .engine
                         .smart_http_receive_pack_with_gate(&body, || {
-                            current(&state, &headers, &target).map_err(|error| {
+                            let step = (|| -> Result<(), Failure> {
+                                let caller = current(&state, &headers, &target)?;
+                                match crate::local_checks_automatic::prepare_for_repo(
+                                    &state,
+                                    &target.repository,
+                                    &caller,
+                                    &updates,
+                                )
+                                .map_err(|_| unavailable("local Checks unavailable"))?
+                                {
+                                    crate::local_checks_automatic::Eligibility::Prepared(
+                                        intent,
+                                    ) => {
+                                        local_intent = Some(intent);
+                                    }
+                                    crate::local_checks_automatic::Eligibility::ConsentUnproven(
+                                        reason,
+                                    ) => {
+                                        tracing::warn!(
+                                            ?reason,
+                                            "automatic local Checks consent could not be established; no execution scheduled"
+                                        );
+                                    }
+                                    crate::local_checks_automatic::Eligibility::Ineligible => {}
+                                }
+                                current(&state, &headers, &target).map(|_| ())
+                            })();
+                            step.map_err(|error| {
                                 authority_error = Some(error);
                                 GitEngineError::InvalidRevision("Git push authority changed".into())
                             })
                         });
                 if let Some(error) = authority_error {
+                    if let Some(intent) = local_intent {
+                        if crate::local_checks_automatic::reject_for_repo(
+                            &target.repository,
+                            intent,
+                        )
+                        .is_err()
+                        {
+                            tracing::warn!(
+                                "automatic local Checks preparation recovery is required"
+                            );
+                        }
+                    }
                     return Err(error);
+                }
+                if let Some(intent) = local_intent {
+                    if crate::local_checks_automatic::confirm_for_repo(&target.repository, intent)
+                        .is_err()
+                    {
+                        tracing::warn!(
+                            "push completed but automatic local Checks scheduling is unavailable"
+                        );
+                    }
                 }
                 result
             }

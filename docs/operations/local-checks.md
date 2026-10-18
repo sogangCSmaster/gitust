@@ -35,12 +35,13 @@ uncommitted files and local configuration edits stay in the original checkout.
 Missing or invalid configuration is rejected before running any command.
 
 Use the existing [Checks configuration](../architecture/worktree-verification.md):
-version 1, one to eight nonempty commands, at most 4,096 bytes per command and
-16 KiB for the committed configuration. The optional `auto_run` setting controls
-automatic triggers; it does not disable this explicitly requested run. Commands
-execute in order under the OS sandbox and shared timeout. A failing step stops
-later commands, which are reported as skipped. Every configured command is a
-required step; no additional placeholder command is inserted.
+version 1, one to eight nonempty `commands` (or named `steps` with `name` and
+`command`, up to 128 bytes per name), at most 4,096 bytes per command and
+16 KiB for the committed configuration. The optional `auto_run` and `branches`
+settings control automatic triggers; they do not disable this explicitly requested
+run. Commands execute in order under the OS sandbox and shared timeout. A failing
+step stops later commands, which are reported as skipped. Every configured command
+is a required step; no additional placeholder command is inserted.
 
 ## Result contract
 
@@ -74,7 +75,7 @@ execution retains its fence and requires the existing
 [explicit recovery procedure](execution-recovery.md); it is never automatically
 replayed. Without `--record`, the result is printed and no history is saved. This command
 does not grant verification, approve a merge, publish refs, enable HTTP execution
-for secondary repositories, or add an automatic ordinary-branch trigger.
+for read-only secondary repositories, or add an automatic ordinary-branch trigger.
 
 ## Opt-in completed-run history
 
@@ -115,38 +116,42 @@ identity; relocated records retain their run IDs, commit/blob IDs and observatio
 
 ## Web inspection
 
-An active SiteAdmin can inspect the primary repository's retained local results in
-**Actions → Local Checks**. Automatic remains the default Actions view. Selecting
-a local run shows its committed branch/SHA, actual outcome, measured duration,
-required commands and retained output. Truncation is explicit; the deleted temporary
-worktree is not presented as a current task. These observations do not establish
-current verification or approval eligibility.
+An active SiteAdmin can inspect the primary or a writable secondary (`--git-write-repo`)
+repository's retained local results in **Actions → Local Checks**. Automatic remains
+the default Actions view on the primary repository. Selecting a local run shows its
+committed branch/SHA, actual outcome, measured duration, required commands and
+retained output. Truncation is explicit; the deleted temporary worktree is not
+presented as a current task. These observations do not establish current
+verification or approval eligibility.
 
 `GET /api/v1/repos/{id}/local-check-runs` returns version 1 JSON with `repo_id`
 and `records`, preserving the newest-five append order. It requires current
-SiteAdmin credentials and repository access, returns `Cache-Control: no-store`,
-and is bounded to 3 MiB. Secondary repositories are not routed to this primary
-history. Storage failure is an error, distinct from an empty history.
+SiteAdmin credentials and access to the primary or writable secondary repository,
+returns `Cache-Control: no-store`, and is bounded to 3 MiB. Read-only secondary
+repositories (`--read-only-repo`) are rejected; each writable secondary repository
+uses its own isolated history. Storage failure is an error, distinct from an empty
+history.
 
 Reading history does not require enabling server command execution. Changing
 repository, session or access clears the previous selection and pending result.
 
-## Explicit execution through an active primary
+## Explicit execution through an active primary or writable secondary
 
 With `--trusted-single-user-sandbox` enabled, a current SiteAdmin can select
-**Run Checks** in **Actions → Local Checks**. The compact view shows the current
-default branch and commit that the request will use. The branch selected in Files
-does not change this execution target. Other users, secondary repositories and
-servers without this execution capability retain their existing viewing behavior.
+**Run Checks** in **Actions → Local Checks** on the primary or a writable secondary
+(`--git-write-repo`) repository. Other users, read-only secondary repositories
+(`--read-only-repo`) and servers without this execution capability retain their
+existing viewing behavior.
 
-`POST /api/v1/repos/{id}/local-check-runs` accepts `expected_source_ref` (the exact
-full default branch ref), `expected_commit` (its full commit ID) and an optional
-`timeout_secs` from 1 through 600. Unknown fields are rejected. The request body
-is capped at 256 KiB. It runs only the committed policy's required commands in a
-temporary checkout, sharing the server's executor and repository ownership.
+`POST /api/v1/repos/{id}/local-check-runs` accepts `expected_source_ref` (an exact
+full ordinary branch ref `refs/heads/...`, excluding `refs/heads/agent/...`),
+`expected_commit` (its full commit ID) and an optional `timeout_secs` from 1
+through 600. Unknown fields are rejected. The request body is capped at 256 KiB.
+It runs only the committed policy's required commands or steps in a temporary
+checkout, sharing the server's executor and per-repository ownership.
 Uncommitted files stay in the original checkout. The operation does not create
-worktree verification or merge approval. The `auto_run` setting does not disable
-this explicit request.
+worktree verification or merge approval. The `auto_run` and `branches` settings
+do not disable this explicit request.
 
 Original credentials, the actual repository and the expected target are checked
 after reading the body and again after executor admission and scratch preparation,
@@ -166,14 +171,14 @@ reports `history.status: failed`, `reason: history_unconfirmed`. If completion
 cannot be confirmed, HTTP 503 reports `status: unconfirmed`, no record and history
 `not_attempted`; unresolved execution evidence remains subject to explicit recovery.
 Responses are capped at 3 MiB with `Cache-Control: no-store`. Admission failures use
-fixed error codes. A stale default ref or commit returns HTTP 409; Refresh updates
-the target before another explicit click. Another active local Checks run also
-returns 409.
+fixed error codes. A stale branch ref or commit returns HTTP 409; Refresh updates
+the target before another explicit click. Another active local Checks run on the
+same repository also returns 409.
 
 The UI keeps execution outcome separate from saved-history status. Refresh only
 reads state and never retries execution. If the response is lost or uncertain,
 inspect stored results before starting another run: commands may have run already.
 Explicit execution does not queue, retry or replay requests, and has no cancellation control.
-Opt-in [default-branch automatic Checks](default-branch-checks.md) use the same
+Opt-in [ordinary-branch automatic Checks](default-branch-checks.md) use the same
 executor and completed history with a separate bounded lifecycle.
 The existing stopped-service CLI and its v1/v2 contracts remain available.

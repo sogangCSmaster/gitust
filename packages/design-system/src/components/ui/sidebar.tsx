@@ -1,46 +1,33 @@
 // SPDX-License-Identifier: MIT
 // Adapted from solid-ui: unused submenus removed and Tailwind 3 variable syntax applied.
 import type {
-  Accessor,
   Component,
   ComponentProps,
-  JSX,
   ValidComponent,
 } from "solid-js";
 import {
-  createContext,
-  createEffect,
-  createMemo,
-  createSignal,
+  lazy,
   Match,
   mergeProps,
-  onCleanup,
   Show,
   splitProps,
   Switch,
-  useContext,
 } from "solid-js";
 
-import type { PolymorphicProps } from "@kobalte/core";
-import { Polymorphic } from "@kobalte/core";
+import type { PolymorphicProps } from "@kobalte/core/polymorphic";
+import { Polymorphic } from "@kobalte/core/polymorphic";
 
 import { cn } from "../../lib/utils";
 import type { ButtonProps } from "./button";
 import { Button } from "./button";
 import { Separator } from "./separator";
-import { Sheet, SheetContent, SheetTitle, SheetDescription } from "./sheet";
-import { TextField, TextFieldInput } from "./text-field";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
-import {
-  SidebarMenuButtonBase,
-  type SidebarMenuButtonBaseProps,
-} from "./sidebar-menu-button";
+import { SidebarProvider, useSidebar } from "./sidebar-context";
 
-import {
-  SidebarProvider,
-  useSidebar,
-  SIDEBAR_WIDTH_MOBILE,
-} from "./sidebar-context";
+const SidebarMobileSheet = lazy(() =>
+  import("./sidebar-mobile-sheet").then((module) => ({
+    default: module.SidebarMobileSheet,
+  })),
+);
 
 type SidebarProps = ComponentProps<"div"> & {
   side?: "left" | "right";
@@ -81,23 +68,16 @@ const Sidebar: Component<SidebarProps> = (rawProps) => {
         </div>
       </Match>
       <Match when={isMobile()}>
-        <Sheet open={openMobile()} onOpenChange={setOpenMobile} {...others}>
-          <SheetContent
-            data-sidebar="sidebar"
-            data-mobile="true"
-            class="w-[var(--sidebar-width)] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
-            style={{
-              "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
-            }}
-            position={local.side}
+        <Show when={openMobile()}>
+          <SidebarMobileSheet
+            open={openMobile()}
+            onOpenChange={setOpenMobile}
+            side={local.side}
+            {...others}
           >
-            <SheetTitle class="sr-only">Workspace navigation</SheetTitle>
-            <SheetDescription class="sr-only">
-              Choose a workspace view.
-            </SheetDescription>
-            <div class="flex size-full flex-col">{local.children}</div>
-          </SheetContent>
-        </Sheet>
+            {local.children}
+          </SidebarMobileSheet>
+        </Show>
       </Match>
       <Match when={!isMobile()}>
         <div
@@ -348,45 +328,6 @@ const SidebarMenuItem: Component<ComponentProps<"li">> = (props) => {
   );
 };
 
-type SidebarMenuButtonProps<T extends ValidComponent = "button"> =
-  SidebarMenuButtonBaseProps<T> & { tooltip?: string };
-
-const SidebarMenuButton = <T extends ValidComponent = "button">(
-  props: PolymorphicProps<T, SidebarMenuButtonProps<T>>,
-) => {
-  const [local, others] = splitProps(
-    props as SidebarMenuButtonProps & { as?: ValidComponent },
-    ["tooltip", "as", "type"],
-  );
-  const { isMobile, state } = useSidebar();
-  const renderButton: Component<ComponentProps<"button">> = (triggerProps) => (
-    <SidebarMenuButtonBase
-      {...triggerProps}
-      as={local.as ?? "button"}
-      type={local.type ?? triggerProps.type}
-    />
-  );
-  return (
-    <Show
-      when={local.tooltip}
-      fallback={
-        <SidebarMenuButtonBase
-          {...others}
-          as={local.as ?? "button"}
-          type={local.type}
-        />
-      }
-    >
-      <Tooltip placement="right">
-        <TooltipTrigger as={renderButton} {...others} />
-        <TooltipContent hidden={state() !== "collapsed" || isMobile()}>
-          {local.tooltip}
-        </TooltipContent>
-      </Tooltip>
-    </Show>
-  );
-};
-
 type SidebarMenuActionProps<T extends ValidComponent = "button"> =
   ComponentProps<T> & {
     showOnHover?: boolean;
@@ -454,7 +395,6 @@ export {
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuBadge,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
   SidebarSeparator,

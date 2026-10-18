@@ -132,6 +132,11 @@ async fn execute(
                     "secondary Git hosting does not accept managed agent refs".into(),
                 ));
             }
+            crate::branch_protection::ensure_direct_push_allowed(
+                &state.auth_store,
+                target.repository.access.repo_id,
+                &updates,
+            )?;
             updates
         } else {
             Vec::new()
@@ -162,6 +167,11 @@ async fn execute(
                         .smart_http_receive_pack_with_gate(&body, || {
                             let step = (|| -> Result<(), Failure> {
                                 let caller = current(&state, &headers, &target)?;
+                                crate::branch_protection::ensure_direct_push_allowed(
+                                    &state.auth_store,
+                                    target.repository.access.repo_id,
+                                    &updates,
+                                )?;
                                 match crate::local_checks_automatic::prepare_for_repo(
                                     &state,
                                     &target.repository,

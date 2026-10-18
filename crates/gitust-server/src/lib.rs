@@ -17,6 +17,7 @@ mod automatic_run_model;
 mod automatic_run_page;
 mod automatic_run_recovery;
 mod automatic_run_store;
+mod branch_protection;
 mod ephemeral_checkout;
 pub mod ephemeral_sandbox;
 pub mod git_http;
@@ -33,6 +34,8 @@ pub mod local_checks_history;
 pub mod mcp;
 pub mod oauth;
 mod outbound;
+mod pull_requests;
+mod pull_requests_merge;
 pub(crate) mod quota;
 pub mod repo;
 mod repository_default_branch;
@@ -251,6 +254,34 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/repos/{id}/local-check-runs",
             get(repository_local_checks::list).post(repository_local_checks_exec::run),
+        )
+        .route(
+            "/api/v1/repos/{id}/pulls",
+            get(pull_requests::list).post(pull_requests::create),
+        )
+        .route(
+            "/api/v1/repos/{id}/pulls/{pr_id}",
+            get(pull_requests::get_one),
+        )
+        .route(
+            "/api/v1/repos/{id}/pulls/{pr_id}/reviews",
+            post(pull_requests::add_review),
+        )
+        .route(
+            "/api/v1/repos/{id}/pulls/{pr_id}/comments",
+            post(pull_requests::add_comment),
+        )
+        .route(
+            "/api/v1/repos/{id}/pulls/{pr_id}/status",
+            post(pull_requests_merge::update_status),
+        )
+        .route(
+            "/api/v1/repos/{id}/pulls/{pr_id}/merge",
+            post(pull_requests::merge),
+        )
+        .route(
+            "/api/v1/repos/{id}/branch-protection",
+            get(branch_protection::list).put(branch_protection::update),
         )
         .route("/api/v1/repos/{id}/commits", get(repository_reads::commits))
         .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))

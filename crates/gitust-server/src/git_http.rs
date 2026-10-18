@@ -287,11 +287,21 @@ pub(crate) async fn git_receive_pack_handler(
     let rpc_res = tokio::task::spawn_blocking(move || {
         let _held_repo = repo_guard;
         let _held_exec = held_exec_locks;
+        crate::branch_protection::ensure_direct_push_allowed(
+            &automatic_state.auth_store,
+            automatic_state.repo_id,
+            &updates,
+        )?;
         let mut intents = Vec::new();
         let mut local_intent = None;
         let mut preparation_error = None;
         let result = engine.smart_http_receive_pack_with_gate(&body, || {
             let authorized = (|| {
+                crate::branch_protection::ensure_direct_push_allowed(
+                    &automatic_state.auth_store,
+                    automatic_state.repo_id,
+                    &updates,
+                )?;
                 // Raw refs are validated before preparation can resolve them or persist intents.
                 intents = crate::git_http_automatic::prepare(&automatic_state, &caller, &matched_worktrees, &updates)?;
                 match crate::local_checks_automatic::prepare(&automatic_state, &caller, &updates)
@@ -315,6 +325,11 @@ pub(crate) async fn git_receive_pack_handler(
                     return Err((StatusCode::FORBIDDEN, "Git push authority changed".into()));
                 }
                 check_repo_bola(&automatic_state.auth_store, automatic_state.repo_id, automatic_state.repo_access, &fresh, automatic_state.repo_id)?;
+                crate::branch_protection::ensure_direct_push_allowed(
+                    &automatic_state.auth_store,
+                    automatic_state.repo_id,
+                    &updates,
+                )?;
                 for (wt_id, _, _) in &matched_worktrees {
                     crate::state::set_worktree_status(&automatic_state, *wt_id, |w| {
                         w.status = WorktreeStatus::Pending;

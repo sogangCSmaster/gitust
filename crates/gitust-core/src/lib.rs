@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+mod pull_request;
+pub use pull_request::*;
 mod repository_access;
 pub use repository_access::{RepoAccess, RepositoryRegistration};
 

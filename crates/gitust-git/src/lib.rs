@@ -29,6 +29,7 @@ mod mirror;
 mod mirror_init;
 mod outbound;
 mod process;
+mod pull_request_merge;
 mod ref_transaction;
 mod repository_create;
 mod repository_identity;

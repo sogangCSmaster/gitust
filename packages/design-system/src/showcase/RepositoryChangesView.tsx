@@ -1,4 +1,4 @@
-import { createMemo, Show, type Component } from "solid-js";
+import { createMemo, createSignal, Show, type Component } from "solid-js";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import {
@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { Icon } from "../components/workspace/icon";
+import { PullRequestCollaborationPanel } from "../patterns/PullRequestCollaborationPanel";
 import {
   VirtualDiffViewer,
   type DiffLine,
@@ -23,6 +24,10 @@ import { RepositoryFilesView } from "./RepositoryFilesView";
 
 export const RepositoryChangesView: Component<{
   liveMode: boolean;
+  repositoryId?: string;
+  defaultBranch?: string;
+  selectedBranch?: string;
+  selectionEpoch?: number;
   commits: LiveCommitSummary[];
   activeCommitRev: string;
   onSelectCommit: (sha: string) => void;
@@ -34,6 +39,7 @@ export const RepositoryChangesView: Component<{
   truncated: boolean;
   onSelectFile: (path: string) => void;
 }> = (props) => {
+  const [mode, setMode] = createSignal<"commits" | "pulls">("commits");
   const selected = createMemo(() =>
     props.commits.find(
       (commit) =>
@@ -43,6 +49,39 @@ export const RepositoryChangesView: Component<{
   );
   return (
     <div class="min-w-0 space-y-3">
+      <Show when={props.liveMode && props.repositoryId}>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <Button
+            size="sm"
+            variant={mode() === "commits" ? "secondary" : "ghost"}
+            aria-pressed={mode() === "commits"}
+            onClick={() => setMode("commits")}
+          >
+            <Icon name="diff" />
+            Commits & diff
+          </Button>
+          <Button
+            size="sm"
+            variant={mode() === "pulls" ? "secondary" : "ghost"}
+            aria-pressed={mode() === "pulls"}
+            onClick={() => setMode("pulls")}
+          >
+            <Icon name="git-pull-request" />
+            Pull requests
+          </Button>
+        </div>
+      </Show>
+      <Show
+        when={!props.liveMode || !props.repositoryId || mode() === "commits"}
+        fallback={
+          <PullRequestCollaborationPanel
+            repositoryId={props.repositoryId}
+            defaultBranch={props.defaultBranch}
+            selectedBranch={props.selectedBranch}
+            selectionEpoch={props.selectionEpoch}
+          />
+        }
+      >
       <Show when={!props.review || props.commits.length > 0}>
         <div class="flex min-w-0 flex-wrap items-center gap-2">
           <Select<LiveCommitSummary>
@@ -191,6 +230,7 @@ export const RepositoryChangesView: Component<{
           initialDetail
           onSelect={(file) => props.onSelectFile(file.path)}
         />
+      </Show>
       </Show>
     </div>
   );

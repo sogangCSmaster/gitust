@@ -269,3 +269,7 @@ mod tests_repository_local_checks_exec;
 mod tests_local_checks_automatic;
 #[path = "tests_ordinary_branch_checks.rs"]
 mod tests_ordinary_branch_checks;
+#[path = "tests_pull_requests.rs"]
+mod tests_pull_requests;
+#[path = "tests_pull_requests_regressions.rs"]
+mod tests_pull_requests_regressions;

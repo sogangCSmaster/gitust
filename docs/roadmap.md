@@ -63,11 +63,11 @@ In progress. Implemented portions:
 - SiteAdmin default-branch management for configured registered bare primaries and explicitly writable secondaries, with a compact Overview dialog and symbolic HEAD comparison under its actual lock. Existing worktree targets remain pinned; new Git clones and primary omitted-base HTTP/MCP tasks use the current committed default. See the [default-branch contract](operations/default-branch.md).
 - A stopped-installation backup/relocated-restore utility, regression tests and recorded Linux/macOS rehearsals at `42bae69`, including MCP commits after relocation. Explicit multi-repository snapshots now preserve a shared auth checkpoint and every included repository, with v1 single-repository compatibility and local restored-only ACL/approval checks. See the [backup contract](operations/backup-restore.md); final-candidate acceptance remains open.
 - Initial JavaScript static-import closure reduced below the `< 50 kB` (`< 50,000` bytes) gzip target (`49,382` gzip9 bytes / `49,409` gzip6 bytes) and enforced via `measure-bundle.mjs --enforce`. See [web bundle measurements](benchmarks/web-bundle.md).
+- Full pull-request collaboration and branch protection on configured repositories: PR creation, head-SHA-bound reviews (`approve`, `request_changes`, `comment`), general and inline file/line comments, merge preview with conflict detection, branch protection rules (required approvals, passing Local Checks, direct-push restrictions), and lock-time CAS merge execution integrated into the lazy-loaded Changes view.
 
 Remaining work:
 
 - GitHub Actions-compatible workflows beyond the existing managed-worktree and ordinary-branch Local Checks remain Phase 4 work.
-- Full pull-request collaboration.
 - RSA user-key authentication on the SSH transport.
 - Repository administration UI, lifecycle management and online inventory changes; additional repositories still need isolated worktree and execution routing before gaining full workbench capabilities.
 - Final-candidate restoration evidence for auth state, Git data, worktrees and approval records on the intended platforms.

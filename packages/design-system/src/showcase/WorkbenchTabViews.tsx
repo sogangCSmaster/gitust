@@ -351,6 +351,14 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
           <DeferredView label="Changes">
             <RepositoryChangesView
               liveMode={props.liveMode}
+              repositoryId={props.repository?.id}
+              defaultBranch={props.repository?.branch}
+              selectedBranch={props.branches?.state().selected?.name}
+              selectionEpoch={
+                props.repositoryActions?.selectionEpoch() ??
+                props.repositoryEpoch ??
+                0
+              }
               commits={props.liveCommits}
               activeCommitRev={props.activeCommitRev}
               onSelectCommit={props.onSelectCommitDiff}

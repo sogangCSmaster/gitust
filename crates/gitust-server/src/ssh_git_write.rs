@@ -121,6 +121,12 @@ fn check_commands(
     updates: Vec<ReceivePackRefUpdate>,
 ) -> Result<(), ()> {
     let caller = auth.verify()?;
+    crate::branch_protection::ensure_direct_push_allowed(
+        &auth.state.auth_store,
+        auth.repository.access.repo_id,
+        &updates,
+    )
+    .map_err(|_| ())?;
     if !auth.repository.is_default {
         if updates.iter().any(|u| u.is_agent_branch) {
             return Err(());
@@ -147,6 +153,12 @@ fn check_commands(
             }
             #[cfg(test)]
             crate::repository_reads::after_read(&auth.state);
+            crate::branch_protection::ensure_direct_push_allowed(
+                &auth.state.auth_store,
+                auth.repository.access.repo_id,
+                &updates,
+            )
+            .map_err(|_| ())?;
             auth.verify().map(|_| ())
         })();
         if step.is_err() {
@@ -246,6 +258,12 @@ fn check_commands(
             }
         }
         let fresh = auth.verify()?;
+        crate::branch_protection::ensure_direct_push_allowed(
+            &auth.state.auth_store,
+            auth.repository.access.repo_id,
+            &updates,
+        )
+        .map_err(|_| ())?;
         check_repo_bola(
             &auth.state.auth_store,
             auth.state.repo_id,

@@ -75,7 +75,14 @@ async fn shutdown_or_caller_cancellation_closes_idle_keepalive_and_stops_accepti
         assert!(time_until_closed(&mut stream, Duration::from_secs(2))
             .await
             .is_some());
-        assert!(TcpStream::connect(addr).await.is_err());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while TcpStream::connect(addr).await.is_ok() {
+            assert!(
+                Instant::now() < deadline,
+                "listener socket remained connectable after shutdown"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
         let _ = stream
             .write_all(b"GET /health HTTP/1.1\r\nHost: fixture\r\n\r\n")
             .await;

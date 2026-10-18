@@ -147,6 +147,13 @@ pub(crate) async fn sync_github_handler(
         }
     }
 
+    if state.read_repository(repo_id).is_some_and(|r| r.archived) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "repository is archived and read-only".to_owned(),
+        ));
+    }
+
     let fetch_guard = state
         .sync_fetch_lock
         .clone()
@@ -162,11 +169,20 @@ pub(crate) async fn sync_github_handler(
     let engine_for_fetch = state.git_engine.clone();
     let url_for_fetch = configured_url.clone();
     let (fetch_result, fetch_guard) = tokio::task::spawn_blocking(move || {
+        let topology = engine_for_fetch
+            .load_sync_topology(repo_id, &url_for_fetch)
+            .map_err(map_git_err)?;
+        if topology.mode == gitust_sync::SyncTopologyMode::SourceOfTruth {
+            return Err((
+                StatusCode::CONFLICT,
+                "repository is in source-of-truth mode; switch topology mode before running inbound mirror sync".to_owned(),
+            ));
+        }
         let result = engine_for_fetch.fetch_inbound_mirror_staging(&url_for_fetch);
-        (result, fetch_guard)
+        Ok::<_, (StatusCode, String)>((result, fetch_guard))
     })
     .await
-    .map_err(internal_err)?;
+    .map_err(internal_err)??;
     fetch_result.map_err(|err| match err {
         GitEngineError::InvalidRemoteUrl(_) => (StatusCode::BAD_REQUEST, err.to_string()),
         GitEngineError::GitCommand { .. } => (StatusCode::BAD_GATEWAY, err.to_string()),
@@ -184,8 +200,16 @@ pub(crate) async fn sync_github_handler(
             "another repository merge is currently in progress".to_owned(),
         )
     })?;
+    if state.read_repository(repo_id).is_some_and(|r| r.archived) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "repository is archived and read-only".to_owned(),
+        ));
+    }
 
     let engine = state.git_engine.clone();
+    let engine_for_gate = engine.clone();
+    let url_for_gate = configured_url.clone();
     let store = state.auth_store.clone();
     #[cfg(test)]
     let hook = state.sync_after_fetch_hook.lock().take();
@@ -207,7 +231,17 @@ pub(crate) async fn sync_github_handler(
                 {
                     return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
                 }
-                check_repo_bola(&store, repo_id, repo_access, &current, repo_id)
+                check_repo_bola(&store, repo_id, repo_access, &current, repo_id)?;
+                let topology = engine_for_gate
+                    .load_sync_topology(repo_id, &url_for_gate)
+                    .map_err(map_git_err)?;
+                if topology.mode == gitust_sync::SyncTopologyMode::SourceOfTruth {
+                    return Err((
+                        StatusCode::CONFLICT,
+                        "repository is in source-of-truth mode; switch topology mode before running inbound mirror sync".to_owned(),
+                    ));
+                }
+                Ok(())
             });
             if let Err(error) = authority {
                 denied = Some(error);

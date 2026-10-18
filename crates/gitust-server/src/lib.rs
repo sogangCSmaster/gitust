@@ -54,6 +54,7 @@ mod repository_summary;
 mod repository_visibility;
 mod run_history;
 mod sandbox_policy;
+mod source_of_truth_sync;
 mod ssh_git;
 mod ssh_git_host_key;
 mod ssh_git_session;
@@ -295,6 +296,18 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/repos/{id}/branch-protection",
             get(branch_protection::list).put(branch_protection::update),
+        )
+        .route(
+            "/api/v1/repos/{id}/sync/topology",
+            get(source_of_truth_sync::get_topology).put(source_of_truth_sync::update_topology),
+        )
+        .route(
+            "/api/v1/repos/{id}/sync/backup-push",
+            post(source_of_truth_sync::backup_push),
+        )
+        .route(
+            "/api/v1/repos/{id}/sync/rollback",
+            post(source_of_truth_sync::rollback),
         )
         .route("/api/v1/repos/{id}/commits", get(repository_reads::commits))
         .route("/api/v1/repos/{id}/tree", get(repository_reads::tree))

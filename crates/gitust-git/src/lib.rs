@@ -40,6 +40,7 @@ mod repository_registration;
 pub use repository_registration::RegistrationReceipt;
 mod service_lock;
 mod smart_http;
+mod source_of_truth_mirror;
 mod ssh_receive_pack;
 mod ssh_upload_pack;
 #[cfg(test)]

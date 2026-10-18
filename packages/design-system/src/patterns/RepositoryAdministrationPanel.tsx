@@ -1,8 +1,10 @@
 import {
   createEffect,
   createSignal,
+  lazy,
   onCleanup,
   Show,
+  Suspense,
   type Component,
 } from "solid-js";
 import { Alert, AlertDescription } from "../components/ui/alert";
@@ -17,6 +19,12 @@ import {
   type LiveRepositorySettings,
 } from "../showcase/live-repo-admin-client";
 import { formatErr } from "../showcase/live-repo-context";
+
+const SyncTopologyAndRollbackPanel = lazy(() =>
+  import("./SyncTopologyAndRollbackPanel").then((m) => ({
+    default: m.SyncTopologyAndRollbackPanel,
+  })),
+);
 
 export interface RepositoryAdministrationPanelProps {
   repositoryId: string;
@@ -337,6 +345,13 @@ export const RepositoryAdministrationPanel: Component<
           </Button>
         </div>
       </form>
+
+      <Suspense>
+        <SyncTopologyAndRollbackPanel
+          repositoryId={props.repositoryId}
+          onRolledBack={() => props.onCatalogChanged?.()}
+        />
+      </Suspense>
     </section>
   );
 };

@@ -1119,6 +1119,7 @@ dependencies = [
  "base64",
  "chrono",
  "gitust-core",
+ "gitust-sync",
  "gix",
  "libc",
  "serde",
@@ -1127,6 +1128,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1184,6 +1186,7 @@ dependencies = [
  "chrono",
  "gitust-core",
  "serde",
+ "uuid",
 ]
 
 [[package]]

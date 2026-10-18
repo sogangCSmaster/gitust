@@ -6,6 +6,64 @@
 use chrono::{DateTime, Utc};
 use gitust_core::{CommitSha, RepoId};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SyncTopologyMode {
+    #[serde(rename = "inbound_mirror")]
+    #[default]
+    InboundMirror,
+    #[serde(rename = "source_of_truth")]
+    SourceOfTruth,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MirrorRefPin {
+    pub ref_name: String,
+    pub target_sha: CommitSha,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackupMirrorSnapshot {
+    pub snapshot_id: Uuid,
+    pub repo_id: RepoId,
+    pub backup_remote_url: String,
+    pub pinned_refs: Vec<MirrorRefPin>,
+    pub captured_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackupMirrorPushReport {
+    pub repo_id: RepoId,
+    pub backup_remote_url: String,
+    pub snapshot_id: Uuid,
+    pub pushed_branches: u32,
+    pub pushed_tags: u32,
+    pub filtered_agent_refs: u32,
+    pub verified_remote_match: bool,
+    pub pushed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RollbackVerificationReport {
+    pub repo_id: RepoId,
+    pub snapshot_id: Uuid,
+    pub restored_refs: u32,
+    pub preserved_agent_refs: u32,
+    pub fsck_passed: bool,
+    pub rolled_back_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncTopologyState {
+    pub repo_id: RepoId,
+    pub mode: SyncTopologyMode,
+    pub backup_remote_url: String,
+    #[serde(default)]
+    pub snapshots: Vec<BackupMirrorSnapshot>,
+    #[serde(default)]
+    pub last_push_report: Option<BackupMirrorPushReport>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BiDirectionalSyncConfig {
@@ -14,6 +72,8 @@ pub struct BiDirectionalSyncConfig {
     pub sync_inbound_webhooks: bool,
     pub sync_outbound_approved_only: bool,
     pub private_agent_branch_prefix: String,
+    #[serde(default)]
+    pub topology_mode: SyncTopologyMode,
 }
 
 impl BiDirectionalSyncConfig {
@@ -25,6 +85,7 @@ impl BiDirectionalSyncConfig {
             sync_inbound_webhooks: true,
             sync_outbound_approved_only: true,
             private_agent_branch_prefix: "agent/".to_owned(),
+            topology_mode: SyncTopologyMode::InboundMirror,
         }
     }
 
@@ -76,6 +137,9 @@ impl BiDirectionalSyncConfig {
             }
         }
 
+        if self.topology_mode == SyncTopologyMode::SourceOfTruth {
+            return true;
+        }
         if self.sync_outbound_approved_only {
             return human_approved;
         }
@@ -135,5 +199,28 @@ mod tests {
         assert!(cfg.should_sync_branch_outbound("main", true));
         assert!(cfg.should_sync_branch_outbound("refs/heads/main", true));
         assert!(!cfg.should_sync_branch_outbound("main", false));
+    }
+
+    #[test]
+    fn source_of_truth_mode_allows_ordinary_branches_and_blocks_agent_branches() {
+        let mut cfg = BiDirectionalSyncConfig::new(
+            RepoId::new(),
+            "https://github.com/sogangCSmaster/gitust-backup.git",
+        );
+        assert_eq!(cfg.topology_mode, SyncTopologyMode::InboundMirror);
+
+        cfg.topology_mode = SyncTopologyMode::SourceOfTruth;
+        assert!(cfg.should_sync_branch_outbound("main", false));
+        assert!(cfg.should_sync_branch_outbound("release/v1", false));
+        assert!(cfg.should_sync_branch_outbound("feature/login", false));
+        assert!(!cfg.should_sync_branch_outbound("agent/claude/task-101", true));
+        assert!(!cfg.should_sync_branch_outbound("refs/heads/agent/cursor/fix", true));
+        assert!(!cfg.should_sync_branch_outbound("main/../agent/secret", true));
+
+        let pin = MirrorRefPin {
+            ref_name: "refs/heads/main".to_owned(),
+            target_sha: CommitSha("a".repeat(40)),
+        };
+        assert_eq!(pin.ref_name, "refs/heads/main");
     }
 }

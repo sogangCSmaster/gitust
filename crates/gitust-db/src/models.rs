@@ -238,7 +238,6 @@ impl AuthState {
     }
 
     pub(crate) fn snapshot_current(&mut self) -> PersistedSnapshot {
-        const JSON_WINDOW_CAP: usize = 64;
         self.prune_expired(Utc::now());
         let pr_start = self.pull_requests.len().saturating_sub(JSON_WINDOW_CAP);
         let audit_start = self.audit_log.len().saturating_sub(JSON_WINDOW_CAP);
@@ -260,6 +259,8 @@ impl AuthState {
         }
     }
 }
+
+pub(crate) const JSON_WINDOW_CAP: usize = 64;
 
 /// Returned once when an administrator creates an invite or password-reset link.
 /// The `raw_token` is never stored in the database; only its SHA-256 digest is persisted.

@@ -171,5 +171,33 @@ fn sqlite_wal_retains_over_4200_audit_events_with_verified_genesis_hash_chain() 
             .expect("audit_log_for_admin after rollback");
         assert_eq!(after_entries.len(), count_before);
         assert!(after_report.verified);
+
+        crate::persistence::FAIL_DIRECTORY_SYNC.with(|cell| {
+            *cell.borrow_mut() = Some(db_path.clone());
+        });
+        let mut guard = store.write_state().expect("write_state");
+        append_audit_event_locked(
+            &mut guard,
+            Some(caller.user_id),
+            &caller.username,
+            "repo.DirSyncRollback",
+            "target:dir-sync-rollback",
+        );
+        let pending = store.maybe_snapshot(guard);
+        let dir_sync_res = store.persist_snapshot(pending);
+        crate::persistence::FAIL_DIRECTORY_SYNC.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
+        assert!(
+            dir_sync_res.is_err(),
+            "directory sync failure must fail closed and reconcile SQLite sidecar"
+        );
+        let reopened_after_dir_fail =
+            AuthStore::open_persistent(&db_path).expect("reopen after dir sync failure");
+        let (reopened_entries, reopened_report) = reopened_after_dir_fail
+            .audit_log_for_admin(&caller)
+            .expect("audit_log after reopen");
+        assert_eq!(reopened_entries.len(), count_before);
+        assert!(reopened_report.verified);
     }
 }

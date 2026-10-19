@@ -240,6 +240,18 @@ class BackupTests(unittest.TestCase):
                                                   output=self.backup))
         self.assertFalse(self.backup.exists())
 
+    def test_auth_sqlite_sidecar_is_backed_up_restored_and_rejects_symlinks(self):
+        sidecar = Path(str(self.auth) + ".sqlite3")
+        sidecar_bytes = b"SQLite format 3\x00gitust-sidecar-payload"
+        sidecar.write_bytes(sidecar_bytes)
+        sidecar.chmod(0o600)
+        self.create()
+        self.assertEqual((self.backup / "auth/auth-db.json.sqlite3").read_bytes(), sidecar_bytes)
+        self.restore()
+        restored_sidecar = self.restored / "auth/auth-db.json.sqlite3"
+        self.assertEqual(restored_sidecar.read_bytes(), sidecar_bytes)
+        self.assertEqual(restored_sidecar.stat().st_mode & 0o777, 0o600)
+
 
 if __name__ == "__main__":
     unittest.main()

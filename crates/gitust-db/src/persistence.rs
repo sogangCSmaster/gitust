@@ -329,6 +329,10 @@ impl AuthStore {
                     prev.failed_logins = std::mem::take(&mut pending_write.guard.failed_logins);
                     prev.revision = pending_write.guard.revision.max(prev.revision);
                     *pending_write.guard = prev;
+                    crate::sqlite_sidecar::reconcile_sqlite_after_rollback(
+                        target_path,
+                        &mut pending_write.guard,
+                    );
                 }
                 Err(err)
             }

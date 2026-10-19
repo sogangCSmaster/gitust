@@ -197,6 +197,14 @@ pub(crate) fn save_workflow_run(
     run: &WorkflowRunRecord,
 ) -> Result<(), ApiError> {
     let root = workflows_storage_root(common_git_dir)?;
+    let sqlite_existed = match fs::symlink_metadata(root.join(WORKFLOWS_SQLITE_FILE_NAME)) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(unavailable("refusing to open symlinked workflows.sqlite3"));
+        }
+        Ok(_) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => return Err(unavailable(e)),
+    };
     let existing_runs = load_workflow_runs(common_git_dir, repo_id)?;
 
     let artifacts: Vec<WorkflowArtifactEntry> = run
@@ -219,13 +227,31 @@ pub(crate) fn save_workflow_run(
     let run_json_str = serde_json::to_string(run).map_err(unavailable)?;
 
     let db = open_workflows_sqlite(&root)?;
+    let repo_id_str = repo_id.0.to_string();
     db.with_transaction(|conn| {
+        if !sqlite_existed {
+            for prior in existing_runs.iter().rev() {
+                if prior.run_id != run.run_id {
+                    let prior_json = serde_json::to_string(prior)
+                        .map_err(|e| format!("failed to serialize prior workflow run: {e}"))?;
+                    conn.execute(
+                        "INSERT OR IGNORE INTO workflow_runs (run_id, repo_id, payload_json)
+                         VALUES (?1, ?2, ?3);",
+                        &[
+                            SqlValue::Text(prior.run_id.clone()),
+                            SqlValue::Text(repo_id_str.clone()),
+                            SqlValue::Text(prior_json),
+                        ],
+                    )?;
+                }
+            }
+        }
         conn.execute(
             "INSERT INTO workflow_runs (run_id, repo_id, payload_json)
              VALUES (?1, ?2, ?3);",
             &[
                 SqlValue::Text(run.run_id.clone()),
-                SqlValue::Text(repo_id.0.to_string()),
+                SqlValue::Text(repo_id_str),
                 SqlValue::Text(run_json_str),
             ],
         )?;

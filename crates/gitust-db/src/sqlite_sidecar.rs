@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use gitust_core::{AuditEventRecord, AuthError, PullRequestRecord};
 
-use crate::models::{AuthState, PersistedSnapshot};
+use crate::models::{AuthState, PersistedSnapshot, JSON_WINDOW_CAP};
 use crate::sqlite_wal::{SqlValue, SqliteWalDb};
 
 const SCHEMA_SQL: &str = "
@@ -50,6 +50,24 @@ pub(crate) fn sync_state_to_sqlite(db_path: &Path, state: &mut AuthState) -> Res
     .map_err(AuthError::StorageError)?;
     state.dirty_pr_ids.clear();
     Ok(())
+}
+
+pub(crate) fn reconcile_sqlite_after_rollback(db_path: &Path, state: &mut AuthState) {
+    // fail-open-ok: best-effort sidecar rollback after failed atomic snapshot; hydrate_snapshot_from_sqlite also bounds to the committed JSON window.
+    let Ok(db) = open_sidecar(db_path) else {
+        return;
+    };
+    // fail-open-ok: best-effort sidecar rollback after failed atomic snapshot; hydrate_snapshot_from_sqlite also bounds to the committed JSON window.
+    let _ = db.with_transaction(|conn| {
+        conn.execute_batch("DELETE FROM pull_requests; DELETE FROM audit_log;")?;
+        for (idx, pr) in state.pull_requests.iter().enumerate() {
+            upsert_pull_request(conn, idx, pr)?;
+        }
+        for entry in &state.audit_log {
+            insert_audit_entry(conn, entry)?;
+        }
+        Ok(())
+    });
 }
 
 fn sync_pull_requests_tx(
@@ -194,56 +212,64 @@ pub(crate) fn hydrate_snapshot_from_sqlite(
 
     let db = open_sidecar(db_path)?;
 
-    let pr_rows = db
-        .query_rows(
-            "SELECT payload_json FROM pull_requests ORDER BY seq ASC;",
-            &[],
-        )
-        .map_err(AuthError::StorageError)?;
-    if !pr_rows.is_empty() {
-        let mut sql_prs = Vec::with_capacity(pr_rows.len());
-        for row in pr_rows {
-            let json = row.first().and_then(SqlValue::as_str).ok_or_else(|| {
-                AuthError::StorageError("missing pull_request payload_json".to_string())
-            })?;
-            let pr: PullRequestRecord = serde_json::from_str(json)
-                .map_err(|e| AuthError::StorageError(format!("corrupt SQLite PR json: {e}")))?;
-            sql_prs.push(pr);
-        }
-        if sql_prs.len() >= snap.pull_requests.len() {
-            for snap_pr in &snap.pull_requests {
-                if let Some(slot) = sql_prs.iter_mut().find(|p| p.id == snap_pr.id) {
-                    *slot = snap_pr.clone();
-                } else {
-                    sql_prs.push(snap_pr.clone());
-                }
+    if snap.pull_requests.len() >= JSON_WINDOW_CAP {
+        let pr_rows = db
+            .query_rows(
+                "SELECT payload_json FROM pull_requests ORDER BY seq ASC;",
+                &[],
+            )
+            .map_err(AuthError::StorageError)?;
+        if !pr_rows.is_empty() {
+            let mut sql_prs = Vec::with_capacity(pr_rows.len());
+            for row in pr_rows {
+                let json = row.first().and_then(SqlValue::as_str).ok_or_else(|| {
+                    AuthError::StorageError("missing pull_request payload_json".to_string())
+                })?;
+                let pr: PullRequestRecord = serde_json::from_str(json)
+                    .map_err(|e| AuthError::StorageError(format!("corrupt SQLite PR json: {e}")))?;
+                sql_prs.push(pr);
             }
-            snap.pull_requests = sql_prs;
+            let first_window_id = snap.pull_requests[0].id;
+            if let Some(prefix_end) = sql_prs.iter().position(|p| p.id == first_window_id) {
+                let mut combined = Vec::with_capacity(sql_prs.len());
+                combined.extend_from_slice(&sql_prs[..prefix_end]);
+                for snap_pr in &snap.pull_requests {
+                    if sql_prs[prefix_end..].iter().any(|p| p.id == snap_pr.id) {
+                        combined.push(snap_pr.clone());
+                    }
+                }
+                snap.pull_requests = combined;
+            }
         }
     }
 
-    let audit_rows = db
-        .query_rows("SELECT payload_json FROM audit_log ORDER BY seq ASC;", &[])
-        .map_err(AuthError::StorageError)?;
-    if !audit_rows.is_empty() {
-        let mut sql_audit = Vec::with_capacity(audit_rows.len());
-        for row in audit_rows {
-            let json = row.first().and_then(SqlValue::as_str).ok_or_else(|| {
-                AuthError::StorageError("missing audit_log payload_json".to_string())
-            })?;
-            let entry: AuditEventRecord = serde_json::from_str(json)
-                .map_err(|e| AuthError::StorageError(format!("corrupt SQLite audit json: {e}")))?;
-            sql_audit.push(entry);
-        }
-        if sql_audit.len() >= snap.audit_log.len() {
-            for snap_entry in &snap.audit_log {
-                if let Some(slot) = sql_audit.iter_mut().find(|e| e.seq == snap_entry.seq) {
-                    *slot = snap_entry.clone();
-                } else {
-                    sql_audit.push(snap_entry.clone());
-                }
+    if let Some(first_window_seq) = snap.audit_log.first().map(|e| e.seq).filter(|&s| s > 1) {
+        let audit_rows = db
+            .query_rows("SELECT payload_json FROM audit_log ORDER BY seq ASC;", &[])
+            .map_err(AuthError::StorageError)?;
+        if !audit_rows.is_empty() {
+            let mut sql_audit = Vec::with_capacity(audit_rows.len());
+            for row in audit_rows {
+                let json = row.first().and_then(SqlValue::as_str).ok_or_else(|| {
+                    AuthError::StorageError("missing audit_log payload_json".to_string())
+                })?;
+                let entry: AuditEventRecord = serde_json::from_str(json).map_err(|e| {
+                    AuthError::StorageError(format!("corrupt SQLite audit json: {e}"))
+                })?;
+                sql_audit.push(entry);
             }
-            snap.audit_log = sql_audit;
+            let max_sql_seq = sql_audit.last().map_or(0, |e| e.seq);
+            if let Some(prefix_end) = sql_audit.iter().position(|e| e.seq == first_window_seq) {
+                let mut combined = Vec::with_capacity(sql_audit.len());
+                combined.extend_from_slice(&sql_audit[..prefix_end]);
+                combined.extend(
+                    snap.audit_log
+                        .iter()
+                        .filter(|e| e.seq <= max_sql_seq)
+                        .cloned(),
+                );
+                snap.audit_log = combined;
+            }
         }
     }
 

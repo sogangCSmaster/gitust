@@ -255,6 +255,13 @@ def create(args):
             (target / "auth").mkdir(mode=0o700)
             shutil.copyfile(auth, target / "auth/auth-db.json")
             (target / "auth/auth-db.json").chmod(0o600)
+            for suffix in (".sqlite3", ".sqlite3-wal"):
+                sidecar = Path(str(auth) + suffix)
+                if sidecar.exists() or sidecar.is_symlink():
+                    regular(sidecar)
+                    dest_sidecar = target / f"auth/auth-db.json{suffix}"
+                    shutil.copyfile(sidecar, dest_sidecar)
+                    dest_sidecar.chmod(0o600)
             manifest = ({"version": 1, **records[0]} if len(layouts) == 1
                         else {"version": 2, "repositories": records})
             manifest["files"] = inventory(target)
@@ -352,6 +359,10 @@ def restore(args):
     for relative in payloads:
         real_directory_chain(backup / relative, backup)
     regular(backup / "auth/auth-db.json")
+    for suffix in (".sqlite3", ".sqlite3-wal"):
+        sidecar = backup / f"auth/auth-db.json{suffix}"
+        if sidecar.exists() or sidecar.is_symlink():
+            regular(sidecar)
     target = args.destination.resolve()
     if inside(target, backup) or inside(backup, target):
         raise ValueError("restore destination must be separate from backup")
@@ -390,6 +401,10 @@ def restore(args):
                 (admin / "commondir").write_text("../..\n")
         (target / "auth").chmod(0o700)
         (target / "auth/auth-db.json").chmod(0o600)
+        for suffix in (".sqlite3", ".sqlite3-wal"):
+            restored_sidecar = target / f"auth/auth-db.json{suffix}"
+            if restored_sidecar.exists():
+                restored_sidecar.chmod(0o600)
         for index, record in enumerate(records):
             repo, common, base, bare = layout(target / repository_path(index))
             if relocated_linked(linked_worktrees(repo, common, base, bare), index) != record["linked"]:

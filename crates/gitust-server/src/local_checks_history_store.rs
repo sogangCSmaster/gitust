@@ -179,6 +179,7 @@ impl LocalChecksHistoryStore {
                 return Err(HistoryError::ConflictingRun);
             }
             let directory = self.directory(false)?.ok_or(HistoryError::InvalidStorage)?;
+            self.append_sqlite_wal(&directory, existing)?;
             sync(&directory)?;
             return sync(&self.common);
         }

@@ -8,9 +8,6 @@ use gitust_core::{
 use crate::models::AuthState;
 use crate::AuthStore;
 
-const MAX_PULL_REQUESTS_PER_REPO: usize = 512;
-const MAX_REVIEWS_PER_PR: usize = 256;
-const MAX_COMMENTS_PER_PR: usize = 512;
 const MAX_PR_TITLE_BYTES: usize = 256;
 const MAX_PR_TEXT_BYTES: usize = 65_536;
 const MAX_COMMENT_FILE_PATH_BYTES: usize = 4096;
@@ -220,6 +217,7 @@ impl AuthStore {
                 pr.updated_at_epoch_secs = now_epoch_secs();
             }
             let cloned = pr.clone();
+            guard.dirty_pr_ids.insert(cloned.id);
             (cloned, self.maybe_snapshot(guard))
         };
         self.persist_snapshot(snapshot)?;
@@ -266,16 +264,6 @@ impl AuthStore {
         let (record, snapshot) = {
             let mut guard = self.write_state()?;
             let active = authorize_repo_locked(&guard, caller, expected, false)?;
-            let repo_pr_count = guard
-                .pull_requests
-                .iter()
-                .filter(|pr| pr.repo_id == expected.repo_id)
-                .count();
-            if repo_pr_count >= MAX_PULL_REQUESTS_PER_REPO {
-                return Err(AuthError::InvalidInput(
-                    "repository pull request limit reached".into(),
-                ));
-            }
             let duplicate_open = guard.pull_requests.iter().any(|pr| {
                 pr.repo_id == expected.repo_id
                     && pr.base_branch == input.base_branch
@@ -371,11 +359,6 @@ impl AuthStore {
                     "cannot review a closed or merged pull request".into(),
                 ));
             }
-            if pr.reviews.len() >= MAX_REVIEWS_PER_PR {
-                return Err(AuthError::InvalidInput(
-                    "pull request review limit reached".into(),
-                ));
-            }
             let now = now_epoch_secs();
             pr.head_sha = reviewed_head_sha.clone();
             pr.reviews.push(PullRequestReview {
@@ -389,6 +372,7 @@ impl AuthStore {
             });
             pr.updated_at_epoch_secs = now;
             let cloned = pr.clone();
+            guard.dirty_pr_ids.insert(cloned.id);
             (cloned, self.maybe_snapshot(guard))
         };
         self.persist_snapshot(snapshot)?;
@@ -438,11 +422,6 @@ impl AuthStore {
                 .iter_mut()
                 .find(|pr| pr.repo_id == expected.repo_id && lookup.matches(pr))
                 .ok_or_else(|| AuthError::InvalidInput("pull request not found".into()))?;
-            if pr.comments.len() >= MAX_COMMENTS_PER_PR {
-                return Err(AuthError::InvalidInput(
-                    "pull request comment limit reached".into(),
-                ));
-            }
             let now = now_epoch_secs();
             pr.comments.push(PullRequestComment {
                 id: PullRequestCommentId::new(),
@@ -456,6 +435,7 @@ impl AuthStore {
             });
             pr.updated_at_epoch_secs = now;
             let cloned = pr.clone();
+            guard.dirty_pr_ids.insert(cloned.id);
             (cloned, self.maybe_snapshot(guard))
         };
         self.persist_snapshot(snapshot)?;

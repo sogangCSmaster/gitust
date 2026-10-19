@@ -73,6 +73,7 @@ mod transports;
 pub mod webui;
 pub(crate) mod workflow_cache_artifacts;
 mod workflow_exec;
+mod workflow_store;
 mod workflows;
 mod worktree_owners;
 pub mod worktrees;
@@ -458,6 +459,8 @@ pub fn build_router(state: AppState) -> Router {
 mod tests;
 #[cfg(test)]
 mod tests_listener;
+#[cfg(test)]
+mod tests_sqlite_wal_scale;
 #[cfg(all(test, unix))]
 mod tests_ssh_git_push;
 #[cfg(test)]

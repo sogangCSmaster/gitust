@@ -13,7 +13,6 @@ use crate::AuthStore;
 
 pub const GENESIS_AUDIT_HASH: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
-const MAX_AUDIT_LOG_ENTRIES: usize = 4096;
 
 /// Computes the deterministic SHA-256 hash chaining `prev_hash` with the current audit event fields.
 #[must_use]
@@ -47,9 +46,6 @@ pub(crate) fn append_audit_event_locked(
         Some(last) => (last.seq.saturating_add(1), last.entry_hash.clone()),
         None => (1, GENESIS_AUDIT_HASH.to_owned()),
     };
-    if state.audit_log.len() >= MAX_AUDIT_LOG_ENTRIES {
-        state.audit_log.remove(0);
-    }
     let timestamp = Utc::now().to_rfc3339();
     let actor_uuid = actor_user_id.map(|u| u.0);
     let entry_hash = compute_audit_entry_hash(
@@ -105,19 +101,15 @@ pub(crate) fn verify_audit_chain_locked(
         };
     };
     let start_seq = first.seq;
-    if start_seq == 0 || (start_seq > 1 && entries.len() < MAX_AUDIT_LOG_ENTRIES) {
+    if start_seq != 1 {
         return invalid_chain_report(
             1,
             head_hash,
             start_seq,
-            "missing genesis audit entry (log prefix truncated before capacity)".into(),
+            "missing genesis audit entry (log prefix truncated)".into(),
         );
     }
-    let mut expected_prev: &str = if start_seq == 1 {
-        GENESIS_AUDIT_HASH
-    } else {
-        &first.prev_hash
-    };
+    let mut expected_prev: &str = GENESIS_AUDIT_HASH;
     for (idx, entry) in entries.iter().enumerate() {
         let expected_seq = start_seq.saturating_add(idx as u64);
         if entry.seq != expected_seq {

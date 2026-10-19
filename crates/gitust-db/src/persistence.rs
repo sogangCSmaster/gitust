@@ -165,9 +165,10 @@ fn read_snapshot_with_stamp(
             "auth db grew beyond the size limit while reading".to_owned(),
         ));
     }
-    let snap: PersistedSnapshot = serde_json::from_slice(&bytes)
+    let mut snap: PersistedSnapshot = serde_json::from_slice(&bytes)
         .map_err(|e| AuthError::StorageError(format!("corrupt auth db json: {e}")))?;
     snap.validate_repository_records()?;
+    crate::sqlite_sidecar::hydrate_snapshot_from_sqlite(db_path, &mut snap)?;
     Ok((Some(snap), stamp))
 }
 
@@ -314,7 +315,11 @@ impl AuthStore {
         else {
             return Ok(());
         };
-        match write_snapshot_atomically(target_path, &pending_write.snapshot) {
+        match write_snapshot_atomically(
+            target_path,
+            &pending_write.snapshot,
+            &mut pending_write.guard,
+        ) {
             Ok(new_stamp) => {
                 *self.last_disk_stamp.lock() = new_stamp;
                 Ok(())
@@ -334,6 +339,7 @@ impl AuthStore {
 fn write_snapshot_atomically(
     target_path: &Path,
     snap: &PersistedSnapshot,
+    state: &mut AuthState,
 ) -> Result<Option<DiskStamp>, PersistenceFailure> {
     ensure_private_parent_dir(target_path)?;
     let tmp_path = target_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
@@ -369,6 +375,7 @@ fn write_snapshot_atomically(
             .map_err(|e| AuthError::StorageError(format!("failed to write temp auth db: {e}")))?;
         file.sync_all()
             .map_err(|e| AuthError::StorageError(format!("failed to fsync temp auth db: {e}")))?;
+        crate::sqlite_sidecar::sync_state_to_sqlite(target_path, state)?;
         publication_attempted = true;
         fs::rename(&tmp_path, target_path).map_err(|e| {
             AuthError::StorageError(format!("failed to atomically replace auth db: {e}"))

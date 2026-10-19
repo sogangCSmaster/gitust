@@ -158,6 +158,7 @@ pub(crate) struct AuthState {
     pub(crate) ssh_fingerprint_index: HashMap<String, SshKeyId>,
     pub(crate) repositories: HashMap<RepoId, crate::repository_registration::StoredRepository>,
     pub(crate) pull_requests: Vec<gitust_core::PullRequestRecord>,
+    pub(crate) dirty_pr_ids: std::collections::HashSet<gitust_core::PullRequestId>,
     pub(crate) branch_protection_rules: HashMap<RepoId, Vec<gitust_core::BranchProtectionRule>>,
     pub(crate) workflow_secrets:
         HashMap<RepoId, Vec<crate::workflow_secrets::StoredWorkflowSecret>>,
@@ -237,7 +238,10 @@ impl AuthState {
     }
 
     pub(crate) fn snapshot_current(&mut self) -> PersistedSnapshot {
+        const JSON_WINDOW_CAP: usize = 64;
         self.prune_expired(Utc::now());
+        let pr_start = self.pull_requests.len().saturating_sub(JSON_WINDOW_CAP);
+        let audit_start = self.audit_log.len().saturating_sub(JSON_WINDOW_CAP);
         PersistedSnapshot {
             revision: self.revision,
             policy: self.policy.clone(),
@@ -247,12 +251,12 @@ impl AuthState {
             pats: self.pats_by_id.values().cloned().collect(),
             ssh_keys: self.ssh_keys_by_id.values().cloned().collect(),
             repositories: self.repositories.values().cloned().collect(),
-            pull_requests: self.pull_requests.clone(),
+            pull_requests: self.pull_requests[pr_start..].to_vec(),
             branch_protection_rules: self.branch_protection_rules.clone(),
             workflow_secrets: self.workflow_secrets.clone(),
             totp_enrollments: self.totp_enrollments.clone(),
             sso_providers: self.sso_providers.clone(),
-            audit_log: self.audit_log.clone(),
+            audit_log: self.audit_log[audit_start..].to_vec(),
         }
     }
 }

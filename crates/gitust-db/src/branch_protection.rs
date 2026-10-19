@@ -123,6 +123,7 @@ impl AuthStore {
                         pr.base_sha = live_base.clone();
                         pr.head_sha = live_head.clone();
                         pr.updated_at_epoch_secs = now;
+                        guard.dirty_pr_ids.insert(*pr_id);
                     }
                 }
             }
@@ -196,6 +197,7 @@ impl AuthStore {
             pr.status = status;
             pr.updated_at_epoch_secs = now_epoch_secs();
             let cloned = pr.clone();
+            guard.dirty_pr_ids.insert(cloned.id);
             (cloned, self.maybe_snapshot(guard))
         };
         self.persist_snapshot(snapshot)?;
@@ -238,6 +240,7 @@ impl AuthStore {
             pr.merged_by_username = Some(merged_by_username);
             pr.updated_at_epoch_secs = now_epoch_secs();
             let cloned = pr.clone();
+            guard.dirty_pr_ids.insert(cloned.id);
             (cloned, self.maybe_snapshot(guard))
         };
         self.persist_snapshot(snapshot)?;

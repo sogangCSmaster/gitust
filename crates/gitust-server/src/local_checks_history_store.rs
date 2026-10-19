@@ -1,5 +1,8 @@
-use super::{HistoryError, LocalChecksRecord, DIRECTORY, MAX_BYTES, MAX_RECORDS};
+use super::{
+    HistoryError, LocalChecksRecord, LocalChecksStatus, DIRECTORY, MAX_BYTES, MAX_RECORDS,
+};
 use gitust_core::{RepoId, SandboxRunId};
+use gitust_db::{SqlValue, SqliteWalDb};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -10,10 +13,21 @@ use std::{
         fd::{AsRawFd, FromRawFd},
         unix::fs::{MetadataExt, OpenOptionsExt},
     },
-    path::Path,
+    path::{Path, PathBuf},
 };
 const TARGET: &str = "history.json";
 const STAGING: &str = "history.pending";
+pub const SQLITE_TARGET: &str = "history.sqlite3";
+const LOCAL_CHECKS_SCHEMA_SQL: &str = "
+CREATE TABLE IF NOT EXISTS local_checks_history (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL UNIQUE,
+    repo_id TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    passed INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+);
+";
 static HISTORY_IO_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,6 +41,7 @@ struct History {
 /// `actual_repo_id` comes from the opened repository's persisted identity, never a request UUID.
 pub struct LocalChecksHistoryStore {
     common: File,
+    common_path: PathBuf,
     repo_id: RepoId,
 }
 impl LocalChecksHistoryStore {
@@ -35,12 +50,12 @@ impl LocalChecksHistoryStore {
         if actual_repo_id.0.is_nil() {
             return Err(HistoryError::InvalidStorage);
         }
-        let common = OpenOptions::new()
+        let common_file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
             .open(common)
             .map_err(|_| HistoryError::StorageUnavailable)?;
-        if !common
+        if !common_file
             .metadata()
             .map_err(|_| HistoryError::StorageUnavailable)?
             .is_dir()
@@ -48,13 +63,65 @@ impl LocalChecksHistoryStore {
             return Err(HistoryError::InvalidStorage);
         }
         Ok(Self {
-            common,
+            common: common_file,
+            common_path: common.to_path_buf(),
             repo_id: actual_repo_id,
         })
     }
     pub fn list(&self) -> Result<Vec<LocalChecksRecord>, HistoryError> {
         let _guard = HISTORY_IO_LOCK.lock();
         self.list_inner()
+    }
+    pub fn list_all_wal(&self) -> Result<Vec<LocalChecksRecord>, HistoryError> {
+        let _guard = HISTORY_IO_LOCK.lock();
+        let mut out = self.list_inner()?;
+        let Some(directory) = self.directory(false)? else {
+            return Ok(out);
+        };
+        let sqlite_path = self
+            .verified_history_dir_path(&directory)?
+            .join(SQLITE_TARGET);
+        match fs::symlink_metadata(&sqlite_path) {
+            Ok(meta) if meta.file_type().is_symlink() || !meta.file_type().is_file() => {
+                return Err(HistoryError::InvalidStorage);
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+            Err(_err) => return Err(HistoryError::StorageUnavailable),
+        }
+        let db = SqliteWalDb::open(&sqlite_path).map_err(|_| HistoryError::InvalidStorage)?;
+        db.execute_batch(LOCAL_CHECKS_SCHEMA_SQL)
+            .map_err(|_| HistoryError::InvalidStorage)?;
+        let rows = db
+            .query_rows(
+                "SELECT repo_id, payload_json FROM local_checks_history ORDER BY seq DESC;",
+                &[],
+            )
+            .map_err(|_| HistoryError::InvalidStorage)?;
+        let expected_repo = self.repo_id.0.to_string();
+        let mut seen: HashSet<SandboxRunId> = out.iter().map(|r| r.result.run_id).collect();
+        for row in rows {
+            let row_repo = row
+                .first()
+                .and_then(SqlValue::as_str)
+                .ok_or(HistoryError::InvalidStorage)?;
+            if row_repo != expected_repo {
+                return Err(HistoryError::InvalidStorage);
+            }
+            let payload = row
+                .get(1)
+                .and_then(SqlValue::as_str)
+                .ok_or(HistoryError::InvalidStorage)?;
+            let record: LocalChecksRecord =
+                serde_json::from_str(payload).map_err(|_| HistoryError::InvalidStorage)?;
+            if !record.valid() {
+                return Err(HistoryError::InvalidStorage);
+            }
+            if seen.insert(record.result.run_id) {
+                out.push(record);
+            }
+        }
+        Ok(out)
     }
     fn list_inner(&self) -> Result<Vec<LocalChecksRecord>, HistoryError> {
         let Some(directory) = self.directory(false)? else {
@@ -115,6 +182,7 @@ impl LocalChecksHistoryStore {
             sync(&directory)?;
             return sync(&self.common);
         }
+        let record_for_wal = record.clone();
         records.insert(0, record);
         records.truncate(MAX_RECORDS);
         let payload = encode(&History {
@@ -157,8 +225,55 @@ impl LocalChecksHistoryStore {
         {
             return Err(HistoryError::StorageUnavailable);
         }
+        self.append_sqlite_wal(&directory, &record_for_wal)?;
         sync(&directory)?;
         sync(&self.common)
+    }
+    fn verified_history_dir_path(&self, directory: &File) -> Result<PathBuf, HistoryError> {
+        let fd_meta = directory
+            .metadata()
+            .map_err(|_| HistoryError::StorageUnavailable)?;
+        let dir_path = self.common_path.join(DIRECTORY);
+        let path_meta =
+            fs::symlink_metadata(&dir_path).map_err(|_| HistoryError::StorageUnavailable)?;
+        if path_meta.file_type().is_symlink()
+            || !path_meta.is_dir()
+            || fd_meta.dev() != path_meta.dev()
+            || fd_meta.ino() != path_meta.ino()
+        {
+            return Err(HistoryError::InvalidStorage);
+        }
+        Ok(dir_path)
+    }
+    fn append_sqlite_wal(
+        &self,
+        directory: &File,
+        record: &LocalChecksRecord,
+    ) -> Result<(), HistoryError> {
+        let sqlite_path = self
+            .verified_history_dir_path(directory)?
+            .join(SQLITE_TARGET);
+        let db = SqliteWalDb::open(&sqlite_path).map_err(|_| HistoryError::StorageUnavailable)?;
+        db.execute_batch(LOCAL_CHECKS_SCHEMA_SQL)
+            .map_err(|_| HistoryError::StorageUnavailable)?;
+        let payload_json =
+            serde_json::to_string(record).map_err(|_| HistoryError::InvalidRecord)?;
+        let passed = i64::from(record.status == LocalChecksStatus::Passed);
+        db.with_transaction(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO local_checks_history
+                 (run_id, repo_id, commit_sha, passed, payload_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5);",
+                &[
+                    SqlValue::Text(record.result.run_id.0.to_string()),
+                    SqlValue::Text(self.repo_id.0.to_string()),
+                    SqlValue::Text(record.checked_commit.0.clone()),
+                    SqlValue::Integer(passed),
+                    SqlValue::Text(payload_json),
+                ],
+            )
+        })
+        .map_err(|_| HistoryError::StorageUnavailable)
     }
     fn directory(&self, create: bool) -> Result<Option<File>, HistoryError> {
         if let Some(directory) =

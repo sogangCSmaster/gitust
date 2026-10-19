@@ -1,12 +1,7 @@
 //! GitHub Actions-compatible Workflows API (`GET /workflows`, `GET /workflow-runs/{run_id}/artifacts`,
 //! and `GET/PUT/DELETE /workflow-secrets`) with encrypted secret management and symlink-safe persistence.
 
-use std::{
-    collections::BTreeMap,
-    fs,
-    io::{Read, Write},
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeMap, path::Path};
 
 use axum::{
     extract::{Path as AxumPath, Request, State},
@@ -27,15 +22,14 @@ use crate::{
     state::{check_repo_bola, internal_err, map_auth_err, AppState},
 };
 
+pub(crate) use crate::workflow_store::{
+    atomic_write_regular_file, ensure_safe_dir, load_workflow_run_artifacts, load_workflow_runs,
+    read_bounded_regular_file, save_workflow_run, workflows_storage_root,
+};
+
 pub(crate) type ApiError = (StatusCode, String);
 
-const WORKFLOWS_STORAGE_DIR: &str = "gitust-workflows";
-const RUNS_FILE_NAME: &str = "runs.json";
-const ARTIFACTS_DIR_NAME: &str = "artifacts";
 pub(crate) const CACHES_DIR_NAME: &str = "caches";
-const MAX_RUNS_JSON_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_ARTIFACTS_JSON_BYTES: u64 = 2 * 1024 * 1024;
-const MAX_SAVED_WORKFLOW_RUNS: usize = 25;
 const MAX_SECRET_BODY_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,20 +94,6 @@ pub struct WorkflowRunRecord {
     pub status: String,
     pub jobs: Vec<WorkflowJobRun>,
     pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct StoredRunsEnvelope {
-    version: u32,
-    repo_id: RepoId,
-    runs: Vec<WorkflowRunRecord>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct StoredArtifactsEnvelope {
-    version: u32,
-    run_id: String,
-    artifacts: Vec<WorkflowArtifactEntry>,
 }
 
 #[derive(Deserialize)]
@@ -195,147 +175,6 @@ pub(crate) fn substitute_secrets_in_command(
     }
     out.push_str(rest);
     Ok(out)
-}
-
-pub(crate) fn ensure_safe_dir(path: &Path) -> Result<(), ApiError> {
-    if let Err(e) = fs::symlink_metadata(path) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            return Err(unavailable(e));
-        }
-        fs::create_dir_all(path).map_err(unavailable)?;
-    }
-    let meta = fs::symlink_metadata(path).map_err(unavailable)?;
-    if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
-        return Err(unavailable("workflow storage dir is not a safe directory"));
-    }
-    Ok(())
-}
-
-pub(crate) fn workflows_storage_root(common_git_dir: &Path) -> Result<PathBuf, ApiError> {
-    let root = common_git_dir.join(WORKFLOWS_STORAGE_DIR);
-    ensure_safe_dir(&root)?;
-    Ok(root)
-}
-
-pub(crate) fn read_bounded_regular_file(
-    path: &Path,
-    max_bytes: u64,
-) -> Result<Option<Vec<u8>>, ApiError> {
-    let meta = match fs::symlink_metadata(path) {
-        Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(unavailable(e)),
-    };
-    if meta.file_type().is_symlink() || !meta.file_type().is_file() || meta.len() > max_bytes {
-        return Err(unavailable(
-            "workflow storage file invalid or exceeds size limit",
-        ));
-    }
-    let mut buf = Vec::new();
-    fs::File::open(path)
-        .map_err(unavailable)?
-        .take(max_bytes + 1)
-        .read_to_end(&mut buf)
-        .map_err(unavailable)?;
-    if buf.len() as u64 > max_bytes {
-        return Err(unavailable("workflow storage file exceeds size limit"));
-    }
-    Ok(Some(buf))
-}
-
-pub(crate) fn atomic_write_regular_file(
-    dir: &Path,
-    final_path: &Path,
-    payload: &[u8],
-) -> Result<(), ApiError> {
-    ensure_safe_dir(dir)?;
-    match fs::symlink_metadata(final_path) {
-        Ok(meta) if meta.file_type().is_symlink() || !meta.file_type().is_file() => {
-            return Err(unavailable(
-                "refusing to overwrite non-regular workflow file",
-            ));
-        }
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(unavailable(e)),
-    }
-    let tmp_path = dir.join(format!(".tmp-wf-{}", Uuid::new_v4()));
-    let write_res = (|| -> std::io::Result<()> {
-        let mut opts = fs::OpenOptions::new();
-        opts.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
-        }
-        let mut f = opts.open(&tmp_path)?;
-        f.write_all(payload)?;
-        f.sync_all()?;
-        fs::rename(&tmp_path, final_path)
-    })();
-    if let Err(err) = write_res {
-        // fail-open-ok: best-effort temp file cleanup on failed atomic write; error is returned below.
-        let _ = fs::remove_file(&tmp_path);
-        return Err(unavailable(err));
-    }
-    Ok(())
-}
-
-pub(crate) fn load_workflow_runs(
-    common_git_dir: &Path,
-    repo_id: RepoId,
-) -> Result<Vec<WorkflowRunRecord>, ApiError> {
-    let path = workflows_storage_root(common_git_dir)?.join(RUNS_FILE_NAME);
-    let Some(bytes) = read_bounded_regular_file(&path, MAX_RUNS_JSON_BYTES)? else {
-        return Ok(Vec::new());
-    };
-    let env: StoredRunsEnvelope = serde_json::from_slice(&bytes).map_err(unavailable)?;
-    if env.version != 1 || env.repo_id != repo_id {
-        return Err(unavailable("workflow runs storage identity mismatch"));
-    }
-    Ok(env.runs)
-}
-
-pub(crate) fn save_workflow_run(
-    common_git_dir: &Path,
-    repo_id: RepoId,
-    run: &WorkflowRunRecord,
-) -> Result<(), ApiError> {
-    let root = workflows_storage_root(common_git_dir)?;
-    let mut runs = load_workflow_runs(common_git_dir, repo_id)?;
-    runs.insert(0, run.clone());
-    runs.truncate(MAX_SAVED_WORKFLOW_RUNS);
-    let runs_env = StoredRunsEnvelope {
-        version: 1,
-        repo_id,
-        runs,
-    };
-    let runs_payload = serde_json::to_vec_pretty(&runs_env).map_err(unavailable)?;
-    if runs_payload.len() as u64 > MAX_RUNS_JSON_BYTES {
-        return Err(unavailable("workflow runs history exceeds size limit"));
-    }
-    atomic_write_regular_file(&root, &root.join(RUNS_FILE_NAME), &runs_payload)?;
-
-    let artifacts_dir = root.join(ARTIFACTS_DIR_NAME);
-    ensure_safe_dir(&artifacts_dir)?;
-    let artifacts = run
-        .jobs
-        .iter()
-        .flat_map(|j| j.artifacts.iter().cloned())
-        .collect();
-    let art_env = StoredArtifactsEnvelope {
-        version: 1,
-        run_id: run.run_id.clone(),
-        artifacts,
-    };
-    let art_payload = serde_json::to_vec_pretty(&art_env).map_err(unavailable)?;
-    if art_payload.len() as u64 > MAX_ARTIFACTS_JSON_BYTES {
-        return Err(unavailable(
-            "workflow artifacts metadata exceeds size limit",
-        ));
-    }
-    let art_path = artifacts_dir.join(format!("{}.json", run.run_id));
-    atomic_write_regular_file(&artifacts_dir, &art_path, &art_payload)
 }
 
 fn with_admin_repo_read<T, F>(
@@ -449,22 +288,8 @@ pub(crate) async fn list_run_artifacts(
         }
         let clean_run_id = parsed.hyphenated().to_string();
         with_admin_repo_read(&state, &raw_id, &headers, |_repo, _repo_id, common| {
-            let art_path = workflows_storage_root(common)?
-                .join(ARTIFACTS_DIR_NAME)
-                .join(format!("{clean_run_id}.json"));
-            let Some(bytes) = read_bounded_regular_file(&art_path, MAX_ARTIFACTS_JSON_BYTES)?
-            else {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    "workflow run artifacts not found".into(),
-                ));
-            };
-            let env: StoredArtifactsEnvelope =
-                serde_json::from_slice(&bytes).map_err(unavailable)?;
-            if env.version != 1 || env.run_id != clean_run_id {
-                return Err(unavailable("workflow artifacts identity mismatch"));
-            }
-            Ok(json!({ "artifacts": env.artifacts }))
+            let artifacts = load_workflow_run_artifacts(common, &clean_run_id)?;
+            Ok(json!({ "artifacts": artifacts }))
         })
     })
     .await

@@ -19,10 +19,12 @@ pub(crate) fn sandbox_spec_for(
     );
     if let Some(path) = store.persistence_path() {
         spec.rules.push(PathRule::new(path, PathAccess::Hidden));
-        let mut lock = path.as_os_str().to_os_string();
-        lock.push(".lock");
-        spec.rules
-            .push(PathRule::new(PathBuf::from(lock), PathAccess::Hidden));
+        for suffix in [".lock", ".sqlite3", ".sqlite3-wal", ".sqlite3-shm"] {
+            let mut sidecar = path.as_os_str().to_os_string();
+            sidecar.push(suffix);
+            spec.rules
+                .push(PathRule::new(PathBuf::from(sidecar), PathAccess::Hidden));
+        }
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             // Hide a dedicated auth directory too (including atomic-write temporary files).
             // Do not hide a configured shared repo/worktree ancestor in its entirety.

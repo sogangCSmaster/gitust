@@ -49,7 +49,24 @@ fn oversized_snapshot_keeps_previous_disk_state_and_rolls_back_memory() {
             .expect("restored session"),
         caller
     );
-    assert_eq!(std::fs::read_dir(temp.path()).expect("entries").count(), 2);
+    for entry in std::fs::read_dir(temp.path()).expect("entries") {
+        let name = entry
+            .expect("entry")
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            matches!(
+                name.as_str(),
+                "auth.json"
+                    | "auth.json.lock"
+                    | "auth.json.sqlite3"
+                    | "auth.json.sqlite3-wal"
+                    | "auth.json.sqlite3-shm"
+            ),
+            "unexpected leftover file in temp dir: {name}"
+        );
+    }
 }
 
 #[test]

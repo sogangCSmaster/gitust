@@ -39,8 +39,12 @@ mod pull_requests;
 pub use pull_requests::{CreatePullRequestInput, PullRequestLookup};
 mod repository_registration;
 mod repository_visibility;
+pub mod sqlite_sidecar;
+pub use sqlite_sidecar::sqlite_wal_path;
+pub mod sqlite_wal;
 pub use repository_registration::{AuthorizedRepository, RegisteredRepository};
 pub use repository_visibility::RepositoryVisibilityError;
+pub use sqlite_wal::{SqlValue, SqliteWalDb};
 pub mod sso_audit;
 pub use sso_audit::{
     compute_audit_entry_hash, compute_sso_assertion_signature, RegisterSsoProviderInput,
@@ -74,6 +78,8 @@ mod tests_review_regressions;
 mod tests_session_scope;
 #[cfg(test)]
 mod tests_snapshot_limits;
+#[cfg(test)]
+mod tests_sqlite_wal;
 #[cfg(test)]
 mod tests_ssh_binding;
 

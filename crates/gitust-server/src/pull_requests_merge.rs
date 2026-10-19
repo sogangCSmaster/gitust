@@ -69,7 +69,7 @@ pub(crate) fn evaluate_protection_for_repo(
                     "local Checks history storage is unavailable".into(),
                 )
             })?;
-        let records = store.list().map_err(|_| {
+        let records = store.list_all_wal().map_err(|_| {
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "local Checks history storage is unavailable".into(),

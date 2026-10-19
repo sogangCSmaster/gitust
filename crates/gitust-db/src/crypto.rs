@@ -20,6 +20,12 @@ pub(crate) fn argon2_hasher() -> Result<Argon2<'static>, AuthError> {
     Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
 }
 
+const TIMING_SHIELD_PASSWORD: &str = "dummy-timing-shield-password";
+
+pub(crate) fn is_legacy_sso_password_hash(hash: &str) -> bool {
+    verify_password_argon2(TIMING_SHIELD_PASSWORD, hash)
+}
+
 pub(crate) fn dummy_password_hash() -> &'static str {
     static DUMMY_HASH: OnceLock<String> = OnceLock::new();
     DUMMY_HASH.get_or_init(|| {
@@ -27,8 +33,13 @@ pub(crate) fn dummy_password_hash() -> &'static str {
         // fail-open-ok: only the timing shield degrades; an empty dummy hash never verifies.
         argon2_hasher()
             .ok()
-            .and_then(|a| a.hash_password(b"dummy-timing-shield-password", &salt).ok())
+            .and_then(|a| {
+                // fail-open-ok: unavailable timing shield becomes an invalid hash, never an account authenticator.
+                a.hash_password(TIMING_SHIELD_PASSWORD.as_bytes(), &salt)
+                    .ok()
+            })
             .map(|h| h.to_string())
+            // fail-open-ok: empty timing-shield hash always rejects authentication.
             .unwrap_or_default()
     })
 }

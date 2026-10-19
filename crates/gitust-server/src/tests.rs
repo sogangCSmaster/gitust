@@ -285,3 +285,5 @@ mod tests_pull_requests_regressions;
 mod tests_repository_admin;
 #[path = "tests_repository_search.rs"]
 mod tests_repository_search;
+#[path = "tests_repository_settings_regressions.rs"]
+mod tests_repository_settings_regressions;

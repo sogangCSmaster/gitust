@@ -84,7 +84,7 @@ describe("Slice 10 (Phase 4.5) — Indexed Repository-Authorized Code & Symbol S
       const url = typeof input === "string" ? input : input.toString();
       if (
         url ===
-        "/api/v1/repos/11111111-1111-4111-8111-111111111111/search?q=verify_token&kind=symbol&rev=main"
+        "/api/v1/repos/11111111-1111-4111-8111-111111111111/search?q=verify_token&kind=symbol&rev=a1b2c3d4e5f60123456789abcdef0123456789ab"
       ) {
         return new Response(JSON.stringify(mockReport), { status: 200 });
       }
@@ -100,7 +100,7 @@ describe("Slice 10 (Phase 4.5) — Indexed Repository-Authorized Code & Symbol S
           files={sampleFiles}
           liveMode={true}
           repositoryId="11111111-1111-4111-8111-111111111111"
-          revision="main"
+          revision="a1b2c3d4e5f60123456789abcdef0123456789ab"
           onSelect={onSelect}
         />
       </>
@@ -178,11 +178,9 @@ describe("Slice 10 (Phase 4.5) — Indexed Repository-Authorized Code & Symbol S
     }) as unknown as typeof fetch;
 
     await expect(
-      fetchRepositorySearch(
-        "11111111-1111-4111-8111-111111111111",
-        "fn",
-        { fetcher: badShaFetcher },
-      ),
+      fetchRepositorySearch("11111111-1111-4111-8111-111111111111", "fn", {
+        fetcher: badShaFetcher,
+      }),
     ).rejects.toThrow(/Invalid repository search response/i);
 
     const badHitFetcher = vi.fn(async () => {
@@ -208,11 +206,9 @@ describe("Slice 10 (Phase 4.5) — Indexed Repository-Authorized Code & Symbol S
     }) as unknown as typeof fetch;
 
     await expect(
-      fetchRepositorySearch(
-        "11111111-1111-4111-8111-111111111111",
-        "fn",
-        { fetcher: badHitFetcher },
-      ),
+      fetchRepositorySearch("11111111-1111-4111-8111-111111111111", "fn", {
+        fetcher: badHitFetcher,
+      }),
     ).rejects.toThrow(/Invalid search hit record/i);
   });
 });

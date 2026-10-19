@@ -1,6 +1,5 @@
 import { formatErr, getLiveToken } from "./live-repo-context";
 import {
-  deriveProtectionFromReviews,
   evaluatePullRequestMergeGate,
   getCsrfToken,
   INITIAL_PULL_REQUEST_STATE,
@@ -76,7 +75,7 @@ export function createLivePullRequestClient(
     setState(INITIAL_PULL_REQUEST_STATE);
   };
 
-  const selectPull = async (prId: string, silent = false) => {
+  const selectPull = async (prId: string) => {
     const repoId = context.repositoryId();
     const epoch = context.selectionEpoch();
     const token = getLiveToken();
@@ -85,14 +84,13 @@ export function createLivePullRequestClient(
     detailAbort?.abort();
     const controller = new AbortController();
     detailAbort = controller;
-    if (!silent) {
-      setState((prev) => ({
-        ...prev,
-        selectedPullId: prId,
-        loadingDetail: true,
-        error: null,
-      }));
-    }
+    setState((prev) => ({
+      ...prev,
+      selectedPullId: prId,
+      detail: null,
+      loadingDetail: true,
+      error: null,
+    }));
     try {
       const res = await fetch(
         `/api/v1/repos/${encodeURIComponent(repoId)}/pulls/${encodeURIComponent(prId)}`,
@@ -102,20 +100,22 @@ export function createLivePullRequestClient(
           signal: controller.signal,
         },
       );
-      if (reqId !== detailGen || !isContextCurrent(repoId, epoch, token)) return;
+      if (reqId !== detailGen || !isContextCurrent(repoId, epoch, token))
+        return;
       if (!res.ok) {
-        if (!silent) {
-          const text = (await res.text().catch(() => "")).trim();
-          setState((prev) => ({
-            ...prev,
-            loadingDetail: false,
-            error: `Unable to load pull request detail (HTTP ${res.status}${text ? `: ${text}` : ""})`,
-          }));
-        }
+        const text = (await res.text().catch(() => "")).trim();
+        if (reqId !== detailGen || !isContextCurrent(repoId, epoch, token))
+          return;
+        setState((prev) => ({
+          ...prev,
+          loadingDetail: false,
+          error: `Unable to load pull request detail (HTTP ${res.status}${text ? `: ${text}` : ""})`,
+        }));
         return;
       }
       const raw = await res.json();
-      if (reqId !== detailGen || !isContextCurrent(repoId, epoch, token)) return;
+      if (reqId !== detailGen || !isContextCurrent(repoId, epoch, token))
+        return;
       const detail = parseDetailResponse(raw);
       setState((prev) => ({
         ...prev,
@@ -128,14 +128,13 @@ export function createLivePullRequestClient(
         error: null,
       }));
     } catch (err) {
-      if (reqId !== detailGen || !isContextCurrent(repoId, epoch, token)) return;
-      if (!silent) {
-        setState((prev) => ({
-          ...prev,
-          loadingDetail: false,
-          error: `Pull request detail error: ${formatErr(err)}`,
-        }));
-      }
+      if (reqId !== detailGen || !isContextCurrent(repoId, epoch, token))
+        return;
+      setState((prev) => ({
+        ...prev,
+        loadingDetail: false,
+        error: `Pull request detail error: ${formatErr(err)}`,
+      }));
     }
   };
 
@@ -210,52 +209,25 @@ export function createLivePullRequestClient(
     }
   };
 
-  const applyUpdatedPull = async (pull: PullRequestRecord, feedback: string) => {
+  const applyUpdatedPull = async (
+    pull: PullRequestRecord,
+    feedback: string,
+  ) => {
     setState((prev) => {
       const exists = prev.pulls.some((p) => p.id === pull.id);
       const pulls = exists
         ? prev.pulls.map((p) => (p.id === pull.id ? pull : p))
         : [pull, ...prev.pulls];
-      const detail: PullRequestDetailResponse =
-        prev.detail && prev.detail.pull.id === pull.id
-          ? {
-              ...prev.detail,
-              pull,
-              protection: deriveProtectionFromReviews(
-                pull,
-                prev.detail.protection,
-              ),
-            }
-          : {
-              pull,
-              merge_preview: {
-                can_merge: true,
-                fast_forward: true,
-                conflicting_files: [],
-                base_sha: pull.base_sha,
-                head_sha: pull.head_sha,
-              },
-              protection: deriveProtectionFromReviews(pull, {
-                protected: false,
-                require_pull_request: false,
-                required_approvals: 0,
-                approved_count: 0,
-                changes_requested: false,
-                require_passing_checks: false,
-                checks_passed: true,
-              }),
-            };
       return {
         ...prev,
-        submitting: false,
         pulls,
         selectedPullId: pull.id,
-        detail,
+        detail: null,
         error: null,
         feedback,
       };
     });
-    await selectPull(pull.id, true);
+    await selectPull(pull.id);
   };
 
   const runMutation = async (
@@ -265,36 +237,56 @@ export function createLivePullRequestClient(
     const repoId = context.repositoryId();
     const epoch = context.selectionEpoch();
     const token = getLiveToken();
-    if (!repoId || !token) return;
+    if (!repoId || !token || getState().submitting) return false;
     const reqId = ++mutGen;
+    listGen++;
+    detailGen++;
+    listAbort?.abort();
+    detailAbort?.abort();
     setState((prev) => ({
       ...prev,
       submitting: true,
+      loadingList: false,
+      loadingDetail: false,
+      detail: null,
       error: null,
       feedback: null,
     }));
     try {
       const res = await requestFn(repoId, token);
-      if (reqId !== mutGen || !isContextCurrent(repoId, epoch, token)) return;
+      if (reqId !== mutGen || !isContextCurrent(repoId, epoch, token))
+        return false;
       if (!res.ok) {
         const text = (await res.text().catch(() => "")).trim();
+        if (reqId !== mutGen || !isContextCurrent(repoId, epoch, token))
+          return false;
         setState((prev) => ({
           ...prev,
           submitting: false,
           error: `Request failed (HTTP ${res.status}${text ? `: ${text}` : ""})`,
         }));
-        return;
+        return false;
       }
       const raw = (await res.json()) as Record<string, unknown>;
-      if (reqId !== mutGen || !isContextCurrent(repoId, epoch, token)) return;
+      if (reqId !== mutGen || !isContextCurrent(repoId, epoch, token))
+        return false;
+      listGen++;
+      listAbort?.abort();
+      setState((prev) => ({ ...prev, loadingList: false }));
       await onSuccess(raw);
+      if (reqId !== mutGen || !isContextCurrent(repoId, epoch, token))
+        return false;
+      setState((prev) => ({ ...prev, submitting: false }));
+      return true;
     } catch (err) {
-      if (reqId !== mutGen || !isContextCurrent(repoId, epoch, token)) return;
+      if (reqId !== mutGen || !isContextCurrent(repoId, epoch, token))
+        return false;
       setState((prev) => ({
         ...prev,
         submitting: false,
         error: `Mutation error: ${formatErr(err)}`,
       }));
+      return false;
     }
   };
 
@@ -428,11 +420,14 @@ export function createLivePullRequestClient(
     saveBranchProtection: (rule: BranchProtectionRule) =>
       runMutation(
         (repoId, token) =>
-          fetch(`/api/v1/repos/${encodeURIComponent(repoId)}/branch-protection`, {
-            method: "PUT",
-            headers: mutationHeaders(token),
-            body: JSON.stringify(rule),
-          }),
+          fetch(
+            `/api/v1/repos/${encodeURIComponent(repoId)}/branch-protection`,
+            {
+              method: "PUT",
+              headers: mutationHeaders(token),
+              body: JSON.stringify(rule),
+            },
+          ),
         async (raw) => {
           const rules = parseProtectionRules(raw);
           setState((prev) => ({

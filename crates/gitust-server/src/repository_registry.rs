@@ -25,6 +25,7 @@ pub(crate) struct RepoRuntimeSettings {
 #[derive(Default)]
 pub(crate) struct DynamicRepositoryRegistry {
     pub(crate) online_entries: HashMap<RepoId, ReadRepository>,
+    pub(crate) ownership: HashMap<RepoId, WorktreeServiceLock>,
     pub(crate) settings: HashMap<RepoId, RepoRuntimeSettings>,
 }
 
@@ -76,6 +77,28 @@ pub(crate) fn persist_repo_settings(
     engine: &GitEngine,
     settings: &RepoRuntimeSettings,
 ) -> Result<(), GitEngineError> {
+    persist_repo_settings_with_gate(engine, settings, || Ok(())).map_err(|failure| failure.error)
+}
+
+pub(crate) struct SettingsWriteFailure {
+    pub(crate) error: GitEngineError,
+    pub(crate) published: bool,
+}
+
+impl From<GitEngineError> for SettingsWriteFailure {
+    fn from(error: GitEngineError) -> Self {
+        Self {
+            error,
+            published: false,
+        }
+    }
+}
+
+pub(crate) fn persist_repo_settings_with_gate(
+    engine: &GitEngine,
+    settings: &RepoRuntimeSettings,
+    before_publish: impl FnOnce() -> Result<(), GitEngineError>,
+) -> Result<(), SettingsWriteFailure> {
     let common = engine.repository_common_directory()?;
     let dir = common.join("gitust-repository");
     std::fs::create_dir_all(&dir).map_err(|_| invalid())?;
@@ -88,14 +111,29 @@ pub(crate) fn persist_repo_settings(
     let tmp = dir.join("settings.json.tmp");
     let final_path = dir.join("settings.json");
     let bytes = serde_json::to_vec(settings).map_err(|_| invalid())?;
-    std::fs::write(&tmp, &bytes).map_err(|_| invalid())?;
+    let mut file = std::fs::File::create(&tmp).map_err(|_| invalid())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))
             .map_err(|_| invalid())?;
     }
+    use std::io::Write;
+    file.write_all(&bytes).map_err(|_| invalid())?;
+    file.sync_all().map_err(|_| invalid())?;
+    if let Err(error) = before_publish() {
+        std::fs::remove_file(&tmp).map_err(|_| invalid())?;
+        return Err(error.into());
+    }
     std::fs::rename(&tmp, &final_path).map_err(|_| invalid())?;
+    // A failed directory sync cannot undo a visible rename. Tell runtime callers
+    // to reconcile their cache while still reporting the durability failure.
+    std::fs::File::open(&dir)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| SettingsWriteFailure {
+            error: invalid(),
+            published: true,
+        })?;
     Ok(())
 }
 
@@ -288,6 +326,7 @@ pub(crate) fn recover_dynamic_registry(
         };
         dyn_reg.settings.insert(sec_id, sec_settings);
         dyn_reg.online_entries.insert(sec_id, read_repo);
+        dyn_reg.ownership.insert(sec_id, _guard);
     }
     Ok(dyn_reg)
 }

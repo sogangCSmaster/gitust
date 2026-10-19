@@ -1,22 +1,18 @@
 //! Enterprise OIDC/LDAP Single Sign-On (SSO) provider store and invite-bound assertion verification.
 
-use argon2::password_hash::rand_core::OsRng;
 use chrono::{Duration, Utc};
 use gitust_core::{
     AccountStatus, AuthError, AuthenticatedPrincipal, InviteTokenPurpose, SessionId, SsoProtocol,
     SsoProviderRecord, UserId,
 };
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 pub(crate) use crate::audit_trail::append_audit_event_locked;
 pub use crate::audit_trail::{compute_audit_entry_hash, GENESIS_AUDIT_HASH};
 use crate::crypto::{
-    dummy_password_hash, generate_csprng_token, hash_token_sha256, scoped_id_rate_limit_key,
-    validate_username,
+    generate_csprng_token, hash_token_sha256, scoped_id_rate_limit_key, validate_username,
 };
 use crate::models::{LoginSessionResponse, SessionPurpose, StoredSession, StoredUser};
 use crate::mutation_authority::MutationAuthority;
@@ -32,10 +28,8 @@ const fn default_true() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StoredSsoProvider {
     pub(crate) record: SsoProviderRecord,
-    pub(crate) key_hex: String,
-    pub(crate) nonce_hex: String,
-    pub(crate) ciphertext_hex: String,
-    pub(crate) tag_sha256: [u8; 32],
+    #[serde(flatten)]
+    pub(crate) secret: crate::secret_storage::StoredSecret,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,75 +74,6 @@ pub fn compute_sso_assertion_signature(
     let norm_user = username.trim().to_ascii_lowercase();
     let msg = format!("gitust-sso-v1|{provider_id}|{norm_email}|{norm_user}|{exp_epoch_secs}");
     hex::encode(hmac_sha256(signing_secret.as_bytes(), msg.as_bytes()))
-}
-
-fn sso_keystream_xor(key: &[u8; 32], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len());
-    for (block_idx, chunk) in data.chunks(32).enumerate() {
-        let mut hasher = Sha256::new();
-        hasher.update(b"gitust-sso-secret-stream-v1:");
-        hasher.update(key);
-        hasher.update(nonce);
-        hasher.update((block_idx as u64).to_le_bytes());
-        let stream: [u8; 32] = hasher.finalize().into();
-        for (b, s) in chunk.iter().zip(stream.iter()) {
-            out.push(b ^ s);
-        }
-    }
-    out
-}
-
-fn compute_sso_tag(
-    key: &[u8; 32],
-    nonce: &[u8; 16],
-    provider_id: Uuid,
-    ciphertext: &[u8],
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"gitust-sso-secret-mac-v1:");
-    hasher.update(key);
-    hasher.update(nonce);
-    hasher.update(provider_id.as_bytes());
-    hasher.update((ciphertext.len() as u64).to_le_bytes());
-    hasher.update(ciphertext);
-    hasher.finalize().into()
-}
-
-fn encrypt_sso_provider(record: SsoProviderRecord, signing_secret: &str) -> StoredSsoProvider {
-    let mut key = [0u8; 32];
-    let mut nonce = [0u8; 16];
-    OsRng.fill_bytes(&mut key);
-    OsRng.fill_bytes(&mut nonce);
-    let ciphertext = sso_keystream_xor(&key, &nonce, signing_secret.as_bytes());
-    let tag_sha256 = compute_sso_tag(&key, &nonce, record.id, &ciphertext);
-    StoredSsoProvider {
-        record,
-        key_hex: hex::encode(key),
-        nonce_hex: hex::encode(nonce),
-        ciphertext_hex: hex::encode(ciphertext),
-        tag_sha256,
-    }
-}
-
-fn decrypt_sso_secret(stored: &StoredSsoProvider) -> Result<String, AuthError> {
-    let key: [u8; 32] = hex::decode(&stored.key_hex)
-        .map_err(|_| AuthError::StorageError("corrupted SSO key".into()))?
-        .try_into()
-        .map_err(|_| AuthError::StorageError("corrupted SSO key length".into()))?;
-    let nonce: [u8; 16] = hex::decode(&stored.nonce_hex)
-        .map_err(|_| AuthError::StorageError("corrupted SSO nonce".into()))?
-        .try_into()
-        .map_err(|_| AuthError::StorageError("corrupted SSO nonce length".into()))?;
-    let ciphertext = hex::decode(&stored.ciphertext_hex)
-        .map_err(|_| AuthError::StorageError("corrupted SSO ciphertext".into()))?;
-    let expected_tag = compute_sso_tag(&key, &nonce, stored.record.id, &ciphertext);
-    if !bool::from(expected_tag.ct_eq(&stored.tag_sha256)) {
-        return Err(AuthError::StorageError(
-            "SSO secret integrity verification failed".into(),
-        ));
-    }
-    String::from_utf8(sso_keystream_xor(&key, &nonce, &ciphertext))
-        .map_err(|_| AuthError::StorageError("corrupted SSO secret UTF-8".into()))
 }
 
 impl AuthStore {
@@ -219,7 +144,12 @@ impl AuthStore {
             require_invite_binding: input.require_invite_binding,
             created_at: Utc::now().to_rfc3339(),
         };
-        let stored = encrypt_sso_provider(record.clone(), secret);
+        let stored = StoredSsoProvider {
+            secret: self
+                .secret_key
+                .seal(&format!("sso:{}", record.id), secret.as_bytes())?,
+            record: record.clone(),
+        };
         let snapshot = {
             let mut guard = self.write_state()?;
             let admin_id =
@@ -327,7 +257,13 @@ impl AuthStore {
                 Self::record_failed_login_locked(&mut guard, rl_key, now);
                 return Err(AuthError::InvalidCredentials);
             };
-            let signing_secret = decrypt_sso_secret(&stored_prov)?;
+            let signing_secret = zeroize::Zeroizing::new(
+                String::from_utf8(self.secret_key.open(
+                    &format!("sso:{}", stored_prov.record.id),
+                    &stored_prov.secret,
+                )?)
+                .map_err(|_| AuthError::StorageError("invalid SSO secret encoding".into()))?,
+            );
             let expected_sig = compute_sso_assertion_signature(
                 &signing_secret,
                 input.provider_id,
@@ -362,101 +298,104 @@ impl AuthStore {
                     "email domain not allowed by SSO provider".into(),
                 ));
             }
-            let (user_id, profile, audit_action) = if let Some(&uid) =
-                guard.email_index.get(&clean_email)
-            {
-                let user = guard.users.get(&uid).ok_or(AuthError::InvalidCredentials)?;
-                if user.status != AccountStatus::Active {
-                    return Err(AuthError::AccountDeactivated);
-                }
-                if !user.username.eq_ignore_ascii_case(&clean_username) {
-                    Self::record_failed_login_locked(&mut guard, rl_key, now);
-                    return Err(AuthError::InvalidCredentials);
-                }
-                let prof = user.to_public_profile();
-                if let Err(err) =
-                    verify_user_totp_locked(&mut guard, uid, input.totp_code.as_deref(), now_secs)
-                {
-                    if matches!(err, AuthError::InvalidTotpCode) {
-                        Self::record_failed_login_locked(&mut guard, rl_key, now);
+            let (user_id, profile, audit_action) =
+                if let Some(&uid) = guard.email_index.get(&clean_email) {
+                    let user = guard.users.get(&uid).ok_or(AuthError::InvalidCredentials)?;
+                    if user.status != AccountStatus::Active {
+                        return Err(AuthError::AccountDeactivated);
                     }
-                    return Err(err);
-                }
-                (uid, prof, "sso.login")
-            } else {
-                let Some(raw_invite) = input
-                    .invite_token
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                else {
-                    return Err(AuthError::PublicSignupDisabled);
-                };
-                let candidate_hash = hash_token_sha256(raw_invite);
-                let Some(&invite_id) = guard.invite_hash_index.get(&candidate_hash) else {
-                    Self::record_failed_login_locked(&mut guard, rl_key, now);
-                    return Err(AuthError::InvalidToken);
-                };
-                let (assigned_role, team_ids) = {
-                    let inv = guard
-                        .invites_by_id
-                        .get(&invite_id)
-                        .ok_or(AuthError::InvalidToken)?;
-                    if inv.token_sha256.ct_eq(&candidate_hash).unwrap_u8() != 1
-                        || now >= inv.expires_at
-                        || !inv.target_email.eq_ignore_ascii_case(&clean_email)
-                    {
+                    if !user.username.eq_ignore_ascii_case(&clean_username) {
+                        Self::record_failed_login_locked(&mut guard, rl_key, now);
+                        return Err(AuthError::InvalidCredentials);
+                    }
+                    let prof = user.to_public_profile();
+                    if let Err(err) = verify_user_totp_locked(
+                        &self.secret_key,
+                        &mut guard,
+                        uid,
+                        input.totp_code.as_deref(),
+                        now_secs,
+                    ) {
+                        if matches!(err, AuthError::InvalidTotpCode) {
+                            Self::record_failed_login_locked(&mut guard, rl_key, now);
+                        }
+                        return Err(err);
+                    }
+                    (uid, prof, "sso.login")
+                } else {
+                    let Some(raw_invite) = input
+                        .invite_token
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    else {
+                        return Err(AuthError::PublicSignupDisabled);
+                    };
+                    let candidate_hash = hash_token_sha256(raw_invite);
+                    let Some(&invite_id) = guard.invite_hash_index.get(&candidate_hash) else {
                         Self::record_failed_login_locked(&mut guard, rl_key, now);
                         return Err(AuthError::InvalidToken);
-                    }
-                    if inv.purpose != InviteTokenPurpose::AccountInvite {
-                        return Err(AuthError::TokenPurposeMismatch);
-                    }
-                    if inv.revoked_at.is_some() {
-                        return Err(AuthError::TokenRevoked);
-                    }
-                    if inv.used_at.is_some() {
-                        return Err(AuthError::TokenAlreadyUsed);
-                    }
-                    (inv.assigned_role, inv.team_ids.clone())
-                };
-                if guard
-                    .username_index
-                    .contains_key(&clean_username.to_ascii_lowercase())
-                {
-                    return Err(AuthError::DuplicateUser);
-                }
-                if let Some(inv_mut) = guard.invites_by_id.get_mut(&invite_id) {
-                    inv_mut.used_at = Some(now);
-                }
-                for inv in guard.invites_by_id.values_mut() {
-                    if inv.id != invite_id
-                        && inv.target_email == clean_email
-                        && inv.used_at.is_none()
-                        && inv.revoked_at.is_none()
+                    };
+                    let (assigned_role, team_ids) = {
+                        let inv = guard
+                            .invites_by_id
+                            .get(&invite_id)
+                            .ok_or(AuthError::InvalidToken)?;
+                        if inv.token_sha256.ct_eq(&candidate_hash).unwrap_u8() != 1
+                            || now >= inv.expires_at
+                            || !inv.target_email.eq_ignore_ascii_case(&clean_email)
+                        {
+                            Self::record_failed_login_locked(&mut guard, rl_key, now);
+                            return Err(AuthError::InvalidToken);
+                        }
+                        if inv.purpose != InviteTokenPurpose::AccountInvite {
+                            return Err(AuthError::TokenPurposeMismatch);
+                        }
+                        if inv.revoked_at.is_some() {
+                            return Err(AuthError::TokenRevoked);
+                        }
+                        if inv.used_at.is_some() {
+                            return Err(AuthError::TokenAlreadyUsed);
+                        }
+                        (inv.assigned_role, inv.team_ids.clone())
+                    };
+                    if guard
+                        .username_index
+                        .contains_key(&clean_username.to_ascii_lowercase())
                     {
-                        inv.revoked_at = Some(now);
+                        return Err(AuthError::DuplicateUser);
                     }
-                }
-                let user = StoredUser {
-                    id: UserId::new(),
-                    username: clean_username.clone(),
-                    email: clean_email.clone(),
-                    password_hash: dummy_password_hash().to_owned(),
-                    role: assigned_role,
-                    status: AccountStatus::Active,
-                    team_ids,
-                    membership_version: 0,
-                    created_at: now,
+                    if let Some(inv_mut) = guard.invites_by_id.get_mut(&invite_id) {
+                        inv_mut.used_at = Some(now);
+                    }
+                    for inv in guard.invites_by_id.values_mut() {
+                        if inv.id != invite_id
+                            && inv.target_email == clean_email
+                            && inv.used_at.is_none()
+                            && inv.revoked_at.is_none()
+                        {
+                            inv.revoked_at = Some(now);
+                        }
+                    }
+                    let user = StoredUser {
+                        id: UserId::new(),
+                        username: clean_username.clone(),
+                        email: clean_email.clone(),
+                        password_hash: crate::security_migration::DISABLED_SSO_PASSWORD.to_owned(),
+                        role: assigned_role,
+                        status: AccountStatus::Active,
+                        team_ids,
+                        membership_version: 0,
+                        created_at: now,
+                    };
+                    let prof = user.to_public_profile();
+                    guard
+                        .username_index
+                        .insert(clean_username.to_ascii_lowercase(), user.id);
+                    guard.email_index.insert(clean_email.clone(), user.id);
+                    guard.users.insert(user.id, user);
+                    (prof.id, prof, "sso.invite_provision")
                 };
-                let prof = user.to_public_profile();
-                guard
-                    .username_index
-                    .insert(clean_username.to_ascii_lowercase(), user.id);
-                guard.email_index.insert(clean_email.clone(), user.id);
-                guard.users.insert(user.id, user);
-                (prof.id, prof, "sso.invite_provision")
-            };
             guard.failed_logins.remove(&rl_key);
             let raw_session_token = generate_csprng_token("gitust_ses");
             let token_sha256 = hash_token_sha256(&raw_session_token);

@@ -233,6 +233,12 @@ fn invitation_publication_failures_never_return_a_secret_and_replay_reconfirms_d
     // This faults the real pre-publication write without any production injection hook.
     let long = temp.path().join(format!("{}.json", "a".repeat(230)));
     std::fs::copy(store.persistence_path().unwrap(), &long).unwrap();
+    // A persistent store includes its SQLite checkpoint, even when the JSON window is small.
+    std::fs::copy(
+        crate::sqlite_wal_path(store.persistence_path().unwrap()),
+        crate::sqlite_wal_path(&long),
+    )
+    .unwrap();
     let blocked = AuthStore::open_persistent(&long).unwrap();
     let old = std::fs::read(&long).unwrap();
     let id = InviteId::new();

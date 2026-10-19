@@ -72,22 +72,24 @@ export const PullRequestCollaborationPanel: Component<
     client.clear();
   });
 
-  const handleCreatePull = (e: Event) => {
+  const handleCreatePull = async (e: Event) => {
     e.preventDefault();
     const title = prTitle().trim();
     const base = baseBranch().trim();
     const head = headBranch().trim();
     if (!title || !base || !head) return;
-    void client.createPull({
+    const created = await client.createPull({
       title,
       description: prDescription().trim(),
       base_branch: base,
       head_branch: head,
       draft: isDraft(),
     });
-    setPrTitle("");
-    setPrDescription("");
-    setShowCreateForm(false);
+    if (created) {
+      setPrTitle("");
+      setPrDescription("");
+      setShowCreateForm(false);
+    }
   };
 
   const handleSaveProtection = (e: Event) => {

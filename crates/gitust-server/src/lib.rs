@@ -52,6 +52,7 @@ mod repository_reads;
 mod repository_registry;
 mod repository_rename;
 pub mod repository_search;
+mod repository_settings_update;
 mod repository_summary;
 mod repository_visibility;
 mod run_history;

@@ -38,7 +38,7 @@ export const RunnerFleetAndCachePanel: Component<
   const [runnerName, setRunnerName] = createSignal("");
   const [runnerLabels, setRunnerLabels] = createSignal("linux-vm");
   const [isolationTier, setIsolationTier] =
-    createSignal<LiveIsolationTier>("container_vm");
+    createSignal<LiveIsolationTier>("host_os");
   const [maxConcurrency, setMaxConcurrency] = createSignal("2");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -166,8 +166,12 @@ export const RunnerFleetAndCachePanel: Component<
         <div class="space-y-2">
           <h3 class="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
             <Icon name="cpu" size={12} />
-            Multi-node runner fleet ({runners().length})
+            Runner inventory ({runners().length})
           </h3>
+          <p class="text-xs text-muted-foreground">
+            Workflows run on built-in-local with host_os isolation. Registered remote
+            runners are inventory only; remote execution and container_vm are unavailable.
+          </p>
           <form class="grid gap-2 sm:grid-cols-5" onSubmit={handleRegisterRunner}>
             <TextField>
               <TextFieldInput
@@ -193,7 +197,7 @@ export const RunnerFleetAndCachePanel: Component<
                 setIsolationTier(e.currentTarget.value as LiveIsolationTier)
               }
             >
-              <option value="container_vm">container_vm</option>
+              <option value="container_vm" disabled>container_vm (unavailable)</option>
               <option value="host_os">host_os</option>
             </select>
             <TextField>

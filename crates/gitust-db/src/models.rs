@@ -119,6 +119,10 @@ impl StoredSshKey {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct PersistedSnapshot {
     #[serde(default)]
+    pub(crate) security_version: u8,
+    #[serde(default)]
+    pub(crate) sqlite_checkpoint: Option<crate::sqlite_sidecar::SqliteCheckpoint>,
+    #[serde(default)]
     pub(crate) revision: u64,
     pub(crate) policy: EnterpriseSecurityPolicy,
     pub(crate) users: Vec<StoredUser>,
@@ -144,6 +148,7 @@ pub(crate) struct PersistedSnapshot {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct AuthState {
+    pub(crate) security_version: u8,
     pub(crate) revision: u64,
     pub(crate) policy: EnterpriseSecurityPolicy,
     pub(crate) users: HashMap<UserId, StoredUser>,
@@ -172,6 +177,7 @@ impl AuthState {
     pub(crate) fn from_snapshot(snap: PersistedSnapshot) -> Self {
         let mut state = Self {
             revision: snap.revision,
+            security_version: snap.security_version,
             policy: snap.policy,
             pull_requests: snap.pull_requests,
             branch_protection_rules: snap.branch_protection_rules,
@@ -242,6 +248,8 @@ impl AuthState {
         let pr_start = self.pull_requests.len().saturating_sub(JSON_WINDOW_CAP);
         let audit_start = self.audit_log.len().saturating_sub(JSON_WINDOW_CAP);
         PersistedSnapshot {
+            security_version: self.security_version,
+            sqlite_checkpoint: None,
             revision: self.revision,
             policy: self.policy.clone(),
             users: self.users.values().cloned().collect(),

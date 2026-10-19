@@ -421,7 +421,7 @@ async fn sso_oidc_ldap_invite_bound_provisioning_and_tamper_evident_hash_chained
     .await;
     assert_eq!(rl_status, StatusCode::TOO_MANY_REQUESTS);
 
-    // 8. Simulate on-disk tampering of an audit entry in auth-db.json and verify detection
+    // 8. A changed audit snapshot must fail closed against its committed SQLite checkpoint.
     let db_path = state
         .auth_store
         .persistence_path()
@@ -440,10 +440,9 @@ async fn sso_oidc_ldap_invite_bound_provisioning_and_tamper_evident_hash_chained
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        tampered_audit["verification"]["verified"], false,
-        "hash chain verification must detect tampered entry: {tampered_audit}"
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        tampered_audit.get("verification").is_none(),
+        "an inconsistent snapshot must not serve trusted audit results: {tampered_audit}"
     );
-    assert!(tampered_audit["verification"]["first_invalid_seq"].is_number());
 }

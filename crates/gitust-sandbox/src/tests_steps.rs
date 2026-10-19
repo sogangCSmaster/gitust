@@ -194,3 +194,14 @@ async fn failed_scratch_cleanup_cannot_report_a_completed_command() {
         Err(SandboxError::CleanupIncomplete { .. })
     ));
 }
+
+#[tokio::test]
+async fn unsupported_vm_tier_fails_before_command_execution() {
+    let (_tmp, mut spec) = fixture();
+    spec.isolation_tier = gitust_core::IsolationTier::ContainerVm;
+    let result = LocalSandboxExecutor::new(1)
+        .execute_required_checks(WorktreeId::new(), &spec, &["echo vm".into()])
+        .await;
+    assert!(matches!(result, Err(SandboxError::IsolationUnavailable(_))));
+    assert!(!spec.scratch_base.exists());
+}

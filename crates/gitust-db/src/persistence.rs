@@ -31,6 +31,18 @@ pub(crate) struct DiskStamp {
 }
 
 impl DiskStamp {
+    /// Preserve the observed-file invariant while forcing the next access to reload.
+    fn invalidated() -> Self {
+        Self {
+            #[cfg(unix)]
+            dev: 0,
+            #[cfg(unix)]
+            ino: 0,
+            modified: None,
+            len: u64::MAX,
+        }
+    }
+
     pub(crate) fn of_path(path: &Path) -> Result<Option<Self>, AuthError> {
         match fs::symlink_metadata(path) {
             Ok(meta) if !meta.is_file() => Err(AuthError::StorageError(
@@ -70,12 +82,14 @@ impl DiskStamp {
 pub(crate) struct PersistenceFailure {
     pub(crate) error: AuthError,
     pub(crate) publication_attempted: bool,
+    snapshot_replaced: bool,
 }
 impl From<AuthError> for PersistenceFailure {
     fn from(error: AuthError) -> Self {
         Self {
             error,
             publication_attempted: false,
+            snapshot_replaced: false,
         }
     }
 }
@@ -167,6 +181,11 @@ fn read_snapshot_with_stamp(
     }
     let mut snap: PersistedSnapshot = serde_json::from_slice(&bytes)
         .map_err(|e| AuthError::StorageError(format!("corrupt auth db json: {e}")))?;
+    if snap.security_version > 1 {
+        return Err(AuthError::StorageError(
+            "unsupported auth security version".into(),
+        ));
+    }
     snap.validate_repository_records()?;
     crate::sqlite_sidecar::hydrate_snapshot_from_sqlite(db_path, &mut snap)?;
     Ok((Some(snap), stamp))
@@ -227,6 +246,12 @@ impl AuthStore {
         match read_snapshot_with_stamp(db_path)? {
             (Some(snap), read_stamp) => {
                 let mut guard = self.state.write();
+                if snap.security_version < guard.security_version {
+                    return Err(AuthError::StorageError(
+                        "auth security version regressed".into(),
+                    ));
+                }
+                crate::security_migration::validate_snapshot_key(&snap, &self.secret_key)?;
                 apply_disk_snapshot_preserving_rate_limits(&mut guard, snap);
                 *self.last_disk_stamp.lock() = read_stamp;
                 Ok(Some(guard))
@@ -329,10 +354,26 @@ impl AuthStore {
                     prev.failed_logins = std::mem::take(&mut pending_write.guard.failed_logins);
                     prev.revision = pending_write.guard.revision.max(prev.revision);
                     *pending_write.guard = prev;
-                    crate::sqlite_sidecar::reconcile_sqlite_after_rollback(
+                    if err.snapshot_replaced {
+                        // Rename published a coherent JSON/SQLite pair, but durability remains
+                        // unconfirmed. Preserve that evidence for CAS retries; never rewrite it.
+                        *self.last_disk_stamp.lock() = Some(DiskStamp::invalidated());
+                        return Err(err);
+                    }
+                    if let Err(repair) = crate::sqlite_sidecar::reconcile_sqlite_after_rollback(
                         target_path,
                         &mut pending_write.guard,
-                    );
+                    ) {
+                        *self.last_disk_stamp.lock() = Some(DiskStamp::invalidated());
+                        return Err(PersistenceFailure {
+                            error: AuthError::StorageError(format!(
+                                "{}; SQLite rollback failed: {repair}",
+                                err.error
+                            )),
+                            publication_attempted: err.publication_attempted,
+                            snapshot_replaced: false,
+                        });
+                    }
                 }
                 Err(err)
             }
@@ -347,7 +388,12 @@ fn write_snapshot_atomically(
 ) -> Result<Option<DiskStamp>, PersistenceFailure> {
     ensure_private_parent_dir(target_path)?;
     let tmp_path = target_path.with_extension(format!("tmp.{}", Uuid::new_v4()));
-    let payload = serde_json::to_vec(snap)
+    let mut snap = snap.clone();
+    snap.sqlite_checkpoint = Some(crate::sqlite_sidecar::checkpoint(
+        &state.pull_requests,
+        &state.audit_log,
+    )?);
+    let payload = serde_json::to_vec(&snap)
         .map_err(|e| AuthError::StorageError(format!("failed to serialize auth db: {e}")))?;
     if payload.len() as u64 > MAX_AUTH_DB_BYTES {
         return Err(AuthError::StorageError(format!(
@@ -356,6 +402,7 @@ fn write_snapshot_atomically(
         .into());
     }
     let mut publication_attempted = false;
+    let mut snapshot_replaced = false;
     let written = (|| {
         let mut opts = fs::OpenOptions::new();
         opts.write(true).create_new(true);
@@ -384,6 +431,7 @@ fn write_snapshot_atomically(
         fs::rename(&tmp_path, target_path).map_err(|e| {
             AuthError::StorageError(format!("failed to atomically replace auth db: {e}"))
         })?;
+        snapshot_replaced = true;
         sync_parent_directory(target_path)?;
         let meta = file.metadata().map_err(|e| {
             AuthError::StorageError(format!("failed to stat persisted auth db: {e}"))
@@ -397,6 +445,7 @@ fn write_snapshot_atomically(
     written.map_err(|error| PersistenceFailure {
         error,
         publication_attempted,
+        snapshot_replaced,
     })
 }
 
@@ -425,4 +474,19 @@ fn sync_parent_directory(target: &Path) -> Result<(), AuthError> {
         .map_err(|_| {
             AuthError::StorageError("auth database directory synchronization failed".into())
         })
+}
+
+#[test]
+fn invalidated_stamp_preserves_missing_storage_failure() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("auth.json");
+    let store = AuthStore::open_persistent(&path).expect("open");
+    let state = store.write_state().expect("lock");
+    store
+        .persist_snapshot(store.maybe_snapshot(state))
+        .expect("persist");
+    *store.last_disk_stamp.lock() = Some(DiskStamp::invalidated());
+    fs::remove_file(&path).expect("missing storage fixture");
+    assert!(store.read_state().is_err());
+    assert!(store.write_state().is_err());
 }

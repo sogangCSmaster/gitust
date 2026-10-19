@@ -49,7 +49,7 @@ const isMatchKind = (v: unknown): v is SearchMatchKind =>
   v === "all" || v === "code" || v === "symbol";
 const isSymbolKind = (v: unknown): v is SymbolKind =>
   isStr(v) && VALID_SYMBOL_KINDS.has(v as SymbolKind);
-const HEX_SHA_RE = /^[0-9a-f]{40,64}$/i;
+const HEX_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
 const parseSearchHit = (raw: unknown): LiveRepositorySearchHit => {
   if (!isObj(raw)) {
@@ -173,5 +173,16 @@ export async function fetchRepositorySearch(
     );
   }
 
-  return parseSearchReport(await res.json());
+  const report = parseSearchReport(await res.json());
+  const requestedRevision = options?.rev?.trim();
+  if (
+    requestedRevision &&
+    HEX_SHA_RE.test(requestedRevision) &&
+    report.commitSha.toLowerCase() !== requestedRevision.toLowerCase()
+  ) {
+    throw new Error(
+      "Search returned a different repository snapshot; refresh files",
+    );
+  }
+  return report;
 }

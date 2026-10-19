@@ -420,6 +420,7 @@ describe("Slice 4: Full Pull-Request Collaboration & Branch Protection", () => {
     });
 
     // Submit an approving review bound to expected_head_sha
+    await waitFor(() => expect((screen.getByRole("button", { name: /^Approve$/i }) as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.input(screen.getByLabelText("Review summary"), {
       target: { value: "LGTM, CAS semantics verified." },
     });
@@ -489,6 +490,7 @@ describe("Slice 4: Full Pull-Request Collaboration & Branch Protection", () => {
     await fireEvent.input(screen.getByLabelText("Head branch"), {
       target: { value: "feat/branch-protection" },
     });
+    await waitFor(() => expect((screen.getByRole("button", { name: /Create pull request/i }) as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(
       screen.getByRole("button", { name: /Create pull request/i }),
     );
@@ -520,6 +522,7 @@ describe("Slice 4: Full Pull-Request Collaboration & Branch Protection", () => {
     await fireEvent.input(screen.getByLabelText("Required approvals"), {
       target: { value: "2" },
     });
+    await waitFor(() => expect((screen.getByRole("button", { name: /Save branch protection/i }) as HTMLButtonElement).disabled).toBe(false));
     await fireEvent.click(
       screen.getByRole("button", { name: /Save branch protection/i }),
     );

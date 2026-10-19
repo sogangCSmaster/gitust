@@ -207,6 +207,8 @@ fn membership_storage_failure_does_not_relax_cas_or_claim_unconfirmed_success() 
     let db = store.persistence_path().unwrap();
     let long = temp.path().join(format!("{}.json", "x".repeat(225)));
     std::fs::copy(db, &long).unwrap();
+    // A persistent store includes its SQLite checkpoint, even when the JSON window is small.
+    std::fs::copy(crate::sqlite_wal_path(db), crate::sqlite_wal_path(&long)).unwrap();
     let writer = AuthStore::open_persistent(&long).unwrap();
     let before = std::fs::read(&long).unwrap();
     assert!(matches!(

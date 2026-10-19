@@ -60,6 +60,11 @@ async fn credential_mutations_recheck_original_credentials_under_the_auth_write_
             // No token/hash is fabricated or printed, and the original fixture is self-owned.
             let copy = temp.path().join("revoked-auth.json");
             std::fs::copy(&db, &copy).unwrap();
+            std::fs::copy(
+                gitust_db::sqlite_wal_path(&db),
+                gitust_db::sqlite_wal_path(&copy),
+            )
+            .unwrap();
             let revoked = AuthStore::open_persistent(&copy).unwrap();
             if use_pat {
                 revoked
@@ -69,6 +74,11 @@ async fn credential_mutations_recheck_original_credentials_under_the_auth_write_
                 revoked.revoke_session(&admin, &session).unwrap();
             }
             let bytes = std::fs::read(&copy).unwrap();
+            // This replacement changes credentials only; its referenced history stays identical.
+            let original: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&db).unwrap()).unwrap();
+            let replacement: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(original["sqlite_checkpoint"] == replacement["sqlite_checkpoint"]);
             let expected_bytes = bytes.clone();
             let completed = Arc::new(AtomicBool::new(false));
             let held = Arc::new(AtomicBool::new(false));

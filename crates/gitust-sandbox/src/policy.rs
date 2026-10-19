@@ -35,6 +35,7 @@ pub(crate) fn prepare_run(
     command_str: &str,
     allow_network: bool,
 ) -> Result<PreparedRun, SandboxError> {
+    crate::isolation_tier::validate_isolation_tier(spec.isolation_tier)?;
     let (backend, program) = SandboxBackend::detect()?;
 
     let workdir = fs::canonicalize(&spec.workdir).map_err(|e| prepare_err(&spec.workdir, &e))?;
@@ -51,11 +52,7 @@ pub(crate) fn prepare_run(
     let mut toolchain_env = prepare_toolchain_env(&run_dir)?;
 
     let mut rules = host_rules();
-    crate::isolation_tier::apply_isolation_tier_policy(
-        spec.isolation_tier,
-        &mut rules,
-        &mut toolchain_env,
-    );
+    toolchain_env.push(("GITUST_ISOLATION_TIER", OsString::from("host_os")));
     rules.extend(spec.rules.iter().cloned());
     rules.push(PathRule::new(&scratch_base, PathAccess::Hidden));
     rules.push(PathRule::new(&run_dir, PathAccess::ReadWrite));

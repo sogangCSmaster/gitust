@@ -55,6 +55,29 @@ fn workflow_store_sqlite_wal_retains_over_30_runs_and_artifacts() {
         };
         save_workflow_run(common_git_dir, repo_id, &record)
             .expect("save workflow run into SQLite WAL");
+        if idx == 5 {
+            let root = workflows_storage_root(common_git_dir).expect("root");
+            let json_path = root.join("runs.json");
+            let mut legacy: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&json_path).expect("read legacy"))
+                    .expect("JSON");
+            legacy
+                .as_object_mut()
+                .expect("object")
+                .remove("sqlite_required");
+            std::fs::write(json_path, serde_json::to_vec(&legacy).expect("encode"))
+                .expect("legacy fixture");
+            let sqlite_path = root.join(WORKFLOWS_SQLITE_FILE_NAME);
+            std::fs::remove_file(&sqlite_path).expect("remove fixture DB");
+            // An interrupted first migration has created a SQLite file but committed no rows.
+            drop(SqliteWalDb::open(&sqlite_path).expect("interrupted migration fixture"));
+            assert_eq!(
+                load_workflow_runs(common_git_dir, repo_id)
+                    .expect("resume migration")
+                    .len(),
+                5
+            );
+        }
     }
 
     let wal_path = workflows_storage_root(common_git_dir)
@@ -72,6 +95,21 @@ fn workflow_store_sqlite_wal_retains_over_30_runs_and_artifacts() {
         load_workflow_run_artifacts(common_git_dir, &run_ids[0]).expect("load run #1 artifacts");
     assert_eq!(oldest_artifacts.len(), 1);
     assert_eq!(oldest_artifacts[0].name, "artifact-1");
+    wal_db
+        .execute_batch(
+            "DELETE FROM workflow_runs WHERE seq = (SELECT MIN(seq) FROM workflow_runs);",
+        )
+        .expect("missing workflow row fixture");
+    assert!(
+        load_workflow_runs(common_git_dir, repo_id).is_err(),
+        "checkpoint must reject lost workflow rows"
+    );
+    drop(wal_db);
+    std::fs::remove_file(&wal_path).expect("remove migrated DB fixture");
+    assert!(
+        load_workflow_runs(common_git_dir, repo_id).is_err(),
+        "a truncated JSON mirror cannot replace migrated SQLite history"
+    );
 }
 
 #[test]
@@ -115,6 +153,20 @@ fn local_checks_sqlite_wal_retains_all_runs_beyond_5_record_window() {
         )
         .expect("valid record");
         store.append(record).expect("append record");
+        if idx == 5 {
+            let root = temp.path().join("gitust-local-check-runs");
+            let json_path = root.join("history.json");
+            let mut legacy: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&json_path).expect("read legacy"))
+                    .expect("JSON");
+            legacy
+                .as_object_mut()
+                .expect("object")
+                .remove("sqlite_required");
+            std::fs::write(json_path, serde_json::to_vec(&legacy).expect("encode"))
+                .expect("legacy fixture");
+            std::fs::remove_file(root.join("history.sqlite3")).expect("pre-SQLite upgrade fixture");
+        }
     }
 
     let wal_path = temp.path().join("gitust-local-check-runs/history.sqlite3");
@@ -130,5 +182,16 @@ fn local_checks_sqlite_wal_retains_all_runs_beyond_5_record_window() {
     assert!(
         all_wal.iter().any(|r| r.result.run_id == run_ids[0]),
         "earliest run #1 must be retained in SQLite WAL for PR branch protection"
+    );
+    wal_db.execute_batch("DELETE FROM local_checks_history WHERE seq = (SELECT MIN(seq) FROM local_checks_history);").expect("missing Check row fixture");
+    assert!(
+        store.list_all_wal().is_err(),
+        "checkpoint must reject lost Check rows"
+    );
+    drop(wal_db);
+    std::fs::remove_file(wal_path).expect("remove migrated history fixture");
+    assert!(
+        store.list_all_wal().is_err(),
+        "missing migrated Check history fails closed"
     );
 }

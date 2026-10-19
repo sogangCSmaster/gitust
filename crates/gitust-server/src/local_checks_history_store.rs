@@ -5,7 +5,7 @@ use gitust_core::{RepoId, SandboxRunId};
 use gitust_db::{SqlValue, SqliteWalDb};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ffi::CString,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -18,7 +18,9 @@ use std::{
 const TARGET: &str = "history.json";
 const STAGING: &str = "history.pending";
 pub const SQLITE_TARGET: &str = "history.sqlite3";
+const LOCAL_CHECKS_CONTENT: &str = "SELECT seq, run_id, repo_id, commit_sha, passed, payload_json FROM local_checks_history ORDER BY seq;";
 const LOCAL_CHECKS_SCHEMA_SQL: &str = "
+CREATE TABLE IF NOT EXISTS gitust_history_checkpoints (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS local_checks_history (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL UNIQUE,
@@ -33,6 +35,8 @@ static HISTORY_IO_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 #[serde(deny_unknown_fields)]
 struct History {
     version: u32,
+    #[serde(default)]
+    sqlite_required: bool,
     repo_id: RepoId,
     records: Vec<LocalChecksRecord>,
 }
@@ -92,6 +96,14 @@ impl LocalChecksHistoryStore {
         let db = SqliteWalDb::open(&sqlite_path).map_err(|_| HistoryError::InvalidStorage)?;
         db.execute_batch(LOCAL_CHECKS_SCHEMA_SQL)
             .map_err(|_| HistoryError::InvalidStorage)?;
+        let complete = db
+            .with_transaction(|conn| {
+                conn.verify_history_checkpoint("local_checks", LOCAL_CHECKS_CONTENT)
+            })
+            .map_err(|_| HistoryError::InvalidStorage)?;
+        if !complete {
+            self.append_sqlite_wal(&directory, &out)?;
+        }
         let rows = db
             .query_rows(
                 "SELECT repo_id, payload_json FROM local_checks_history ORDER BY seq DESC;",
@@ -141,6 +153,27 @@ impl LocalChecksHistoryStore {
         }
         let history: History =
             serde_json::from_slice(&bytes).map_err(|_| HistoryError::InvalidStorage)?;
+        if history.sqlite_required {
+            let sqlite_path = self
+                .verified_history_dir_path(&directory)?
+                .join(SQLITE_TARGET);
+            let meta =
+                fs::symlink_metadata(&sqlite_path).map_err(|_| HistoryError::InvalidStorage)?;
+            if !meta.is_file() || meta.file_type().is_symlink() {
+                return Err(HistoryError::InvalidStorage);
+            }
+            let db = SqliteWalDb::open(&sqlite_path).map_err(|_| HistoryError::InvalidStorage)?;
+            db.execute_batch(LOCAL_CHECKS_SCHEMA_SQL)
+                .map_err(|_| HistoryError::InvalidStorage)?;
+            if !db
+                .with_transaction(|conn| {
+                    conn.verify_history_checkpoint("local_checks", LOCAL_CHECKS_CONTENT)
+                })
+                .map_err(|_| HistoryError::InvalidStorage)?
+            {
+                return Err(HistoryError::InvalidStorage);
+            }
+        }
         let mut ids = HashSet::new();
         if history.version != 1
             || history.repo_id != self.repo_id
@@ -179,15 +212,18 @@ impl LocalChecksHistoryStore {
                 return Err(HistoryError::ConflictingRun);
             }
             let directory = self.directory(false)?.ok_or(HistoryError::InvalidStorage)?;
-            self.append_sqlite_wal(&directory, existing)?;
+            self.append_sqlite_wal(&directory, std::slice::from_ref(existing))?;
             sync(&directory)?;
             return sync(&self.common);
         }
-        let record_for_wal = record.clone();
+        let mut records_for_wal = records.clone();
+        records_for_wal.reverse();
+        records_for_wal.push(record.clone());
         records.insert(0, record);
         records.truncate(MAX_RECORDS);
         let payload = encode(&History {
             version: 1,
+            sqlite_required: true,
             repo_id: self.repo_id,
             records,
         })?;
@@ -212,6 +248,8 @@ impl LocalChecksHistoryStore {
             .map_err(|_| HistoryError::StorageUnavailable)?;
         sync(&file)?;
         regular(&file, false)?;
+        // Import the entire existing JSON window before publishing a truncated replacement.
+        self.append_sqlite_wal(&directory, &records_for_wal)?;
         let staging = name(STAGING)?;
         let target = name(TARGET)?;
         // SAFETY: both fixed leaf names live within the pinned private history directory.
@@ -226,7 +264,6 @@ impl LocalChecksHistoryStore {
         {
             return Err(HistoryError::StorageUnavailable);
         }
-        self.append_sqlite_wal(&directory, &record_for_wal)?;
         sync(&directory)?;
         sync(&self.common)
     }
@@ -249,7 +286,7 @@ impl LocalChecksHistoryStore {
     fn append_sqlite_wal(
         &self,
         directory: &File,
-        record: &LocalChecksRecord,
+        records: &[LocalChecksRecord],
     ) -> Result<(), HistoryError> {
         let sqlite_path = self
             .verified_history_dir_path(directory)?
@@ -257,22 +294,46 @@ impl LocalChecksHistoryStore {
         let db = SqliteWalDb::open(&sqlite_path).map_err(|_| HistoryError::StorageUnavailable)?;
         db.execute_batch(LOCAL_CHECKS_SCHEMA_SQL)
             .map_err(|_| HistoryError::StorageUnavailable)?;
-        let payload_json =
-            serde_json::to_string(record).map_err(|_| HistoryError::InvalidRecord)?;
-        let passed = i64::from(record.status == LocalChecksStatus::Passed);
         db.with_transaction(|conn| {
-            conn.execute(
-                "INSERT OR REPLACE INTO local_checks_history
-                 (run_id, repo_id, commit_sha, passed, payload_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5);",
-                &[
-                    SqlValue::Text(record.result.run_id.0.to_string()),
-                    SqlValue::Text(self.repo_id.0.to_string()),
-                    SqlValue::Text(record.checked_commit.0.clone()),
-                    SqlValue::Integer(passed),
-                    SqlValue::Text(payload_json),
-                ],
-            )
+            // Missing checkpoints are legacy storage; persisted JSON requires one on subsequent opens.
+            conn.verify_history_checkpoint("local_checks", LOCAL_CHECKS_CONTENT)?;
+            let params: Vec<_> = records.iter().map(|record| SqlValue::Text(record.result.run_id.0.to_string())).collect();
+            let placeholders = (1..=params.len()).map(|idx| format!("?{idx}")).collect::<Vec<_>>().join(",");
+            let rows = conn.query_rows(&format!("SELECT run_id, payload_json FROM local_checks_history WHERE run_id IN ({placeholders});"), &params)?;
+            let mut existing_records = HashMap::new();
+            for row in rows {
+                let id = row.first().and_then(SqlValue::as_str).ok_or("invalid stored Check ID")?;
+                let payload = row.get(1).and_then(SqlValue::as_str).ok_or("invalid stored Check")?;
+                let existing: LocalChecksRecord = serde_json::from_str(payload).map_err(|e| e.to_string())?;
+                existing_records.insert(id.to_owned(), existing);
+            }
+            for record in records {
+                if let Some(existing) = existing_records.get(&record.result.run_id.0.to_string()) {
+                    let mut retry = record.clone();
+                    retry.completed_at = existing.completed_at;
+                    if serde_json::to_vec(&retry).map_err(|e| e.to_string())?
+                        != serde_json::to_vec(&existing).map_err(|e| e.to_string())?
+                    {
+                        return Err("conflicting existing Check history".into());
+                    }
+                    continue;
+                }
+                let payload_json = serde_json::to_string(record).map_err(|e| e.to_string())?;
+                let passed = i64::from(record.status == LocalChecksStatus::Passed);
+                conn.execute(
+                    "INSERT INTO local_checks_history
+                     (run_id, repo_id, commit_sha, passed, payload_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5);",
+                    &[
+                        SqlValue::Text(record.result.run_id.0.to_string()),
+                        SqlValue::Text(self.repo_id.0.to_string()),
+                        SqlValue::Text(record.checked_commit.0.clone()),
+                        SqlValue::Integer(passed),
+                        SqlValue::Text(payload_json),
+                    ],
+                )?;
+            }
+            conn.save_history_checkpoint("local_checks", LOCAL_CHECKS_CONTENT)
         })
         .map_err(|_| HistoryError::StorageUnavailable)
     }

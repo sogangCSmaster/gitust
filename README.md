@@ -19,25 +19,25 @@ The goal is an open-source foundation for teams that want to operate their own a
 
 ## Current status
 
-Gitust is in early development. Workspace and mirror foundations are implemented; internal Git hosting, approval, and Checks are being developed as Phase 3. APIs and storage formats may change.
+Gitust is in early development. Workspace, hosting, approval, Checks and some Phase 4 foundations are implemented. Phase 3, Phase 4 and alpha acceptance remain open; passing development tests does not establish release readiness. APIs and storage formats may change.
 
 The current milestone is a trusted single-user self-hosted alpha: operate concurrent agent worktrees, verify and approve exact commits, publish deliberately, and recover the installation. See the [alpha acceptance conditions](docs/operations/alpha-acceptance.md) for the scope and required evidence.
 
 | Area | Available now |
 |---|---|
 | Workspaces | Managed `agent/*` branches, linked worktrees, persisted repository identity, ownership checks, and startup recovery |
-| Execution | Local commands using macOS Seatbelt or Linux Bubblewrap (`host_os` and hardened `container_vm` isolation tiers), plus multi-node runner scheduling and SHA-256 shared build caches |
-| Verification & Workflows | Clean SHA checks, required commands from `.gitust-checks.json`, opt-in automatic Checks, and GitHub Actions-compatible workflows (`.gitust-workflows.json` / `.github/workflows/*.json`) with DAG `needs`, matrices, encrypted secrets, caches, and artifacts |
+| Execution | Local commands using macOS Seatbelt or Linux Bubblewrap (`host_os`); runner registration/heartbeat metadata only. Remote execution and `container_vm` requests are rejected |
+| Verification & Workflows | Clean SHA checks, required commands from `.gitust-checks.json`, opt-in automatic Checks, and JSON workflows with DAG `needs`, matrices and encrypted secrets; local key-addressed caches and bounded text artifact previews. YAML and `uses` actions are unsupported |
 | Pull Requests & Branch Protection | PR creation, head-SHA-bound reviews (`approve`, `request_changes`, `comment`), inline diff comments, branch protection rules, and lock-time CAS merge execution |
 | Approval and publication | Human-approved fast-forward merge, exact-SHA push, persisted records, and explicit retry |
 | Git hosting | Authenticated Smart HTTP and optional SSH (`--ssh-bind`, Ed25519 and ECDSA P-256/384/521 user keys) clone, fetch, and permission-checked pushes, plus online repository lifecycle administration |
 | Mirroring & Source of Truth | Explicit inbound synchronization, per-repository `github_primary` / `gitust_primary` topology, upstream backup mirror pushes, and CAS-verified rollback preserving private `agent/*` refs |
 | Code & Symbol Search | Commit-pinned trigram code and symbol search (`GET /api/v1/repos/{id}/search`) over committed `gix` blobs with `agent/*` isolation and BOLA enforcement |
 | Agent integration | MCP over stdio or HTTP; explicit host-side worktree commits; OAuth with PKCE for HTTP MCP |
-| Accounts & Enterprise Security | CLI bootstrap, administrator-issued invitations, roles, PATs, SSH key management, revocation, OIDC/LDAP SSO providers, RFC 6238 TOTP 2FA, and a SHA-256 hash-chained tamper-evident audit log |
+| Accounts & Enterprise Security | CLI bootstrap, administrator-issued invitations, roles, PATs, SSH key management, revocation, a custom HMAC-signed SSO assertion bridge, RFC 6238 TOTP 2FA, and a SHA-256 hash-chained audit log; native OIDC/LDAP integration remains planned |
 | Web UI | Embedded SolidJS workbench (`< 50 kB` initial gzip JS closure) for repository browsing, search, PRs, workflows, access administration, and the agent verification/approval/publication flow |
 
-See the [roadmap](docs/roadmap.md) for architectural details and operational validation boundaries.
+See the [roadmap](docs/roadmap.md) for architectural details and operational validation boundaries. Existing installations must follow the [security upgrade procedure](docs/operations/security-upgrade.md), including an externally managed secret key and legacy credential rotation.
 
 Automatic Checks require `"auto_run": true` in the merge target's committed Checks configuration, trusted single-user execution, and a SiteAdmin acting on their own managed worktree (or the explicit local stdio operator). Completed automatic results appear in run history; approval still requires manual verification. Durable queued jobs can resume after current authority and Git state are rechecked; uncertain running jobs become interrupted and are never automatically replayed. Local filesystem Git commits remain outside these triggers; the primary default branch has a separate [opt-in Git HTTP/SSH flow](docs/operations/default-branch-checks.md). See [verification behavior](docs/architecture/worktree-verification.md) and [automatic-run recovery](docs/architecture/automatic-checks.md).
 

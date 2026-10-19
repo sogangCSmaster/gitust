@@ -180,7 +180,7 @@ fn sqlite_wal_retains_over_4200_audit_events_with_verified_genesis_hash_chain() 
             &mut guard,
             Some(caller.user_id),
             &caller.username,
-            "repo.DirSyncRollback",
+            "repo.DirSyncUnconfirmed",
             "target:dir-sync-rollback",
         );
         let pending = store.maybe_snapshot(guard);
@@ -190,14 +190,75 @@ fn sqlite_wal_retains_over_4200_audit_events_with_verified_genesis_hash_chain() 
         });
         assert!(
             dir_sync_res.is_err(),
-            "directory sync failure must fail closed and reconcile SQLite sidecar"
+            "directory sync failure must report an unconfirmed publication"
         );
         let reopened_after_dir_fail =
             AuthStore::open_persistent(&db_path).expect("reopen after dir sync failure");
         let (reopened_entries, reopened_report) = reopened_after_dir_fail
             .audit_log_for_admin(&caller)
             .expect("audit_log after reopen");
-        assert_eq!(reopened_entries.len(), count_before);
+        assert_eq!(reopened_entries.len(), count_before + 1);
+        assert_eq!(
+            reopened_entries
+                .last()
+                .expect("published audit entry")
+                .action,
+            "repo.DirSyncUnconfirmed"
+        );
         assert!(reopened_report.verified);
     }
+}
+
+#[test]
+fn sqlite_checkpoint_rejects_missing_truncated_and_changed_history() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("auth.json");
+    let store = AuthStore::open_persistent(&path).expect("open");
+    let mut state = store.write_state().expect("lock");
+    for idx in 0..70 {
+        append_audit_event_locked(&mut state, None, "fixture", "event", &idx.to_string());
+    }
+    store
+        .persist_snapshot(store.maybe_snapshot(state))
+        .expect("save");
+    let sidecar = sqlite_wal_path(&path);
+    let saved = temp.path().join("saved.sqlite3");
+    std::fs::rename(&sidecar, &saved).expect("hold sidecar");
+    assert!(
+        AuthStore::open_persistent(&path).is_err(),
+        "missing history must fail closed"
+    );
+    std::fs::rename(saved, &sidecar).expect("restore");
+    assert!(AuthStore::open_persistent(&path).is_ok());
+    let db = SqliteWalDb::open(&sidecar).expect("sqlite");
+    db.execute_batch("DELETE FROM audit_log WHERE seq = 1;")
+        .expect("truncate fixture");
+    assert!(
+        AuthStore::open_persistent(&path).is_err(),
+        "missing prefix must fail closed"
+    );
+}
+
+#[test]
+fn sqlite_checkpoint_detects_a_changed_prefix_and_legacy_complete_json_still_opens() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("auth.json");
+    let store = AuthStore::open_persistent(&path).expect("open");
+    let mut state = store.write_state().expect("lock");
+    for idx in 0..70 {
+        append_audit_event_locked(&mut state, None, "fixture", "event", &idx.to_string());
+    }
+    store
+        .persist_snapshot(store.maybe_snapshot(state))
+        .expect("save");
+    let db = SqliteWalDb::open(&sqlite_wal_path(&path)).expect("sqlite");
+    db.execute_batch("UPDATE audit_log SET payload_json = replace(payload_json, 'fixture', 'changed') WHERE seq = 1;").expect("alter fixture prefix");
+    assert!(AuthStore::open_persistent(&path).is_err());
+    let legacy_path = temp.path().join("legacy.json");
+    let snapshot = crate::models::PersistedSnapshot {
+        security_version: 1,
+        ..Default::default()
+    };
+    std::fs::write(&legacy_path, serde_json::to_vec(&snapshot).expect("encode")).expect("legacy");
+    assert!(AuthStore::open_persistent(&legacy_path).is_ok());
 }

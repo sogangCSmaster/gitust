@@ -1,12 +1,8 @@
 use std::collections::BTreeMap;
 
-use argon2::password_hash::rand_core::OsRng;
 use chrono::{DateTime, Utc};
-use gitust_core::{AuthError, AuthenticatedPrincipal, EnterpriseRole, RepoAccess, RepoId};
-use rand::RngCore;
+use gitust_core::{AuthError, AuthenticatedPrincipal, EnterpriseRole, RepoAccess};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
 
 use crate::pull_requests::authorize_repo_locked;
 use crate::AuthStore;
@@ -23,10 +19,8 @@ pub struct WorkflowSecretMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StoredWorkflowSecret {
     pub(crate) name: String,
-    pub(crate) key_hex: String,
-    pub(crate) nonce_hex: String,
-    pub(crate) ciphertext_hex: String,
-    pub(crate) tag_sha256: [u8; 32],
+    #[serde(flatten)]
+    pub(crate) secret: crate::secret_storage::StoredSecret,
     pub(crate) updated_at: DateTime<Utc>,
 }
 
@@ -56,89 +50,6 @@ fn validate_workflow_secret_value(value: &str) -> Result<(), AuthError> {
     Ok(())
 }
 
-fn keystream_xor(key: &[u8; 32], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len());
-    for (block_idx, chunk) in data.chunks(32).enumerate() {
-        let mut hasher = Sha256::new();
-        hasher.update(b"gitust-wf-secret-stream-v1:");
-        hasher.update(key);
-        hasher.update(nonce);
-        hasher.update((block_idx as u64).to_le_bytes());
-        let stream: [u8; 32] = hasher.finalize().into();
-        for (b, s) in chunk.iter().zip(stream.iter()) {
-            out.push(b ^ s);
-        }
-    }
-    out
-}
-
-fn compute_secret_tag(
-    key: &[u8; 32],
-    nonce: &[u8; 16],
-    repo_id: RepoId,
-    name: &str,
-    ciphertext: &[u8],
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"gitust-wf-secret-mac-v1:");
-    hasher.update(key);
-    hasher.update(nonce);
-    hasher.update(repo_id.0.as_bytes());
-    hasher.update((name.len() as u64).to_le_bytes());
-    hasher.update(name.as_bytes());
-    hasher.update((ciphertext.len() as u64).to_le_bytes());
-    hasher.update(ciphertext);
-    hasher.finalize().into()
-}
-
-fn encrypt_secret(
-    repo_id: RepoId,
-    name: &str,
-    plaintext: &str,
-    updated_at: DateTime<Utc>,
-) -> StoredWorkflowSecret {
-    let mut key = [0u8; 32];
-    let mut nonce = [0u8; 16];
-    OsRng.fill_bytes(&mut key);
-    OsRng.fill_bytes(&mut nonce);
-    let ciphertext = keystream_xor(&key, &nonce, plaintext.as_bytes());
-    let tag_sha256 = compute_secret_tag(&key, &nonce, repo_id, name, &ciphertext);
-    StoredWorkflowSecret {
-        name: name.to_owned(),
-        key_hex: hex::encode(key),
-        nonce_hex: hex::encode(nonce),
-        ciphertext_hex: hex::encode(ciphertext),
-        tag_sha256,
-        updated_at,
-    }
-}
-
-fn decrypt_secret(repo_id: RepoId, stored: &StoredWorkflowSecret) -> Result<String, AuthError> {
-    let key_bytes = hex::decode(&stored.key_hex)
-        .map_err(|_| AuthError::StorageError("corrupted workflow secret key".into()))?;
-    let key: [u8; 32] = key_bytes
-        .try_into()
-        .map_err(|_| AuthError::StorageError("corrupted workflow secret key length".into()))?;
-    let nonce_bytes = hex::decode(&stored.nonce_hex)
-        .map_err(|_| AuthError::StorageError("corrupted workflow secret nonce".into()))?;
-    let nonce: [u8; 16] = nonce_bytes
-        .try_into()
-        .map_err(|_| AuthError::StorageError("corrupted workflow secret nonce length".into()))?;
-    let ciphertext = hex::decode(&stored.ciphertext_hex)
-        .map_err(|_| AuthError::StorageError("corrupted workflow secret ciphertext".into()))?;
-    let expected_tag = compute_secret_tag(&key, &nonce, repo_id, &stored.name, &ciphertext);
-    if !bool::from(expected_tag.ct_eq(&stored.tag_sha256)) {
-        return Err(AuthError::StorageError(
-            "workflow secret integrity verification failed".into(),
-        ));
-    }
-    let plain_bytes = keystream_xor(&key, &nonce, &ciphertext);
-    let plain = String::from_utf8(plain_bytes)
-        .map_err(|_| AuthError::StorageError("corrupted workflow secret UTF-8 payload".into()))?;
-    validate_workflow_secret_value(&plain)?;
-    Ok(plain)
-}
-
 impl AuthStore {
     pub fn set_workflow_secret(
         &self,
@@ -150,7 +61,14 @@ impl AuthStore {
         let clean_name = validate_workflow_secret_name(name)?;
         validate_workflow_secret_value(value)?;
         let now = Utc::now();
-        let encrypted = encrypt_secret(expected.repo_id, &clean_name, value, now);
+        let encrypted = StoredWorkflowSecret {
+            name: clean_name.clone(),
+            secret: self.secret_key.seal(
+                &format!("workflow:{}:{clean_name}", expected.repo_id.0),
+                value.as_bytes(),
+            )?,
+            updated_at: now,
+        };
 
         let (meta, snapshot) = {
             let mut guard = self.write_state()?;
@@ -248,7 +166,14 @@ impl AuthStore {
         let mut resolved = BTreeMap::new();
         if let Some(list) = guard.workflow_secrets.get(&expected.repo_id) {
             for item in list {
-                let plain = decrypt_secret(expected.repo_id, item)?;
+                let bytes = self.secret_key.open(
+                    &format!("workflow:{}:{}", expected.repo_id.0, item.name),
+                    &item.secret,
+                )?;
+                let plain = String::from_utf8(bytes).map_err(|_| {
+                    AuthError::StorageError("invalid workflow secret encoding".into())
+                })?;
+                validate_workflow_secret_value(&plain)?;
                 resolved.insert(item.name.clone(), plain);
             }
         }

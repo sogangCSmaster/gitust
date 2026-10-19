@@ -40,6 +40,7 @@ export const createWorkbenchRepositoryState = (liveMode: () => boolean) => {
   const [lookupMicros, setLookupMicros] = createSignal<number | null>(null);
   const [liveDiffFiles, setLiveDiffFiles] = createSignal<string[]>([]);
   const [diffTruncated, setDiffTruncated] = createSignal(false);
+  const [treeRevision, setTreeRevision] = createSignal<string | null>(null);
   const [treeTruncated, setTreeTruncated] = createSignal(false);
   const [selectedFilePath, setSelectedFilePath] = createSignal(
     liveMode() ? "Repository preview" : "crates/gitust-git/src/browse.rs",
@@ -64,6 +65,8 @@ export const createWorkbenchRepositoryState = (liveMode: () => boolean) => {
     setLiveDiffFiles,
     setDiffTruncated,
     setTreeTruncated,
+    treeRevision,
+    setTreeRevision,
     setWorktreeReview,
     liveCommits,
     worktreeReview,

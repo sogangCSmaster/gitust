@@ -1,7 +1,7 @@
 # Web bundle measurements
 
 The initial JavaScript target is **less than 50,000 gzip bytes**. It is **met**
-(`49,382` gzip9 bytes / `49,409` gzip6 bytes).
+(`49,656` gzip9 bytes / `49,684` gzip6 bytes in the 2026-10-19 candidate).
 Measure every HTML module script and modulepreload dependency together with its
 transitive static imports. Moving a dependency into another eagerly loaded file
 does not reduce this total.
@@ -162,3 +162,14 @@ Key boundary reductions:
 - Separated lightweight startup session hydration (`live-auth-session.ts`, `live-repo-session.ts`, `live-swarm-session.ts`, `connected-repository-session.ts`, `repository-workspace-core.ts`) from tab-only and overview-only mutation controllers (`live-auth-client.ts`, `live-repo-client.ts`, `live-swarm-client.ts`, `connected-repository-client.ts`, `repository-workspace.ts`, `live-branch-parser.ts`).
 - Deferred non-landing tab views (`WorkbenchTabViews`), modal overlay containers (`WorkbenchOverlays`), and procedural demo fixtures (`mock-generators.ts`) until a non-landing tab or modal is opened.
 
+
+## Failure-handling and security candidate, 2026-10-19
+
+Measured on the uncommitted candidate based on `0483773`, using the maintained
+`pnpm --filter @gitust/design-system exec node scripts/measure-bundle.mjs --enforce`
+command and the same Node.js 24.18.1 / Vite 6.4.4 / zlib 1.3.1-e00f703 environment
+on Darwin 25.5.0 arm64, Apple M4 Pro. The initial closure is one file,
+`assets/index.js`, with 147,396 raw bytes, 49,656 gzip9 bytes and 49,684 gzip6 bytes.
+Its SHA-256 is `4abe34728f19cf8fbcdcb998d72e4d68207782297aef23423d2af84adbf02614`.
+The first Repository Overview closure is 65,430 gzip9 bytes / 65,469 gzip6 bytes.
+The initial budget remains met; this measurement makes no latency claim.

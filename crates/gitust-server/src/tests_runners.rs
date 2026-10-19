@@ -1,5 +1,4 @@
-//! Integration tests for Slice 8 (Phase 4.3): Stronger Execution Isolation Tier (`container_vm`),
-//! Multi-Node Runner Fleet Registration/Heartbeat/Scheduling, and Shared Build Caches.
+//! Runner inventory, unsupported execution rejection, and local workflow cache tests.
 
 use super::tests_pull_requests::{api_json, git, invite_and_login_role};
 use super::tests_repository_visibility::fixture;
@@ -40,7 +39,7 @@ async fn trigger_run(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn multi_node_runner_registration_heartbeat_draining_and_label_tier_scheduling() {
+async fn registered_remote_runners_never_execute_on_the_server() {
     let (_temp, mut state, admin_token, _) = fixture();
     state = state.with_trusted_sandbox_exec(true);
     let primary_id_str = state.repo_id.0.to_string();
@@ -131,8 +130,8 @@ async fn multi_node_runner_registration_heartbeat_draining_and_label_tier_schedu
     .await;
     assert_eq!(
         status,
-        StatusCode::CONFLICT,
-        "must fail closed when no runner matches label/tier: {no_runner_res}"
+        StatusCode::NOT_IMPLEMENTED,
+        "unsupported VM backend must fail closed: {no_runner_res}"
     );
 
     // 4. Register `vm-runner-01` supporting `linux-x64` and `container_vm`
@@ -154,8 +153,8 @@ async fn multi_node_runner_registration_heartbeat_draining_and_label_tier_schedu
     assert_eq!(reg_res["name"], "vm-runner-01");
     assert_eq!(reg_res["status"], "online");
 
-    // 5. Triggering the workflow now schedules onto `vm-runner-01` with `container_vm`
-    let (status, run_res) = trigger_run(
+    // Registering inventory cannot enable an unimplemented execution backend.
+    let (status, _) = trigger_run(
         &app,
         &primary_id_str,
         &admin_token,
@@ -163,17 +162,28 @@ async fn multi_node_runner_registration_heartbeat_draining_and_label_tier_schedu
         Some("Isolated VM Pipeline"),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "run on vm-runner-01: {run_res}");
-    assert_eq!(run_res["status"], "passed");
-    assert_eq!(run_res["jobs"][0]["runner_id"], "vm-runner-01");
-    assert_eq!(run_res["jobs"][0]["isolation_tier"], "container_vm");
-    let output = run_res["jobs"][0]["redacted_output"]
-        .as_str()
-        .unwrap_or_default();
-    assert!(
-        output.contains("TIER=container_vm VM=1"),
-        "expected container_vm env markers, got: {output}"
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+
+    let remote_sha = commit_json(
+        &primary_repo,
+        ".gitust-workflows.json",
+        json!({
+            "name": "Remote host pipeline", "jobs": [{
+                "id": "remote", "runs_on": "linux-x64",
+                "steps": [{"run": "echo remote-work"}]
+            }]
+        }),
+        "Add remote host workflow",
     );
+    let (status, _) = trigger_run(
+        &app,
+        &primary_id_str,
+        &admin_token,
+        &remote_sha,
+        Some("Remote host pipeline"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
 
     // 6. Transition `vm-runner-01` to `draining` via heartbeat; subsequent scheduling fails closed
     let (status, hb_res) = api_json(
@@ -191,8 +201,8 @@ async fn multi_node_runner_registration_heartbeat_draining_and_label_tier_schedu
         &app,
         &primary_id_str,
         &admin_token,
-        &vm_wf_sha,
-        Some("Isolated VM Pipeline"),
+        &remote_sha,
+        Some("Remote host pipeline"),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
@@ -210,55 +220,38 @@ async fn multi_node_runner_registration_heartbeat_draining_and_label_tier_schedu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn shared_build_caches_persist_across_runner_nodes_and_support_listing_and_eviction() {
+async fn local_job_caches_support_reuse_listing_and_eviction() {
     let (_temp, mut state, admin_token, _) = fixture();
     state = state.with_trusted_sandbox_exec(true);
     let primary_id_str = state.repo_id.0.to_string();
     let primary_repo = state.git_engine.repo_path().to_path_buf();
     let app = build_router(state.clone());
 
-    for (name, label) in [("runner-node-a", "node-a"), ("runner-node-b", "node-b")] {
-        let (status, _) = api_json(
-            &app,
-            "POST",
-            "/api/v1/admin/runners".to_owned(),
-            &admin_token,
-            Some(json!({
-                "name": name,
-                "labels": [label],
-                "supported_tiers": ["host_os", "container_vm"],
-                "max_concurrency": 2
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::CREATED);
-    }
-
     let shared_cache_sha = commit_json(
         &primary_repo,
         ".github/workflows/shared-cache.json",
         json!({
-            "name": "Cross-Runner Shared Cache",
+            "name": "Local Job Cache",
             "on": ["push"],
             "jobs": [
                 {
                     "id": "warm_cache",
-                    "name": "Warm Cache on Node A",
+                    "name": "Warm Cache",
                     "needs": [],
-                    "runs_on": "node-a",
-                    "isolation_tier": "container_vm",
+                    "runs_on": "local",
+                    "isolation_tier": "host_os",
                     "cache": { "key": "shared-target-v1", "paths": [".shared-cache"] },
                     "steps": [{
                         "name": "Populate shared cache",
-                        "run": "mkdir -p .shared-cache && echo \"compiled-on-node-a\" > .shared-cache/artifact.bin"
+                        "run": "mkdir -p .shared-cache && echo \"compiled-locally\" > .shared-cache/artifact.bin"
                     }]
                 },
                 {
                     "id": "consume_cache",
-                    "name": "Consume Cache on Node B",
+                    "name": "Consume Cache",
                     "needs": ["warm_cache"],
-                    "runs_on": "node-b",
-                    "isolation_tier": "container_vm",
+                    "runs_on": "local",
+                    "isolation_tier": "host_os",
                     "cache": { "key": "shared-target-v1", "paths": [".shared-cache"] },
                     "steps": [{
                         "name": "Read shared cache",
@@ -267,7 +260,7 @@ async fn shared_build_caches_persist_across_runner_nodes_and_support_listing_and
                 }
             ]
         }),
-        "Add cross-runner shared cache workflow",
+        "Add local-cache shared cache workflow",
     );
 
     let (status, run_res) = trigger_run(
@@ -275,19 +268,19 @@ async fn shared_build_caches_persist_across_runner_nodes_and_support_listing_and
         &primary_id_str,
         &admin_token,
         &shared_cache_sha,
-        Some("Cross-Runner Shared Cache"),
+        Some("Local Job Cache"),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "cross-runner run: {run_res}");
+    assert_eq!(status, StatusCode::OK, "local-cache run: {run_res}");
     assert_eq!(run_res["status"], "passed");
-    assert_eq!(run_res["jobs"][0]["runner_id"], "runner-node-a");
+    assert_eq!(run_res["jobs"][0]["runner_id"], "built-in-local");
     assert_eq!(run_res["jobs"][0]["cache_hit"], false);
-    assert_eq!(run_res["jobs"][1]["runner_id"], "runner-node-b");
+    assert_eq!(run_res["jobs"][1]["runner_id"], "built-in-local");
     assert_eq!(run_res["jobs"][1]["cache_hit"], true);
     assert!(run_res["jobs"][1]["redacted_output"]
         .as_str()
         .unwrap_or_default()
-        .contains("compiled-on-node-a"));
+        .contains("compiled-locally"));
 
     // List shared caches via GET /api/v1/repos/{id}/caches
     let (status, caches_res) = api_json(

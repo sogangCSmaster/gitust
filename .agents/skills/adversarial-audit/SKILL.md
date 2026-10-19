@@ -271,3 +271,18 @@ Whenever a new class of P0 or P1 bug is uncovered during development, testing, o
 - Preserve the fence on uncertain outcomes, and remove it only after confirmed command/group cleanup. Explicit operator recovery must hold exclusive service ownership and validate all bounded private metadata before deleting anything. Recovery cannot restore verification or approval authority.
 - Keep the worktree guard inside blocking fence creation and retain a holder whose fence field drops before its operation/checkout guard; destructured locals drop in reverse declaration order. Sweep prepared commit completion, discard history cleanup, CLI cleanup, sync, backup and relocated restore for bypasses.
 - Run scripts/execution-crash-rehearsal.py against the actual binary: SIGKILL during an automatic Check must reject replacement startup, then authenticated fixture process cleanup and explicit recovery must permit execution without restoring verification. Record each platform's observed behavior separately.
+
+
+### Check 29: External Secret Keys and Legacy Account Upgrades
+- Store secrets with a standard authenticated-encryption implementation and externally supplied key; never serialize the decryption key with ciphertext. Bind envelopes to purpose and resource identity, redact key Debug output, and reject missing/wrong keys.
+- Validate key compatibility before installing a refreshed snapshot, not only at initial open: concurrent handles must not publish mixed-key records. Current-format snapshots must reject legacy envelopes instead of silently converting a discarded copy.
+- SSO provisioning must disable password authentication until explicit password setup. Upgrade affected legacy accounts and revoke prior sessions/PATs/SSH credentials; preserve unrelated users and secrets. Re-encryption does not remediate previously exposed backup copies.
+
+### Check 30: Transactional Storage Migration and Complete History
+- JSON windows cannot substitute for an authoritative SQLite history. Persist count/content checkpoints, reject missing/truncated/mismatched history, and make migration completion atomic with row import. File existence alone is not a completed migration.
+- Import all retained legacy records before truncating a compatibility mirror. Rollback must reconcile both stores or retain an explicitly invalidated observed-file stamp; never reset a previously observed store to the never-seen None state.
+- Settings writers must validate the entire request before mutations, preserve original-credential gates at durable publication, fsync files/directories, and explicitly report uncertain/partial publication while keeping memory consistent. Dynamic repository registration must retain service ownership for its entire lifetime.
+
+### Check 31: Capability and UI Evidence Must Match Execution
+- A selected remote runner must not silently execute locally. Unsupported VM isolation must fail before spawning; inventory metadata and stronger host rules are not remote transport or a VM backend. Document JSON workflow subsets, assertion bridges and cache/artifact limits accurately.
+- Never fabricate successful PR protection/merge previews. Hold mutation state through authoritative detail refresh, prevent duplicate submissions, and display refresh failure without inventing approval evidence. Search and selected blobs must share the actual tree commit SHA.

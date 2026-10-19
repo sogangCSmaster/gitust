@@ -130,6 +130,7 @@ export interface WorkbenchTabViewsProps {
   liveDiffFiles: string[];
   diffTruncated: boolean;
   treeTruncated: boolean;
+  treeRevision?: string | null;
   onSelectCommitDiffFile?: (path: string) => void;
   actionJobs: ActionJobStep[];
   activeJobId: string;
@@ -313,7 +314,8 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
       </Show>
       <Show
         when={
-          props.activeTab === "diff" && (!props.liveMode || props.repository?.id)
+          props.activeTab === "diff" &&
+          (!props.liveMode || props.repository?.id)
         }
       >
         <PageHeading
@@ -383,7 +385,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
           (props.canWorkbench !== false ||
             Boolean(
               props.repository?.canViewLocalChecksAutomatic ||
-                props.repository?.canRunLocalChecks,
+              props.repository?.canRunLocalChecks,
             ))
         }
       >
@@ -470,7 +472,8 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
       </Show>
       <Show
         when={
-          props.activeTab === "tree" && (!props.liveMode || props.repository?.id)
+          props.activeTab === "tree" &&
+          (!props.liveMode || props.repository?.id)
         }
       >
         <PageHeading
@@ -519,10 +522,7 @@ export const WorkbenchTabViews: Component<WorkbenchTabViewsProps> = (props) => {
               lines={props.blobLines}
               liveMode={props.liveMode}
               repositoryId={props.repository?.id}
-              revision={
-                props.branches?.state().selected?.name ??
-                props.repository?.branch
-              }
+              revision={props.treeRevision ?? undefined}
               onSelect={(node) =>
                 props.onSelectFileFromTree
                   ? props.onSelectFileFromTree(node)

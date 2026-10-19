@@ -1097,6 +1097,7 @@ dependencies = [
 name = "gitust-db"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "argon2 0.5.3",
  "chrono",
  "gitust-core",
@@ -1110,6 +1111,7 @@ dependencies = [
  "subtle",
  "tempfile",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

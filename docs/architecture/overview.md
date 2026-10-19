@@ -1,25 +1,25 @@
 # Current architecture
 
-Gitust is a Rust Cargo workspace with a SolidJS frontend embedded in the CLI/server binary. Each server has one primary repository for workbench operations and can open additional registered repositories for read-only browsing. The auth store binds configured repository IDs to current team access.
+Gitust is a Rust Cargo workspace with a SolidJS frontend embedded in the CLI/server binary. Each server has one primary repository and a bounded catalog of registered repositories, with read-only, Git-write and explicitly enabled secondary workbench capabilities. The auth store binds configured repository IDs to current team access.
 
 ## Modules
 
 | Module | Responsibility |
 |---|---|
 | `gitust-cli` | Server, MCP, sandbox, sync, triage, and administrator commands |
-| `gitust-server` | Axum routes, HTTP Git/MCP, optional read-only SSH, authentication boundaries, task state and coordination |
+| `gitust-server` | Axum routes, HTTP Git/MCP, optional SSH Git transport, authentication boundaries, task state and coordination |
 | `gitust-core` | Shared types, identifiers, roles, and worktree states |
 | `gitust-git` | Git objects/refs, linked worktrees, mirrors, verification, approvals, and publication |
 | `gitust-sandbox` | OS sandbox policies, execution limits, output capture, and cleanup |
 | `gitust-sync` | Mirror configuration and public/private ref policy |
-| `gitust-db` | Auth and permission state with lock-protected JSON persistence |
+| `gitust-db` | Auth/permission JSON snapshots and SQLite WAL-backed high-volume records |
 | `packages/design-system` | UI primitives, workbench patterns, live clients, and separate showcase state |
 
-`gix` handles many read/ref operations. The Git CLI is used for checkout, transport, and other operations. There is no current SQL database, Actions engine, search service, or microVM runtime behind these module names.
+`gix` handles many read/ref operations. The Git CLI is used for checkout, transport, and other operations. High-volume records use SQLite WAL storage; local JSON workflows and commit-pinned code/symbol indexing are implemented. There is no microVM runtime or remote runner execution engine.
 
-Optional [SSH clone/fetch](../operations/ssh-read-only.md) uses the in-process Rust
+Optional [SSH hosting](../operations/ssh-read-only.md) uses the in-process Rust
 `russh` server and the same repository inventory/ACL, then streams fixed native
-upload-pack through an owned supervisor. It does not start an external SSH daemon
+upload-pack/receive-pack through an owned supervisor. It does not start an external SSH daemon
 or accept arbitrary commands. Its persisted host identity is hidden from task sandboxes.
 
 Expected-value changes to hosted object refs use [prepared native Git transactions](ref-transactions.md), so comparisons occur under Git's actual ref locks. Object reads remain in-process.
@@ -39,11 +39,15 @@ See [MCP commits and recovery](mcp-commits.md), [verification and Checks](worktr
 ## Persistence and recovery
 
 - Auth state uses a configured JSON file with cross-process locking, atomic replacement and file/directory synchronization. Both reading and writing enforce a 64MiB snapshot ceiling; pre-publication failures preserve the previous file and failed writes roll back memory. An error after rename can leave a newer disk snapshot, so callers must treat that outcome as uncertain. Email input is limited to 254 UTF-8 bytes.
+- High-volume PR/audit records and workflow/Checks history use SQLite WAL-backed stores. Backups must preserve the supported JSON/SQLite checkpoint together; copying only the auth JSON file is insufficient.
+- Persistent SSO/TOTP/workflow secrets require an externally managed `GITUST_SECRET_KEY`; see the [security upgrade procedure](../operations/security-upgrade.md). The key is not stored in the auth DB or installation backup.
 - Git objects, refs, and linked-worktree metadata remain in Git storage.
 - The configured repository ID is persisted in private `gitust-repository/identity.json` under the common Git directory. Restart and complete offline relocation retain it; incomplete records and unbound auth-metadata collisions fail closed. See [repository identity and recovery](repository-identity.md).
 - Each managed worktree has a bounded, immutable `gitust-origin.json` in its Git administration directory. It binds the worktree ID/branch to the creation target and SHA independently of reflog retention. Valid legacy creation entries are migrated; missing evidence leaves the target unknown, and verification/approval refuse it. Corrupt new metadata fails recovery rather than falling back to `main`. Restore trusted metadata or discard and recreate an unknown-target task; retargeting is not implemented.
 - Approval/publication records live under the common Git directory's `gitust-approvals` directory.
 - Runtime verification evidence is discarded on restart; an unmerged task needs fresh verification.
+
+Repository settings validate inputs before writing, but auth metadata, Git HEAD and runtime settings are separate durability boundaries. A later write failure reports possible partial application and requires refresh before retrying.
 
 Git mutation and approval-record persistence are not one transaction. Failures between them may require operator inspection. Host-side commits also publish the branch before installing its prepared index; an index-installation failure reports the created SHA and requires index recovery without restoring verification authority. An uncatchable kill can leave a stale worktree `index.lock` that needs the stopped-writer procedure in the commit documentation.
 
@@ -51,7 +55,7 @@ The [offline backup tool and runbook](../operations/backup-restore.md) preserve 
 
 ## Execution and trust
 
-The executor uses macOS Seatbelt or Linux Bubblewrap, with an isolated environment, bounded output, a timeout, and network denial. Server execution is opt-in for SiteAdmins on trusted single-user deployments, not a hostile multi-tenant boundary.
+The executor uses macOS Seatbelt or Linux Bubblewrap, with an isolated environment, bounded output, a timeout, and network denial. Server execution is opt-in for SiteAdmins on trusted single-user deployments, not a hostile multi-tenant boundary. `container_vm` and remote runner requests are rejected; runner registration and heartbeats do not dispatch commands to another machine.
 
 Linux seals hidden directory masks read-only after installing nested worktree/admin/scratch grants. Missing hidden names under a read-only source use filtered private parent views, preserving symlinks inside the namespace. Allowed subdirectories retain live read-only binds; new names at a filtered parent become visible on the next preparation. A missing deny inside a writable source is refused. Source inspection and mounting still require a trusted host writer.
 
@@ -63,7 +67,7 @@ MCP worktree discard never removes a merged task or its human approval evidence,
 
 ## Repository browsing
 
-The operator-configured catalog is bounded to 32 repositories. UUID-routed commit, tree, blob, diff and Smart HTTP clone/fetch select the actual opened repository and check its current binding, team access and original credential again after Git work. Additional repositories retain independent service ownership; Git push, MCP, execution, approval and synchronization still target the primary repository. Metadata-only records do not create a Git service. See [registration and read-only repositories](../operations/repository-registration.md).
+The operator-configured catalog is bounded to 32 repositories. UUID-routed commit, tree, blob, diff and Smart HTTP clone/fetch select the actual opened repository and check its current binding, team access and original credential again after Git work. Additional repositories retain independent service ownership. Explicitly writable secondaries support Git push; workbench-enabled secondaries also support managed tasks and execution. Metadata-only records do not create a Git service. See [registration and read-only repositories](../operations/repository-registration.md).
 
 Git file paths retain valid leading/trailing spaces. The workbench shows a changed-file selector and loads each diff with immutable head/base SHAs and a literal path. Binary and metadata-only changes are distinguished from an unchanged commit. Partial diff/tree results retain a visible truncation notice. Cross-tab session changes clear live identity/data/request epochs; live worktrees can never fall back to simulated demo mutations.
 

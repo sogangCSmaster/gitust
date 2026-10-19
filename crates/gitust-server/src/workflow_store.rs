@@ -20,7 +20,16 @@ const MAX_RUNS_JSON_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_ARTIFACTS_JSON_BYTES: u64 = 2 * 1024 * 1024;
 const JSON_MIRROR_WINDOW_RUNS: usize = 25;
 
+const WORKFLOWS_CONTENT: &str =
+    "SELECT seq, run_id, repo_id, payload_json FROM workflow_runs ORDER BY seq;";
+const ARTIFACTS_CONTENT: &str =
+    "SELECT run_id, payload_json FROM workflow_artifacts ORDER BY run_id;";
 const WORKFLOWS_SCHEMA_SQL: &str = "
+CREATE TABLE IF NOT EXISTS gitust_history_checkpoints (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS store_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS workflow_runs (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL UNIQUE,
@@ -36,6 +45,8 @@ CREATE TABLE IF NOT EXISTS workflow_artifacts (
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredRunsEnvelope {
     version: u32,
+    #[serde(default)]
+    sqlite_required: bool,
     repo_id: RepoId,
     runs: Vec<WorkflowRunRecord>,
 }
@@ -139,6 +150,57 @@ fn open_workflows_sqlite(root: &Path) -> Result<SqliteWalDb, ApiError> {
     Ok(db)
 }
 
+fn migrate_workflow_runs(root: &Path, db: &SqliteWalDb, repo_id: RepoId) -> Result<(), ApiError> {
+    let expected_repo = repo_id.0.to_string();
+    db.with_transaction(|conn| {
+        let rows = conn.query_rows("SELECT value FROM store_metadata WHERE key = 'json_migration_v1';", &[])?;
+        if let Some(row) = rows.first() {
+            if row.first().and_then(SqlValue::as_str) != Some(expected_repo.as_str()) {
+                return Err("workflow migration identity mismatch".into());
+            }
+            if !conn.verify_history_checkpoint("workflow_runs", WORKFLOWS_CONTENT)?
+                || !conn.verify_history_checkpoint("workflow_artifacts", ARTIFACTS_CONTENT)? {
+                return Err("workflow migration checkpoint is missing".into());
+            }
+            return Ok(());
+        }
+        let bytes = read_bounded_regular_file(&root.join(RUNS_FILE_NAME), MAX_RUNS_JSON_BYTES)
+            .map_err(|(_, message)| message)?;
+        if let Some(bytes) = bytes {
+            let env: StoredRunsEnvelope = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+            if env.version != 1 || env.repo_id != repo_id || env.sqlite_required {
+                return Err("workflow migration source is incomplete or has wrong identity".into());
+            }
+            let existing = conn.query_rows("SELECT run_id, repo_id, payload_json FROM workflow_runs;", &[])?;
+            let mut payloads = std::collections::HashMap::new();
+            for row in existing {
+                let id = row.first().and_then(SqlValue::as_str).ok_or("missing workflow run ID")?;
+                if row.get(1).and_then(SqlValue::as_str) != Some(expected_repo.as_str()) {
+                    return Err("workflow migration repository mismatch".into());
+                }
+                let payload = row.get(2).and_then(SqlValue::as_str).ok_or("missing workflow run payload")?;
+                payloads.insert(id.to_owned(), payload.to_owned());
+            }
+            for prior in env.runs.iter().rev() {
+                let payload = serde_json::to_string(prior).map_err(|e| e.to_string())?;
+                if let Some(existing) = payloads.get(&prior.run_id) {
+                    if existing != &payload {
+                        return Err("workflow JSON and SQLite migration overlap differs".into());
+                    }
+                    continue;
+                }
+                conn.execute(
+                    "INSERT OR IGNORE INTO workflow_runs (run_id, repo_id, payload_json) VALUES (?1, ?2, ?3);",
+                    &[SqlValue::Text(prior.run_id.clone()), SqlValue::Text(expected_repo.clone()), SqlValue::Text(payload)],
+                )?;
+            }
+        }
+        conn.execute("INSERT INTO store_metadata (key, value) VALUES ('json_migration_v1', ?1);", &[SqlValue::Text(expected_repo.clone())])?;
+        conn.save_history_checkpoint("workflow_runs", WORKFLOWS_CONTENT)?;
+        conn.save_history_checkpoint("workflow_artifacts", ARTIFACTS_CONTENT)
+    }).map_err(unavailable)
+}
+
 pub(crate) fn load_workflow_runs(
     common_git_dir: &Path,
     repo_id: RepoId,
@@ -151,6 +213,7 @@ pub(crate) fn load_workflow_runs(
         }
         Ok(_) => {
             let db = open_workflows_sqlite(&root)?;
+            migrate_workflow_runs(&root, &db, repo_id)?;
             let rows = db
                 .query_rows(
                     "SELECT repo_id, payload_json FROM workflow_runs ORDER BY seq DESC;",
@@ -185,8 +248,10 @@ pub(crate) fn load_workflow_runs(
         return Ok(Vec::new());
     };
     let env: StoredRunsEnvelope = serde_json::from_slice(&bytes).map_err(unavailable)?;
-    if env.version != 1 || env.repo_id != repo_id {
-        return Err(unavailable("workflow runs storage identity mismatch"));
+    if env.version != 1 || env.repo_id != repo_id || env.sqlite_required {
+        return Err(unavailable(
+            "workflow runs storage identity mismatch or missing SQLite history",
+        ));
     }
     Ok(env.runs)
 }
@@ -197,14 +262,6 @@ pub(crate) fn save_workflow_run(
     run: &WorkflowRunRecord,
 ) -> Result<(), ApiError> {
     let root = workflows_storage_root(common_git_dir)?;
-    let sqlite_existed = match fs::symlink_metadata(root.join(WORKFLOWS_SQLITE_FILE_NAME)) {
-        Ok(meta) if meta.file_type().is_symlink() => {
-            return Err(unavailable("refusing to open symlinked workflows.sqlite3"));
-        }
-        Ok(_) => true,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-        Err(e) => return Err(unavailable(e)),
-    };
     let existing_runs = load_workflow_runs(common_git_dir, repo_id)?;
 
     let artifacts: Vec<WorkflowArtifactEntry> = run
@@ -227,24 +284,13 @@ pub(crate) fn save_workflow_run(
     let run_json_str = serde_json::to_string(run).map_err(unavailable)?;
 
     let db = open_workflows_sqlite(&root)?;
+    migrate_workflow_runs(&root, &db, repo_id)?;
     let repo_id_str = repo_id.0.to_string();
     db.with_transaction(|conn| {
-        if !sqlite_existed {
-            for prior in existing_runs.iter().rev() {
-                if prior.run_id != run.run_id {
-                    let prior_json = serde_json::to_string(prior)
-                        .map_err(|e| format!("failed to serialize prior workflow run: {e}"))?;
-                    conn.execute(
-                        "INSERT OR IGNORE INTO workflow_runs (run_id, repo_id, payload_json)
-                         VALUES (?1, ?2, ?3);",
-                        &[
-                            SqlValue::Text(prior.run_id.clone()),
-                            SqlValue::Text(repo_id_str.clone()),
-                            SqlValue::Text(prior_json),
-                        ],
-                    )?;
-                }
-            }
+        if !conn.verify_history_checkpoint("workflow_runs", WORKFLOWS_CONTENT)?
+            || !conn.verify_history_checkpoint("workflow_artifacts", ARTIFACTS_CONTENT)?
+        {
+            return Err("workflow history checkpoint is missing".into());
         }
         conn.execute(
             "INSERT INTO workflow_runs (run_id, repo_id, payload_json)
@@ -263,7 +309,8 @@ pub(crate) fn save_workflow_run(
                 SqlValue::Text(art_json_str),
             ],
         )?;
-        Ok(())
+        conn.save_history_checkpoint("workflow_runs", WORKFLOWS_CONTENT)?;
+        conn.save_history_checkpoint("workflow_artifacts", ARTIFACTS_CONTENT)
     })
     .map_err(unavailable)?;
 
@@ -272,6 +319,7 @@ pub(crate) fn save_workflow_run(
     mirror_runs.truncate(JSON_MIRROR_WINDOW_RUNS);
     let runs_env = StoredRunsEnvelope {
         version: 1,
+        sqlite_required: true,
         repo_id,
         runs: mirror_runs,
     };
@@ -298,6 +346,19 @@ pub(crate) fn load_workflow_run_artifacts(
         }
         Ok(_) => {
             let db = open_workflows_sqlite(&root)?;
+            db.with_transaction(|conn| {
+                let marker = conn.query_rows(
+                    "SELECT value FROM store_metadata WHERE key = 'json_migration_v1';",
+                    &[],
+                )?;
+                if !marker.is_empty()
+                    && !conn.verify_history_checkpoint("workflow_artifacts", ARTIFACTS_CONTENT)?
+                {
+                    return Err("workflow artifact checkpoint is missing".into());
+                }
+                Ok(())
+            })
+            .map_err(unavailable)?;
             let rows = db
                 .query_rows(
                     "SELECT payload_json FROM workflow_artifacts WHERE run_id = ?1;",

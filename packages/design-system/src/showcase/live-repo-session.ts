@@ -57,6 +57,7 @@ export function createLiveRepoSession(cb: LiveRepoClientCallbacks) {
     latestBlobReqId++;
     latestHydrationReqId++;
     treeRev = null;
+    cb.setTreeRevision?.(null);
     treeRepository = null;
     cb.setLiveCommits([]);
     cb.setTreeTruncated(false);
@@ -358,6 +359,7 @@ export function createLiveRepoSession(cb: LiveRepoClientCallbacks) {
         cb.setLiveBlobLines(statusDiffLine("[Select a file to preview.]"));
       }
       treeRev = tData.commit_sha;
+      cb.setTreeRevision?.(treeRev);
       treeRepository = repositoryId;
       if (Array.isArray(cData.commits)) {
         cb.setLiveCommits(cData.commits);
@@ -380,6 +382,7 @@ export function createLiveRepoSession(cb: LiveRepoClientCallbacks) {
     } catch (err) {
       if (!current()) return;
       treeRev = null;
+      cb.setTreeRevision?.(null);
       cb.setTreeTruncated(false);
       cb.setLiveCommits([]);
       cb.setLiveFileTreeNodes([]);
@@ -419,4 +422,6 @@ export function createLiveRepoSession(cb: LiveRepoClientCallbacks) {
   };
 }
 
-export type LiveRepoSessionController = ReturnType<typeof createLiveRepoSession>;
+export type LiveRepoSessionController = ReturnType<
+  typeof createLiveRepoSession
+>;

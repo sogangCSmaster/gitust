@@ -35,6 +35,11 @@ async fn mcp_commit_cannot_read_auth_state_hidden_from_its_execution_sandbox() {
     }
     let relocated = private.join("auth-db.json");
     std::fs::copy(&outside, &relocated).unwrap();
+    std::fs::copy(
+        gitust_db::sqlite_wal_path(&outside),
+        gitust_db::sqlite_wal_path(&relocated),
+    )
+    .unwrap();
     let store = AuthStore::open_persistent(&relocated).unwrap();
     let state = AppState::with_auth_store(
         repo.clone(),

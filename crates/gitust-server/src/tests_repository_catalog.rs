@@ -8,7 +8,9 @@ pub(super) fn registered_pair() -> (tempfile::TempDir, AppState, String, PathBuf
     let secondary = temp.path().join("secondary");
     init_temp_repo(&primary);
     init_temp_repo(&secondary);
-    let store = AuthStore::open_persistent(temp.path().join("auth/auth.json")).unwrap();
+    let store =
+        AuthStore::open_persistent_with_secret_key(temp.path().join("auth/auth.json"), [31; 32])
+            .unwrap();
     store
         .bootstrap_initial_admin_cli("admin", "admin@company.internal", "Password!2026")
         .unwrap();

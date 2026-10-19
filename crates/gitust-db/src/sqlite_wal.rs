@@ -63,7 +63,7 @@ fn sqlite_transient() -> *const c_void {
     (-1isize) as *const c_void
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum SqlValue {
     Null,
     Integer(i64),
@@ -170,7 +170,7 @@ impl SqliteWalDb {
         }
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
+             PRAGMA synchronous = FULL;
              PRAGMA foreign_keys = ON;",
         )?;
         let mode = conn.journal_mode()?;
@@ -198,6 +198,41 @@ impl SqliteWalDb {
             }
         }
         Ok(())
+    }
+
+    /// Call inside the caller's transaction so rows and checkpoint share one snapshot.
+    pub fn history_checkpoint(&self, query: &str) -> Result<String, String> {
+        use sha2::{Digest, Sha256};
+        let rows = self.query_rows(query, &[])?;
+        let payload = serde_json::to_vec(&rows).map_err(|e| e.to_string())?;
+        Ok(format!(
+            "{}:{}",
+            rows.len(),
+            hex::encode(Sha256::digest(payload))
+        ))
+    }
+
+    pub fn verify_history_checkpoint(&self, key: &str, query: &str) -> Result<bool, String> {
+        let rows = self.query_rows(
+            "SELECT value FROM gitust_history_checkpoints WHERE key = ?1;",
+            &[SqlValue::Text(key.into())],
+        )?;
+        let Some(row) = rows.first() else {
+            return Ok(false);
+        };
+        let expected = row
+            .first()
+            .and_then(SqlValue::as_str)
+            .ok_or("invalid history checkpoint")?;
+        if expected != self.history_checkpoint(query)? {
+            return Err("SQLite history does not match its committed checkpoint".into());
+        }
+        Ok(true)
+    }
+
+    pub fn save_history_checkpoint(&self, key: &str, query: &str) -> Result<(), String> {
+        let value = self.history_checkpoint(query)?;
+        self.execute("INSERT INTO gitust_history_checkpoints (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", &[SqlValue::Text(key.into()), SqlValue::Text(value)])
     }
 
     pub fn journal_mode(&self) -> Result<String, String> {

@@ -21,10 +21,8 @@ const BASE32_ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct StoredTotpEnrollment {
-    pub(crate) key_hex: String,
-    pub(crate) nonce_hex: String,
-    pub(crate) ciphertext_hex: String,
-    pub(crate) tag_sha256: [u8; 32],
+    #[serde(flatten)]
+    pub(crate) secret: crate::secret_storage::StoredSecret,
     pub(crate) verified: bool,
     pub(crate) enrolled_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,85 +137,6 @@ pub fn compute_totp_code_at(secret_base32: &str, unix_secs: u64) -> Result<Strin
     ))
 }
 
-fn totp_keystream_xor(key: &[u8; 32], nonce: &[u8; 16], data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len());
-    for (block_idx, chunk) in data.chunks(32).enumerate() {
-        let mut hasher = Sha256::new();
-        hasher.update(b"gitust-totp-secret-stream-v1:");
-        hasher.update(key);
-        hasher.update(nonce);
-        hasher.update((block_idx as u64).to_le_bytes());
-        let stream: [u8; 32] = hasher.finalize().into();
-        for (b, s) in chunk.iter().zip(stream.iter()) {
-            out.push(b ^ s);
-        }
-    }
-    out
-}
-
-fn compute_totp_tag(
-    key: &[u8; 32],
-    nonce: &[u8; 16],
-    user_id: UserId,
-    ciphertext: &[u8],
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"gitust-totp-secret-mac-v1:");
-    hasher.update(key);
-    hasher.update(nonce);
-    hasher.update(user_id.0.as_bytes());
-    hasher.update((ciphertext.len() as u64).to_le_bytes());
-    hasher.update(ciphertext);
-    hasher.finalize().into()
-}
-
-fn encrypt_totp_secret(
-    user_id: UserId,
-    secret_bytes: &[u8],
-    enrolled_at: String,
-) -> StoredTotpEnrollment {
-    let mut key = [0u8; 32];
-    let mut nonce = [0u8; 16];
-    OsRng.fill_bytes(&mut key);
-    OsRng.fill_bytes(&mut nonce);
-    let ciphertext = totp_keystream_xor(&key, &nonce, secret_bytes);
-    let tag_sha256 = compute_totp_tag(&key, &nonce, user_id, &ciphertext);
-    StoredTotpEnrollment {
-        key_hex: hex::encode(key),
-        nonce_hex: hex::encode(nonce),
-        ciphertext_hex: hex::encode(ciphertext),
-        tag_sha256,
-        verified: false,
-        enrolled_at,
-        last_used_step: None,
-    }
-}
-
-fn decrypt_totp_secret(
-    user_id: UserId,
-    stored: &StoredTotpEnrollment,
-) -> Result<Vec<u8>, AuthError> {
-    let key_bytes = hex::decode(&stored.key_hex)
-        .map_err(|_| AuthError::StorageError("corrupted TOTP key".into()))?;
-    let key: [u8; 32] = key_bytes
-        .try_into()
-        .map_err(|_| AuthError::StorageError("corrupted TOTP key length".into()))?;
-    let nonce_bytes = hex::decode(&stored.nonce_hex)
-        .map_err(|_| AuthError::StorageError("corrupted TOTP nonce".into()))?;
-    let nonce: [u8; 16] = nonce_bytes
-        .try_into()
-        .map_err(|_| AuthError::StorageError("corrupted TOTP nonce length".into()))?;
-    let ciphertext = hex::decode(&stored.ciphertext_hex)
-        .map_err(|_| AuthError::StorageError("corrupted TOTP ciphertext".into()))?;
-    let expected_tag = compute_totp_tag(&key, &nonce, user_id, &ciphertext);
-    if !bool::from(expected_tag.ct_eq(&stored.tag_sha256)) {
-        return Err(AuthError::StorageError(
-            "TOTP secret integrity verification failed".into(),
-        ));
-    }
-    Ok(totp_keystream_xor(&key, &nonce, &ciphertext))
-}
-
 fn verify_totp_step_constant_time(
     secret: &[u8],
     raw_code: &str,
@@ -251,6 +170,7 @@ fn verify_totp_step_constant_time(
 }
 
 pub(crate) fn verify_user_totp_locked(
+    key: &crate::secret_storage::SecretKey,
     state: &mut AuthState,
     user_id: UserId,
     totp_code: Option<&str>,
@@ -265,7 +185,8 @@ pub(crate) fn verify_user_totp_locked(
     let Some(code) = totp_code.map(str::trim).filter(|s| !s.is_empty()) else {
         return Err(AuthError::TotpRequired);
     };
-    let secret = decrypt_totp_secret(user_id, enrollment)?;
+    let secret =
+        zeroize::Zeroizing::new(key.open(&format!("totp:{}", user_id.0), &enrollment.secret)?);
     let matched_step =
         verify_totp_step_constant_time(&secret, code, now_secs, enrollment.last_used_step)?;
     if let Some(enr_mut) = state.totp_enrollments.get_mut(&user_id) {
@@ -299,11 +220,18 @@ impl AuthStore {
         credential: &str,
         original_user: UserId,
     ) -> Result<TotpEnrollmentChallenge, AuthError> {
-        let mut raw_secret = [0u8; 20];
-        OsRng.fill_bytes(&mut raw_secret);
-        let secret_base32 = base32_encode(&raw_secret);
+        let mut raw_secret = zeroize::Zeroizing::new([0u8; 20]);
+        OsRng.fill_bytes(raw_secret.as_mut());
+        let secret_base32 = base32_encode(raw_secret.as_ref());
         let now_str = Utc::now().to_rfc3339();
-        let stored = encrypt_totp_secret(original_user, &raw_secret, now_str);
+        let stored = StoredTotpEnrollment {
+            secret: self
+                .secret_key
+                .seal(&format!("totp:{}", original_user.0), raw_secret.as_ref())?,
+            verified: false,
+            enrolled_at: now_str,
+            last_used_step: None,
+        };
 
         let (username, snapshot) = {
             let mut guard = self.write_state()?;
@@ -357,7 +285,10 @@ impl AuthStore {
             let Some(enr) = guard.totp_enrollments.get(&active.user_id) else {
                 return Err(AuthError::InvalidInput("TOTP enrollment not found".into()));
             };
-            let secret = decrypt_totp_secret(active.user_id, enr)?;
+            let secret = zeroize::Zeroizing::new(
+                self.secret_key
+                    .open(&format!("totp:{}", active.user_id.0), &enr.secret)?,
+            );
             // fail-open-ok: UTC epoch timestamp is non-negative.
             let now_secs = u64::try_from(now.timestamp()).unwrap_or(0);
             let matched_step =
@@ -412,7 +343,10 @@ impl AuthStore {
                 return Err(AuthError::InvalidInput("TOTP enrollment not found".into()));
             };
             if enr.verified {
-                let secret = decrypt_totp_secret(active.user_id, enr)?;
+                let secret = zeroize::Zeroizing::new(
+                    self.secret_key
+                        .open(&format!("totp:{}", active.user_id.0), &enr.secret)?,
+                );
                 // fail-open-ok: UTC epoch timestamp is non-negative.
                 let now_secs = u64::try_from(now.timestamp()).unwrap_or(0);
                 if let Err(err) =

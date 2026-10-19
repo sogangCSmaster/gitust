@@ -3,8 +3,44 @@ use std::path::{Path, PathBuf};
 
 use gitust_core::{AuditEventRecord, AuthError, PullRequestRecord};
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
 use crate::models::{AuthState, PersistedSnapshot, JSON_WINDOW_CAP};
 use crate::sqlite_wal::{SqlValue, SqliteWalDb};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct SqliteCheckpoint {
+    version: u8,
+    pull_request_count: usize,
+    audit_log_count: usize,
+    pull_requests_sha256: String,
+    audit_log_sha256: String,
+}
+
+pub(crate) fn checkpoint(
+    prs: &[PullRequestRecord],
+    audit: &[AuditEventRecord],
+) -> Result<SqliteCheckpoint, AuthError> {
+    fn digest(value: &impl Serialize) -> Result<String, AuthError> {
+        let bytes = serde_json::to_vec(value)
+            .map_err(|e| AuthError::StorageError(format!("SQLite checkpoint encoding: {e}")))?;
+        Ok(hex::encode(Sha256::digest(bytes)))
+    }
+    Ok(SqliteCheckpoint {
+        version: 1,
+        pull_request_count: prs.len(),
+        audit_log_count: audit.len(),
+        pull_requests_sha256: digest(&prs)?,
+        audit_log_sha256: digest(&audit)?,
+    })
+}
+
+fn incomplete() -> AuthError {
+    AuthError::StorageError(
+        "SQLite history is missing or does not match the committed checkpoint".into(),
+    )
+}
 
 const SCHEMA_SQL: &str = "
 CREATE TABLE IF NOT EXISTS pull_requests (
@@ -52,13 +88,12 @@ pub(crate) fn sync_state_to_sqlite(db_path: &Path, state: &mut AuthState) -> Res
     Ok(())
 }
 
-pub(crate) fn reconcile_sqlite_after_rollback(db_path: &Path, state: &mut AuthState) {
-    // fail-open-ok: best-effort sidecar rollback after failed atomic snapshot; hydrate_snapshot_from_sqlite also bounds to the committed JSON window.
-    let Ok(db) = open_sidecar(db_path) else {
-        return;
-    };
-    // fail-open-ok: best-effort sidecar rollback after failed atomic snapshot; hydrate_snapshot_from_sqlite also bounds to the committed JSON window.
-    let _ = db.with_transaction(|conn| {
+pub(crate) fn reconcile_sqlite_after_rollback(
+    db_path: &Path,
+    state: &mut AuthState,
+) -> Result<(), AuthError> {
+    let db = open_sidecar(db_path)?;
+    db.with_transaction(|conn| {
         conn.execute_batch("DELETE FROM pull_requests; DELETE FROM audit_log;")?;
         for (idx, pr) in state.pull_requests.iter().enumerate() {
             upsert_pull_request(conn, idx, pr)?;
@@ -67,7 +102,8 @@ pub(crate) fn reconcile_sqlite_after_rollback(db_path: &Path, state: &mut AuthSt
             insert_audit_entry(conn, entry)?;
         }
         Ok(())
-    });
+    })
+    .map_err(AuthError::StorageError)
 }
 
 fn sync_pull_requests_tx(
@@ -206,13 +242,21 @@ pub(crate) fn hydrate_snapshot_from_sqlite(
             )));
         }
         Ok(_) => {}
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            if snap.sqlite_checkpoint.is_some()
+                || snap.pull_requests.len() == JSON_WINDOW_CAP
+                || snap.audit_log.first().is_some_and(|entry| entry.seq > 1)
+            {
+                return Err(incomplete());
+            }
+            return Ok(());
+        }
         Err(e) => return Err(AuthError::StorageError(e.to_string())),
     }
 
     let db = open_sidecar(db_path)?;
 
-    if snap.pull_requests.len() >= JSON_WINDOW_CAP {
+    if snap.pull_requests.len() == JSON_WINDOW_CAP {
         let pr_rows = db
             .query_rows(
                 "SELECT payload_json FROM pull_requests ORDER BY seq ASC;",
@@ -234,12 +278,17 @@ pub(crate) fn hydrate_snapshot_from_sqlite(
                 let mut combined = Vec::with_capacity(sql_prs.len());
                 combined.extend_from_slice(&sql_prs[..prefix_end]);
                 for snap_pr in &snap.pull_requests {
-                    if sql_prs[prefix_end..].iter().any(|p| p.id == snap_pr.id) {
-                        combined.push(snap_pr.clone());
+                    if !sql_prs[prefix_end..].iter().any(|p| p.id == snap_pr.id) {
+                        return Err(incomplete());
                     }
+                    combined.push(snap_pr.clone());
                 }
                 snap.pull_requests = combined;
+            } else {
+                return Err(incomplete());
             }
+        } else {
+            return Err(incomplete());
         }
     }
 
@@ -262,16 +311,26 @@ pub(crate) fn hydrate_snapshot_from_sqlite(
             if let Some(prefix_end) = sql_audit.iter().position(|e| e.seq == first_window_seq) {
                 let mut combined = Vec::with_capacity(sql_audit.len());
                 combined.extend_from_slice(&sql_audit[..prefix_end]);
-                combined.extend(
-                    snap.audit_log
-                        .iter()
-                        .filter(|e| e.seq <= max_sql_seq)
-                        .cloned(),
-                );
+                if snap
+                    .audit_log
+                    .last()
+                    .is_some_and(|entry| entry.seq > max_sql_seq)
+                {
+                    return Err(incomplete());
+                }
+                combined.extend(snap.audit_log.iter().cloned());
                 snap.audit_log = combined;
+            } else {
+                return Err(incomplete());
             }
+        } else {
+            return Err(incomplete());
         }
     }
-
+    if let Some(expected) = &snap.sqlite_checkpoint {
+        if &checkpoint(&snap.pull_requests, &snap.audit_log)? != expected {
+            return Err(incomplete());
+        }
+    }
     Ok(())
 }

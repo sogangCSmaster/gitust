@@ -37,7 +37,8 @@ export interface RepositoryCodeSearchPanelProps {
 const SYMBOL_PATTERNS: ReadonlyArray<{ kind: SymbolKind; regex: RegExp }> = [
   {
     kind: "function",
-    regex: /\b(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:fn|function)\s+([A-Za-z_][A-Za-z0-9_]*)/,
+    regex:
+      /\b(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:fn|function)\s+([A-Za-z_][A-Za-z0-9_]*)/,
   },
   {
     kind: "struct",
@@ -61,11 +62,13 @@ const SYMBOL_PATTERNS: ReadonlyArray<{ kind: SymbolKind; regex: RegExp }> = [
   },
   {
     kind: "type",
-    regex: /\b(?:pub(?:\([^)]*\))?\s+|export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)/,
+    regex:
+      /\b(?:pub(?:\([^)]*\))?\s+|export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)/,
   },
   {
     kind: "const",
-    regex: /\b(?:pub(?:\([^)]*\))?\s+|export\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)/,
+    regex:
+      /\b(?:pub(?:\([^)]*\))?\s+|export\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)/,
   },
 ];
 
@@ -190,6 +193,7 @@ export const RepositoryCodeSearchPanel: Component<
     cancelInFlight();
     const seq = requestSeq;
     setError(null);
+    setReport(null);
 
     if (!props.liveMode) {
       setReport(
@@ -204,6 +208,15 @@ export const RepositoryCodeSearchPanel: Component<
       return;
     }
 
+    if (
+      !props.revision ||
+      !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(props.revision)
+    ) {
+      setError(
+        "Repository snapshot is unavailable; refresh files before searching",
+      );
+      return;
+    }
     const ctrl = new AbortController();
     activeController = ctrl;
     setLoading(true);
@@ -241,10 +254,7 @@ export const RepositoryCodeSearchPanel: Component<
       class="rounded-lg border border-border bg-card p-3 space-y-2.5"
       data-testid="repository-code-search-panel"
     >
-      <form
-        onSubmit={handleSearch}
-        class="flex flex-wrap items-center gap-2"
-      >
+      <form onSubmit={handleSearch} class="flex flex-wrap items-center gap-2">
         <div class="relative flex min-w-48 flex-1 items-center">
           <Icon
             name="search"
@@ -301,12 +311,7 @@ export const RepositoryCodeSearchPanel: Component<
         </Button>
 
         <Show when={query().trim() || report() || error()}>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={handleClear}
-          >
+          <Button type="button" size="sm" variant="ghost" onClick={handleClear}>
             Clear
           </Button>
         </Show>
@@ -354,7 +359,9 @@ export const RepositoryCodeSearchPanel: Component<
                   {(hit) => (
                     <button
                       type="button"
-                      onClick={() => props.onSelectHit(hit.path, hit.lineNumber)}
+                      onClick={() =>
+                        props.onSelectHit(hit.path, hit.lineNumber)
+                      }
                       class="flex w-full flex-col gap-1 rounded-md border border-border/70 bg-background px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-muted/40"
                     >
                       <div class="flex flex-wrap items-center justify-between gap-2">
@@ -364,7 +371,10 @@ export const RepositoryCodeSearchPanel: Component<
                         <Show
                           when={hit.symbolKind}
                           fallback={
-                            <Badge variant="outline" class="text-[10px] font-mono">
+                            <Badge
+                              variant="outline"
+                              class="text-[10px] font-mono"
+                            >
                               {hit.matchKind}
                             </Badge>
                           }

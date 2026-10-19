@@ -61,6 +61,7 @@ export interface LiveRepoClientCallbacks {
   setLiveDiffFiles: (paths: string[]) => void;
   setDiffTruncated: (value: boolean) => void;
   setTreeTruncated: (value: boolean) => void;
+  setTreeRevision?: (revision: string | null) => void;
   setWorktreeReview?: (review: LiveWorktreeReview | null) => void;
   getActiveCommitRev: () => string;
   getRepositoryId: () => string | null | undefined;

@@ -9,9 +9,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
+import tempfile
 import uuid
 
 MAX_MANIFEST_BYTES = 64 * 1024 * 1024
@@ -218,6 +220,43 @@ def source_layouts(args, auth, target):
     return layouts
 
 
+def validate_auth_history(auth):
+    regular(auth)
+    if auth.stat().st_size > 64 * 1024 * 1024:
+        raise ValueError("auth snapshot exceeds size limit")
+    snapshot = json.loads(auth.read_text())
+    if not isinstance(snapshot, dict):
+        raise ValueError("auth snapshot must be an object")
+    checkpoint = snapshot.get("sqlite_checkpoint")
+    prs = snapshot.get("pull_requests", [])
+    audit = snapshot.get("audit_log", [])
+    required = checkpoint is not None or len(prs) == 64 or (audit and audit[0]["seq"] > 1)
+    sidecar = Path(str(auth) + ".sqlite3")
+    if required:
+        regular(sidecar)
+    if checkpoint is None:
+        return
+    if not isinstance(checkpoint, dict) or checkpoint.get("version") != 1:
+        raise ValueError("unsupported auth SQLite checkpoint")
+    # The surrounding auth lock excludes all writers, including SQLite WAL publication.
+    with tempfile.TemporaryDirectory(prefix="gitust-auth-history-check-") as temporary:
+        copied = Path(temporary) / "history.sqlite3"
+        shutil.copyfile(sidecar, copied)
+        wal = Path(str(sidecar) + "-wal")
+        if wal.exists() or wal.is_symlink():
+            regular(wal)
+            shutil.copyfile(wal, Path(str(copied) + "-wal"))
+        with sqlite3.connect(copied.as_uri() + "?mode=ro", uri=True) as db:
+            for table, count_key, digest_key in [
+                ("pull_requests", "pull_request_count", "pull_requests_sha256"),
+                ("audit_log", "audit_log_count", "audit_log_sha256"),
+            ]:
+                rows = db.execute(f"SELECT payload_json FROM {table} ORDER BY seq ASC").fetchall()
+                payload = ("[" + ",".join(row[0] for row in rows) + "]").encode()
+                if (len(rows) != checkpoint[count_key]
+                        or hashlib.sha256(payload).hexdigest() != checkpoint[digest_key]):
+                    raise ValueError("auth SQLite history does not match its committed checkpoint")
+
 def create(args):
     auth = args.auth_db.absolute()
     regular(auth)
@@ -230,6 +269,7 @@ def create(args):
         for _, common, _, _ in layouts:
             require_no_unconfirmed_execution(common)
         locks.enter_context(exclusive_lock(Path(str(auth) + ".lock")))
+        validate_auth_history(auth)
         records = []
         for index, (repo, common, base, bare) in enumerate(layouts):
             if layout(repo) != (repo, common, base, bare):
@@ -358,7 +398,7 @@ def restore(args):
                 raise ValueError("snapshot contains payload outside its fixed repository slots")
     for relative in payloads:
         real_directory_chain(backup / relative, backup)
-    regular(backup / "auth/auth-db.json")
+    validate_auth_history(backup / "auth/auth-db.json")
     for suffix in (".sqlite3", ".sqlite3-wal"):
         sidecar = backup / f"auth/auth-db.json{suffix}"
         if sidecar.exists() or sidecar.is_symlink():
@@ -438,7 +478,7 @@ def main():
     os.umask(0o077)
     try:
         (create if args.action == "create" else restore)(args)
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as exc:
         # Do not echo Git stderr/config/JSON: they may contain credentials or private content.
         print(f"Backup/restore failed ({type(exc).__name__}): "
               + (str(exc) if isinstance(exc, ValueError) else "check paths, permissions and stopped writers"),

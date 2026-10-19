@@ -209,10 +209,20 @@ impl RunnerFleetRegistry {
         required_label: &str,
         required_tier: IsolationTier,
     ) -> Result<RunnerLeaseGuard, ApiError> {
+        if required_tier != IsolationTier::HostOs {
+            return Err((
+                StatusCode::NOT_IMPLEMENTED,
+                "container_vm execution is not implemented".into(),
+            ));
+        }
         let mut guard = self.nodes.write();
         let mut matching_online = false;
         let mut selected_id: Option<(RunnerNodeId, u32)> = None;
         for (id, node) in guard.iter() {
+            // Registered nodes are inventory only until a remote execution transport exists.
+            if id.0.as_u128() != BUILTIN_LOCAL_UUID {
+                continue;
+            }
             if node.status != RunnerStatus::Online {
                 continue;
             }
@@ -234,7 +244,7 @@ impl RunnerFleetRegistry {
         }
         if !matching_online {
             return Err(conflict(format!(
-                "no online runner available for label '{required_label}' and isolation tier '{required_tier}'"
+                "no local runner available for label '{required_label}' and isolation tier '{required_tier}'; remote runner execution is not implemented"
             )));
         }
         let Some((chosen_id, _)) = selected_id else {

@@ -127,6 +127,7 @@ export const WorkbenchApp: Component = () => {
     setLiveDiffFiles,
     setDiffTruncated,
     setTreeTruncated,
+    setTreeRevision,
     setWorktreeReview,
     liveCommits,
     worktreeReview,
@@ -136,6 +137,7 @@ export const WorkbenchApp: Component = () => {
     liveDiffFiles,
     diffTruncated,
     treeTruncated,
+    treeRevision,
     fileTreeNodes,
     selectedTreePath,
     blobLines,
@@ -170,6 +172,7 @@ export const WorkbenchApp: Component = () => {
     setLiveDiffFiles,
     setDiffTruncated,
     setTreeTruncated,
+    setTreeRevision,
     setWorktreeReview,
     showQuickFeedback,
   });
@@ -438,9 +441,7 @@ export const WorkbenchApp: Component = () => {
           </Show>
 
           <Show
-            when={
-              activeTab() !== "repositories" && activeTab() !== "overview"
-            }
+            when={activeTab() !== "repositories" && activeTab() !== "overview"}
           >
             <Suspense
               fallback={
@@ -521,6 +522,7 @@ export const WorkbenchApp: Component = () => {
                 liveDiffFiles={liveDiffFiles()}
                 diffTruncated={diffTruncated()}
                 treeTruncated={treeTruncated()}
+                treeRevision={treeRevision()}
                 actionJobs={actionJobs()}
                 activeJobId={activeJobId()}
                 onSelectJob={setActiveJobId}
@@ -557,9 +559,9 @@ export const WorkbenchApp: Component = () => {
       <Show
         when={Boolean(
           newWorktree.target() ||
-            historyTarget() ||
-            cmdOpen() ||
-            shortcutsModalOpen(),
+          historyTarget() ||
+          cmdOpen() ||
+          shortcutsModalOpen(),
         )}
       >
         <Suspense>

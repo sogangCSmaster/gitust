@@ -19,6 +19,12 @@ mod crypto;
 mod disk_lock;
 mod invites;
 mod mutation_authority;
+mod secret_storage;
+mod security_migration;
+#[cfg(test)]
+mod tests_security_invariants;
+#[cfg(test)]
+mod tests_security_upgrade;
 pub use invites::AccountInviteRequest;
 mod invite_authority;
 mod repository_group_invites;
@@ -121,6 +127,7 @@ pub struct AuthStore {
     pub(crate) state: Arc<RwLock<AuthState>>,
     pub(crate) last_disk_stamp: Arc<Mutex<Option<DiskStamp>>>,
     pub(crate) persistence_path: Option<PathBuf>,
+    pub(crate) secret_key: secret_storage::SecretKey,
 }
 
 impl Default for AuthStore {
@@ -133,23 +140,53 @@ impl AuthStore {
     #[must_use]
     pub fn new_in_memory() -> Self {
         Self {
-            state: Arc::new(RwLock::new(AuthState::default())),
+            state: Arc::new(RwLock::new(AuthState {
+                security_version: 1,
+                ..AuthState::default()
+            })),
             last_disk_stamp: Arc::new(Mutex::new(None)),
             persistence_path: None,
+            secret_key: secret_storage::SecretKey::ephemeral(),
         }
     }
 
     /// Opens or creates an on-disk persistent `AuthStore` at `path`.
     pub fn open_persistent(path: impl AsRef<Path>) -> Result<Self, AuthError> {
-        let path_buf = path.as_ref().to_path_buf();
-        let (snapshot, initial_stamp) = persistence::load_initial_snapshot_locked(&path_buf)?;
-        let state = snapshot.map_or_else(AuthState::default, AuthState::from_snapshot);
+        Self::open_with_key(
+            path.as_ref(),
+            secret_storage::SecretKey::from_environment()?,
+        )
+    }
 
-        Ok(Self {
+    /// Supplies a separately managed key without changing process-wide environment variables.
+    pub fn open_persistent_with_secret_key(
+        path: impl AsRef<Path>,
+        key: [u8; 32],
+    ) -> Result<Self, AuthError> {
+        Self::open_with_key(path.as_ref(), secret_storage::SecretKey::supplied(key))
+    }
+
+    fn open_with_key(
+        path: &Path,
+        secret_key: secret_storage::SecretKey,
+    ) -> Result<Self, AuthError> {
+        let path_buf = path.to_path_buf();
+        let (snapshot, initial_stamp) = persistence::load_initial_snapshot_locked(&path_buf)?;
+        let state = snapshot.map_or_else(
+            || AuthState {
+                security_version: 1,
+                ..AuthState::default()
+            },
+            AuthState::from_snapshot,
+        );
+        let store = Self {
             state: Arc::new(RwLock::new(state)),
             last_disk_stamp: Arc::new(Mutex::new(initial_stamp)),
             persistence_path: Some(path_buf),
-        })
+            secret_key,
+        };
+        store.upgrade_security_state()?;
+        Ok(store)
     }
 
     /// Path of the persistent snapshot, so sandbox callers can hide the DB and lockfile.

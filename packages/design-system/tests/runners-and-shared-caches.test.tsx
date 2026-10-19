@@ -320,7 +320,7 @@ describe("Slice 8: Stronger Execution Isolation Tier, Multi-Node Runner Scheduli
       expect(screen.getByText(/14 files/i)).toBeTruthy();
     });
 
-    // Register a new container_vm runner node
+    // Register inventory with the currently implemented host_os tier
     await fireEvent.input(screen.getByLabelText("Runner name"), {
       target: { value: "vm-runner-1" },
     });
@@ -328,7 +328,7 @@ describe("Slice 8: Stronger Execution Isolation Tier, Multi-Node Runner Scheduli
       target: { value: "linux-vm, high-mem" },
     });
     await fireEvent.change(screen.getByLabelText("Isolation tier"), {
-      target: { value: "container_vm" },
+      target: { value: "host_os" },
     });
     await fireEvent.input(screen.getByLabelText("Max concurrency"), {
       target: { value: "2" },

@@ -240,6 +240,29 @@ class BackupTests(unittest.TestCase):
                                                   output=self.backup))
         self.assertFalse(self.backup.exists())
 
+    def test_missing_or_incomplete_checkpoint_history_refuses_backup(self):
+        import hashlib
+        import sqlite3
+        state = json.loads(self.auth.read_text())
+        state["sqlite_checkpoint"] = {
+            "version": 1, "pull_request_count": 0, "audit_log_count": 1,
+            "pull_requests_sha256": hashlib.sha256(b"[]").hexdigest(),
+            "audit_log_sha256": hashlib.sha256(b"[{}]").hexdigest(),
+        }
+        self.auth.write_text(json.dumps(state))
+        self.create(ok=False)
+        self.assertFalse(self.backup.exists())
+        sidecar = Path(str(self.auth) + ".sqlite3")
+        with sqlite3.connect(sidecar) as db:
+            db.executescript("CREATE TABLE pull_requests(seq INTEGER, payload_json TEXT);"
+                             "CREATE TABLE audit_log(seq INTEGER, payload_json TEXT);")
+        self.create(ok=False)
+        self.assertFalse(self.backup.exists())
+        with sqlite3.connect(sidecar) as db:
+            db.execute("INSERT INTO audit_log VALUES(1, '{}')")
+        self.create()
+        self.restore()
+
     def test_auth_sqlite_sidecar_is_backed_up_restored_and_rejects_symlinks(self):
         sidecar = Path(str(self.auth) + ".sqlite3")
         sidecar_bytes = b"SQLite format 3\x00gitust-sidecar-payload"

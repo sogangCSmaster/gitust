@@ -195,9 +195,13 @@ impl AuthStore {
             }
             // fail-open-ok: UTC epoch timestamp is non-negative.
             let now_secs = u64::try_from(check_now.timestamp()).unwrap_or(0);
-            if let Err(err) =
-                crate::totp::verify_user_totp_locked(&mut guard, user_id, totp_code, now_secs)
-            {
+            if let Err(err) = crate::totp::verify_user_totp_locked(
+                &self.secret_key,
+                &mut guard,
+                user_id,
+                totp_code,
+                now_secs,
+            ) {
                 if matches!(err, AuthError::InvalidTotpCode) {
                     Self::record_failed_login_locked(&mut guard, id_key, check_now);
                     if let Some(ak) = acct_key {

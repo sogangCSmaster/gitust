@@ -46,6 +46,7 @@ fn workflow_store_sqlite_wal_retains_over_30_runs_and_artifacts() {
                     name: format!("artifact-{idx}"),
                     path: format!("dist/out-{idx}.bin"),
                     size_bytes: 128,
+                    sha256: None,
                     content_preview: Some(format!("preview-{idx}")),
                 }],
                 redacted_output: "ok".to_owned(),

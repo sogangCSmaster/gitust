@@ -46,7 +46,7 @@ subtle = "2.6"
 parking_lot = "0.12"
 tempfile = "3.15"
 libc = "0.2"
-russh = { version = "=0.64.1", default-features = false, features = ["ring"] }
+russh = { version = "=0.64.1", default-features = false, features = ["ring", "rsa"] }
 zeroize = "1.8"
 
 # Internal workspace crates

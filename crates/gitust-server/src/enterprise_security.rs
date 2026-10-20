@@ -265,6 +265,69 @@ pub(crate) async fn sso_login_handler(State(state): State<AppState>, request: Re
     response(res)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RotateMasterSecretsInput {
+    pub new_secret_key_hex: String,
+    #[serde(default)]
+    pub revoke_existing_credentials: bool,
+}
+
+pub(crate) async fn rotate_secrets_handler(
+    State(state): State<AppState>,
+    request: Request,
+) -> Response {
+    let res = async move {
+        let (parts, body) = request.into_parts();
+        let origin = extract_principal_async(&parts.headers, &state.auth_store).await?;
+        if origin.role != EnterpriseRole::SiteAdmin {
+            return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+        }
+        let bytes = axum::body::to_bytes(body, MAX_SECURITY_BODY_BYTES)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "request body too large".into(),
+                )
+            })?;
+        let input: RotateMasterSecretsInput =
+            serde_json::from_slice(&bytes).map_err(|e| bad_req(format!("invalid JSON: {e}")))?;
+        let raw_hex = zeroize::Zeroizing::new(input.new_secret_key_hex.trim().to_owned());
+        if raw_hex.len() != 64 {
+            return Err(bad_req("new_secret_key_hex must be 64 hex characters"));
+        }
+        let mut new_key = [0u8; 32];
+        hex::decode_to_slice(raw_hex.as_bytes(), &mut new_key)
+            .map_err(|_| bad_req("new_secret_key_hex must be valid hex"))?;
+        tokio::task::spawn_blocking(move || {
+            let caller = extract_principal(&parts.headers, &state.auth_store)?;
+            if caller.user_id != origin.user_id || caller.role != EnterpriseRole::SiteAdmin {
+                return Err(map_auth_err(AuthError::AdminPrivilegeRequired));
+            }
+            let token = bearer_token(&parts.headers)?;
+            let rotated = state
+                .auth_store
+                .rotate_master_secret_key_with_credential(
+                    token,
+                    origin.user_id,
+                    new_key,
+                    input.revoke_existing_credentials,
+                )
+                .map_err(map_auth_err)?;
+            Ok(json!({
+                "status": "rotated",
+                "rotated_secrets_count": rotated,
+                "revoked_existing_credentials": input.revoke_existing_credentials
+            }))
+        })
+        .await
+        .map_err(internal_err)?
+    }
+    .await;
+    response(res)
+}
+
 pub(crate) async fn audit_log_handler(
     State(state): State<AppState>,
     headers: HeaderMap,

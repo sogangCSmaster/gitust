@@ -283,6 +283,24 @@ pub(crate) fn canonicalize_openssh_pubkey(raw: &str) -> Result<(String, String),
                 ));
             }
         }
+        "ssh-rsa" => {
+            let (e_bytes, after_e) = read_ssh_wire_field(rest)?;
+            let (n_bytes, trailing) = read_ssh_wire_field(after_e)?;
+            let is_canonical_odd_mpint = |mp: &[u8]| -> bool {
+                !mp.is_empty()
+                    && (mp[0] & 0x80) == 0
+                    && !(mp[0] == 0 && (mp.len() == 1 || (mp[1] & 0x80) == 0))
+                    && (mp[mp.len() - 1] & 1) == 1
+            };
+            if !is_canonical_odd_mpint(e_bytes)
+                || !is_canonical_odd_mpint(n_bytes)
+                || !trailing.is_empty()
+            {
+                return Err(AuthError::InvalidInput(
+                    "invalid ssh-rsa public key wire encoding".to_owned(),
+                ));
+            }
+        }
         _ => {}
     }
     let digest: [u8; 32] = Sha256::digest(&decoded).into();

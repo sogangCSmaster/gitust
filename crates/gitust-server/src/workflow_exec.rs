@@ -99,6 +99,7 @@ async fn execute_single_expanded_job(
     origin_uid: UserId,
     operation: &Arc<OwnedMutexGuard<()>>,
     prep: &PreparedWorkflow,
+    run_id: &str,
     exp_job: ExpandedWorkflowJob,
 ) -> Result<WorkflowJobRun, ApiError> {
     let mut commands = Vec::with_capacity(exp_job.steps.len());
@@ -112,6 +113,18 @@ async fn execute_single_expanded_job(
     let lease = state
         .runner_fleet
         .acquire_lease(&exp_job.runs_on, exp_job.isolation_tier)?;
+    if lease.is_remote {
+        return crate::runners_dispatch::execute_remote_expanded_job(
+            state,
+            &prep.common_git_dir,
+            &prep.secret_values,
+            run_id,
+            lease,
+            exp_job,
+            commands,
+        )
+        .await;
+    }
 
     let slot = Arc::new(Mutex::new(None));
     let worktree_id = WorktreeId::new();
@@ -133,6 +146,8 @@ async fn execute_single_expanded_job(
     let br = prep.short_branch.clone();
     let (store, common) = (state.auth_store.clone(), prep.common_git_dir.clone());
     let (cache, expected) = (exp_job.cache.clone(), prep.expected_commit.clone());
+    let dl_arts = exp_job.download_artifacts.clone();
+    let run_id_prep = run_id.to_owned();
     let (st_cl, hdr_cl) = (state.clone(), headers.clone());
     let iso_tier = exp_job.isolation_tier;
 
@@ -154,6 +169,15 @@ async fn execute_single_expanded_job(
             Some(ref c) => restore_job_cache(&common, &m.worktree_dir, c).map_err(unavailable)?,
             None => false,
         };
+        if !dl_arts.is_empty() {
+            crate::workflow_artifacts_api::restore_job_downloaded_artifacts(
+                &common,
+                &run_id_prep,
+                &m.worktree_dir,
+                &dl_arts,
+            )
+            .map_err(unavailable)?;
+        }
         let spec = sandbox_spec_for(&m, &store)
             .map_err(unavailable)?
             .with_isolation_tier(iso_tier);
@@ -211,12 +235,13 @@ async fn execute_single_expanded_job(
         let (p_cache, p_art) = (exp_job.cache.clone(), exp_job.artifacts.clone());
         let p_sec = prep.secret_values.clone();
         let src_job_id = exp_job.job_id.clone();
+        let run_id_post = run_id.to_owned();
         let post_res = tokio::task::spawn_blocking(move || {
             if let Some(ref c) = p_cache {
                 save_job_cache(&p_common, &p_wt, c, Some(&src_job_id))?;
             }
             match p_art {
-                Some(ref a) => collect_job_artifacts(&p_wt, a, &p_sec),
+                Some(ref a) => collect_job_artifacts(&p_common, &run_id_post, &p_wt, a, &p_sec),
                 None => Ok(Vec::new()),
             }
         })
@@ -376,6 +401,7 @@ async fn trigger_workflow_inner(
             .map_err(|_| conflict("another workflow or local check run is in progress"))?,
     );
 
+    let run_id = Uuid::new_v4().hyphenated().to_string();
     let expanded_jobs = std::mem::take(&mut prep.expanded_jobs);
     let mut job_outcomes: BTreeMap<String, bool> = BTreeMap::new();
     let mut job_runs: Vec<WorkflowJobRun> = Vec::with_capacity(expanded_jobs.len());
@@ -408,6 +434,7 @@ async fn trigger_workflow_inner(
             origin_uid,
             &operation,
             &prep,
+            &run_id,
             exp_job,
         )
         .await?;
@@ -419,7 +446,7 @@ async fn trigger_workflow_inner(
 
     let overall_passed = job_runs.iter().all(|j| j.status == "passed");
     let run_record = WorkflowRunRecord {
-        run_id: Uuid::new_v4().hyphenated().to_string(),
+        run_id,
         repo_id: prep.repo.access.repo_id.0.to_string(),
         workflow_name: prep.workflow_name,
         commit_sha: prep.expected_commit.0,

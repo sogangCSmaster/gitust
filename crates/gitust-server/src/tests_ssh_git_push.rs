@@ -589,3 +589,6 @@ async fn ssh_receive_pack_rejects_mid_stream_key_revocation_and_triggers_automat
     local_svc.shutdown().await.expect("shutdown local");
     auto_svc.shutdown().await.expect("shutdown auto");
 }
+
+#[path = "tests_ssh_git_rsa.rs"]
+mod tests_ssh_git_rsa;

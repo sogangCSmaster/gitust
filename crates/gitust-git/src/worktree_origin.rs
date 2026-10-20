@@ -75,10 +75,13 @@ pub(crate) fn persist(
     let path = admin.join(FILE);
     let temporary = admin.join("gitust-origin.tmp");
     match fs::symlink_metadata(&temporary) {
-        Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() && meta.len() <= CAP => {
-            fs::remove_file(&temporary).map_err(|e| io_err(&temporary, &e))?;
+        Ok(meta) => {
+            if meta.is_file() && !meta.file_type().is_symlink() && meta.len() <= CAP {
+                fs::remove_file(&temporary).map_err(|e| io_err(&temporary, &e))?;
+            } else {
+                return Err(invalid());
+            }
         }
-        Ok(_) => return Err(invalid()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(io_err(&temporary, &e)),
     }
@@ -89,24 +92,13 @@ pub(crate) fn persist(
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    let result = (|| {
-        let mut file = options
-            .open(&temporary)
-            .map_err(|e| io_err(&temporary, &e))?;
-        file.write_all(&bytes).map_err(|e| io_err(&temporary, &e))?;
-        file.sync_all().map_err(|e| io_err(&temporary, &e))?;
-        // Atomic publication without replacing an existing immutable creation record.
-        fs::hard_link(&temporary, &path).map_err(|e| io_err(&path, &e))?;
-        fs::remove_file(&temporary).map_err(|e| io_err(&temporary, &e))?;
-        fs::File::open(admin)
-            .and_then(|dir| dir.sync_all())
-            .map_err(|e| io_err(admin, &e))
-    })();
-    if result.is_err() {
-        // fail-open-ok: remove only this record's staging file and propagate the original write failure.
-        let _ = fs::remove_file(&temporary);
+    let mut file = options.open(&path).map_err(|e| io_err(&path, &e))?;
+    if let Err(e) = file.write_all(&bytes) {
+        // fail-open-ok: removes incomplete newly created origin file before propagating write error.
+        let _ = fs::remove_file(&path);
+        return Err(io_err(&path, &e));
     }
-    result
+    Ok(())
 }
 
 pub(crate) fn read_or_migrate(

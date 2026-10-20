@@ -60,6 +60,8 @@ pub struct WorkflowJobDefinition {
     pub cache: Option<WorkflowCacheSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifacts: Option<WorkflowArtifactSpec>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub download_artifacts: Vec<WorkflowArtifactDownloadSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,76 +88,11 @@ pub struct ExpandedWorkflowJob {
     pub secrets: Vec<String>,
     pub cache: Option<WorkflowCacheSpec>,
     pub artifacts: Option<WorkflowArtifactSpec>,
+    pub download_artifacts: Vec<WorkflowArtifactDownloadSpec>,
     pub steps: Vec<WorkflowStepDefinition>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawStrategy {
-    matrix: BTreeMap<String, Vec<String>>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawJob {
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    needs: Vec<String>,
-    #[serde(default, alias = "runs-on")]
-    runs_on: Option<String>,
-    #[serde(default, alias = "isolation-tier")]
-    isolation_tier: Option<gitust_core::IsolationTier>,
-    #[serde(default)]
-    strategy: Option<RawStrategy>,
-    #[serde(default)]
-    matrix: Option<BTreeMap<String, Vec<String>>>,
-    #[serde(default)]
-    secrets: Vec<String>,
-    #[serde(default)]
-    cache: Option<WorkflowCacheSpec>,
-    #[serde(default)]
-    artifacts: Option<WorkflowArtifactSpec>,
-    steps: Vec<WorkflowStepDefinition>,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum RawJobsContainer {
-    List(Vec<RawJob>),
-    Map(BTreeMap<String, RawJob>),
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum RawOnTrigger {
-    Single(String),
-    Multiple(Vec<String>),
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawWorkflow {
-    #[serde(default)]
-    version: Option<u32>,
-    name: String,
-    #[serde(default)]
-    on: Option<RawOnTrigger>,
-    jobs: RawJobsContainer,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged, deny_unknown_fields)]
-enum RawWorkflowFile {
-    Envelope {
-        #[serde(default)]
-        version: Option<u32>,
-        workflows: Vec<RawWorkflow>,
-    },
-    Single(RawWorkflow),
-}
+use uses::{RawJob, RawJobsContainer, RawOnTrigger, RawWorkflow, RawWorkflowFile};
 
 fn invalid(msg: impl Into<String>) -> GitEngineError {
     GitEngineError::VerificationInvalid(msg.into())
@@ -204,6 +141,12 @@ pub fn validate_workflow_relative_path(path: &str) -> Result<String, GitEngineEr
 
 #[path = "workflows_expand.rs"]
 mod expand;
+#[path = "workflows_uses.rs"]
+mod uses;
+#[path = "workflows_yaml.rs"]
+mod yaml;
+pub use uses::WorkflowArtifactDownloadSpec;
+pub use yaml::parse_safe_workflow_yaml;
 
 fn clean_opt_label(opt: Option<&str>, fallback: String) -> Result<String, GitEngineError> {
     // fail-open-ok: optional workflow/step display name falls back to validated job ID or default step label.
@@ -236,15 +179,20 @@ fn validate_named_paths(
     Ok((label, clean_paths))
 }
 
-fn normalize_job(job_id: String, rj: RawJob) -> Result<WorkflowJobDefinition, GitEngineError> {
+fn normalize_job(
+    repo: &gix::Repository,
+    root_tree: &gix::Tree<'_>,
+    job_id: String,
+    rj: RawJob,
+) -> Result<WorkflowJobDefinition, GitEngineError> {
     if !is_valid_ident(&job_id, 64) {
         return Err(invalid(format!("invalid job id '{job_id}'")));
     }
     let job_name = clean_opt_label(rj.name.as_deref(), job_id.clone())?;
+    let needs = rj.needs.into_vec();
     let mut seen_needs = BTreeSet::new();
-    if rj.needs.len() > MAX_JOBS_PER_WORKFLOW
-        || rj
-            .needs
+    if needs.len() > MAX_JOBS_PER_WORKFLOW
+        || needs
             .iter()
             .any(|d| d == &job_id || !seen_needs.insert(d.clone()))
     {
@@ -295,23 +243,41 @@ fn normalize_job(job_id: String, rj: RawJob) -> Result<WorkflowJobDefinition, Gi
     }
     // fail-open-ok: optional workflow job isolation_tier defaults to HostOs when omitted.
     let isolation_tier = rj.isolation_tier.unwrap_or_default();
+    let resolved_uses = uses::resolve_job_uses(repo, root_tree, rj.steps, rj.cache, rj.artifacts)?;
     let mut cache = None;
-    if let Some(c) = rj.cache {
+    if let Some(c) = resolved_uses.cache {
         let (key, paths) =
             validate_named_paths(&c.key, &c.paths, 8, &matrix_keys, &mut secrets_set)?;
         cache = Some(WorkflowCacheSpec { key, paths });
     }
     let mut artifacts = None;
-    if let Some(a) = rj.artifacts {
+    if let Some(a) = resolved_uses.artifacts {
         let (name, paths) =
             validate_named_paths(&a.name, &a.paths, 16, &matrix_keys, &mut secrets_set)?;
         artifacts = Some(WorkflowArtifactSpec { name, paths });
     }
-    if rj.steps.is_empty() || rj.steps.len() > MAX_STEPS_PER_JOB {
+    let mut download_artifacts = Vec::with_capacity(resolved_uses.download_artifacts.len());
+    for dl in resolved_uses.download_artifacts {
+        let clean_name = clean_opt_label(Some(&dl.name), String::new())?;
+        if clean_name.is_empty() {
+            return Err(invalid("invalid download-artifact name"));
+        }
+        expand::parse_and_validate_template_tokens(
+            &clean_name,
+            &matrix_keys,
+            &mut secrets_set,
+            false,
+        )?;
+        download_artifacts.push(WorkflowArtifactDownloadSpec {
+            name: clean_name,
+            path: dl.path,
+        });
+    }
+    if resolved_uses.steps.is_empty() || resolved_uses.steps.len() > MAX_STEPS_PER_JOB {
         return Err(invalid("job must contain 1..=16 steps"));
     }
-    let mut steps = Vec::with_capacity(rj.steps.len());
-    for (idx, step) in rj.steps.into_iter().enumerate() {
+    let mut steps = Vec::with_capacity(resolved_uses.steps.len());
+    for (idx, step) in resolved_uses.steps.into_iter().enumerate() {
         if step.run.trim().is_empty() || step.run.len() > 4096 || step.run.contains('\0') {
             return Err(invalid("step has invalid command"));
         }
@@ -334,13 +300,14 @@ fn normalize_job(job_id: String, rj: RawJob) -> Result<WorkflowJobDefinition, Gi
     Ok(WorkflowJobDefinition {
         id: job_id,
         name: job_name,
-        needs: rj.needs,
+        needs,
         runs_on,
         isolation_tier,
         matrix,
         secrets: secrets_set.into_iter().collect(),
         cache,
         artifacts,
+        download_artifacts,
         cache_key,
         artifact_name,
         steps_count,
@@ -348,7 +315,11 @@ fn normalize_job(job_id: String, rj: RawJob) -> Result<WorkflowJobDefinition, Gi
     })
 }
 
-fn validate_and_normalize_workflow(raw: RawWorkflow) -> Result<WorkflowDefinition, GitEngineError> {
+fn validate_and_normalize_workflow(
+    repo: &gix::Repository,
+    root_tree: &gix::Tree<'_>,
+    raw: RawWorkflow,
+) -> Result<WorkflowDefinition, GitEngineError> {
     if raw.version.is_some_and(|v| v != 1) {
         return Err(invalid("unsupported workflow version"));
     }
@@ -359,6 +330,7 @@ fn validate_and_normalize_workflow(raw: RawWorkflow) -> Result<WorkflowDefinitio
     let on = match raw.on {
         Some(RawOnTrigger::Single(s)) => vec![s],
         Some(RawOnTrigger::Multiple(v)) => v,
+        Some(RawOnTrigger::Map(m)) => m.into_keys().collect(),
         None => vec!["push".to_owned()],
     };
     if on.is_empty() || on.len() > 8 || !on.iter().all(|t| is_valid_ident(t, 64)) {
@@ -388,7 +360,7 @@ fn validate_and_normalize_workflow(raw: RawWorkflow) -> Result<WorkflowDefinitio
         in_degree.insert(job_id.clone(), 0usize);
         dependents.insert(job_id.clone(), Vec::new());
         decl_order.push(job_id.clone());
-        by_id.insert(job_id.clone(), normalize_job(job_id, rj)?);
+        by_id.insert(job_id.clone(), normalize_job(repo, root_tree, job_id, rj)?);
     }
     for (id, job) in &by_id {
         for dep in &job.needs {
@@ -431,12 +403,23 @@ fn validate_and_normalize_workflow(raw: RawWorkflow) -> Result<WorkflowDefinitio
     })
 }
 
-fn parse_workflow_blob_bytes(bytes: &[u8]) -> Result<Vec<WorkflowDefinition>, GitEngineError> {
+fn parse_workflow_blob_bytes(
+    repo: &gix::Repository,
+    root_tree: &gix::Tree<'_>,
+    bytes: &[u8],
+    is_yaml: bool,
+) -> Result<Vec<WorkflowDefinition>, GitEngineError> {
     if bytes.len() as u64 > MAX_WORKFLOW_BYTES {
         return Err(invalid("workflow file exceeds 64 KiB limit"));
     }
-    let parsed: RawWorkflowFile =
-        serde_json::from_slice(bytes).map_err(|_| invalid("invalid workflow JSON"))?;
+    let parsed: RawWorkflowFile = if is_yaml {
+        let text =
+            std::str::from_utf8(bytes).map_err(|_| invalid("YAML workflow must be valid UTF-8"))?;
+        let val = parse_safe_workflow_yaml(text)?;
+        serde_json::from_value(val).map_err(|_| invalid("invalid workflow YAML structure"))?
+    } else {
+        serde_json::from_slice(bytes).map_err(|_| invalid("invalid workflow JSON"))?
+    };
     match parsed {
         RawWorkflowFile::Envelope { version, workflows } => {
             if version.is_some_and(|v| v != 1)
@@ -447,18 +430,22 @@ fn parse_workflow_blob_bytes(bytes: &[u8]) -> Result<Vec<WorkflowDefinition>, Gi
             }
             let mut out = Vec::with_capacity(workflows.len());
             for wf in workflows {
-                out.push(validate_and_normalize_workflow(wf)?);
+                out.push(validate_and_normalize_workflow(repo, root_tree, wf)?);
             }
             Ok(out)
         }
-        RawWorkflowFile::Single(wf) => Ok(vec![validate_and_normalize_workflow(wf)?]),
+        RawWorkflowFile::Single(wf) => {
+            Ok(vec![validate_and_normalize_workflow(repo, root_tree, wf)?])
+        }
     }
 }
 
 fn load_blob_workflows(
     repo: &gix::Repository,
+    root_tree: &gix::Tree<'_>,
     mode: gix::object::tree::EntryMode,
     oid: gix::ObjectId,
+    is_yaml: bool,
 ) -> Result<Vec<WorkflowDefinition>, GitEngineError> {
     if !mode.is_blob() || mode.is_link() {
         return Err(invalid("workflow definition must be a regular blob"));
@@ -471,7 +458,7 @@ fn load_blob_workflows(
         return Err(invalid("workflow file exceeds 64 KiB"));
     }
     let obj = repo.find_object(oid).map_err(|e| invalid(e.to_string()))?;
-    parse_workflow_blob_bytes(&obj.data)
+    parse_workflow_blob_bytes(repo, root_tree, &obj.data, is_yaml)
 }
 
 impl GitEngine {
@@ -489,9 +476,23 @@ impl GitEngine {
             .tree()
             .map_err(tree_err)?;
         let mut workflows = Vec::new();
-        let root = ROOT_WORKFLOWS_PATH;
-        if let Some(e) = tree.lookup_entry_by_path(root).map_err(tree_err)? {
-            workflows.extend(load_blob_workflows(&repo, e.mode(), e.oid().into())?);
+        for (root, is_yaml) in [
+            (ROOT_WORKFLOWS_PATH, false),
+            (".gitust-workflows.yml", true),
+            (".gitust-workflows.yaml", true),
+        ] {
+            if let Some(e) = tree.lookup_entry_by_path(root).map_err(tree_err)? {
+                workflows.extend(load_blob_workflows(
+                    &repo,
+                    &tree,
+                    e.mode(),
+                    e.oid().into(),
+                    is_yaml,
+                )?);
+                if workflows.len() > MAX_WORKFLOW_FILES {
+                    return Err(invalid("too many workflow definitions in repository"));
+                }
+            }
         }
         let gh_dir = GITHUB_WORKFLOWS_DIR;
         if let Some(dir) = tree.lookup_entry_by_path(gh_dir).map_err(tree_err)? {
@@ -500,10 +501,18 @@ impl GitEngine {
                 let wf_tree = obj.try_into_tree().map_err(tree_err)?;
                 for item_res in wf_tree.iter() {
                     let item = item_res.map_err(tree_err)?;
-                    if !String::from_utf8_lossy(item.filename()).ends_with(".json") {
+                    let fname = String::from_utf8_lossy(item.filename());
+                    let is_yaml = fname.ends_with(".yml") || fname.ends_with(".yaml");
+                    if !fname.ends_with(".json") && !is_yaml {
                         continue;
                     }
-                    workflows.extend(load_blob_workflows(&repo, item.mode(), item.oid().into())?);
+                    workflows.extend(load_blob_workflows(
+                        &repo,
+                        &tree,
+                        item.mode(),
+                        item.oid().into(),
+                        is_yaml,
+                    )?);
                     if workflows.len() > MAX_WORKFLOW_FILES {
                         return Err(invalid("too many workflow definitions in repository"));
                     }

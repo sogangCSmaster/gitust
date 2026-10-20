@@ -228,6 +228,16 @@ pub(crate) fn contains_http_userinfo(text: &str) -> bool {
 }
 
 pub(crate) fn config_contains_credentials(text: &str) -> bool {
+    static LAST_CLEAN_CONFIG: std::sync::OnceLock<std::sync::Mutex<String>> =
+        std::sync::OnceLock::new();
+    if text.len() <= 4096 {
+        let cache = LAST_CLEAN_CONFIG.get_or_init(|| std::sync::Mutex::new(String::new()));
+        // fail-open-ok: pure-function memoization cache; poison recovery still compares exact config bytes.
+        if cache.lock().unwrap_or_else(|e| e.into_inner()).as_str() == text {
+            return false;
+        }
+    }
+
     // 1. Formal RFC-compliant `git-config` AST inspection via `gix::config::File`.
     // Fails closed if the config cannot be parsed by `gitoxide`, and inspects all unquoted
     // section names, subsection headers, keys, and escape-decoded values.
@@ -324,6 +334,11 @@ pub(crate) fn config_contains_credentials(text: &str) -> bool {
         if contains_http_userinfo(&line) {
             return true;
         }
+    }
+    if text.len() <= 4096 {
+        let cache = LAST_CLEAN_CONFIG.get_or_init(|| std::sync::Mutex::new(String::new()));
+        // fail-open-ok: pure-function memoization cache; stores only after full AST and lexical checks pass.
+        *cache.lock().unwrap_or_else(|e| e.into_inner()) = text.to_owned();
     }
     false
 }

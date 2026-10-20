@@ -221,6 +221,72 @@ impl AuthStore {
         self.persist_snapshot(snapshot)
     }
 
+    pub fn get_enabled_sso_provider(
+        &self,
+        provider_id: Uuid,
+        expected_protocol: SsoProtocol,
+    ) -> Result<(SsoProviderRecord, zeroize::Zeroizing<String>), AuthError> {
+        let guard = self.read_state()?;
+        let stored_prov = guard
+            .sso_providers
+            .iter()
+            .find(|p| {
+                p.record.id == provider_id
+                    && p.record.enabled
+                    && p.record.protocol == expected_protocol
+            })
+            .ok_or(AuthError::InvalidCredentials)?;
+        let secret = zeroize::Zeroizing::new(
+            String::from_utf8(self.secret_key.open(
+                &format!("sso:{}", stored_prov.record.id),
+                &stored_prov.secret,
+            )?)
+            .map_err(|_| AuthError::StorageError("invalid SSO secret encoding".into()))?,
+        );
+        Ok((stored_prov.record.clone(), secret))
+    }
+
+    pub fn check_sso_rate_limit(
+        &self,
+        subject_key: &str,
+        client_scope: Option<&str>,
+    ) -> Result<(), AuthError> {
+        let scope = client_scope
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 128)
+            // fail-open-ok: absent or invalid caller scope shares a fixed restrictive rate-limit bucket.
+            .unwrap_or("default");
+        let rl_key = scoped_id_rate_limit_key(scope, &subject_key.trim().to_ascii_lowercase());
+        let mut guard = self.write_state()?;
+        if Self::is_rate_limited_locked(&mut guard, &rl_key, Utc::now()) {
+            return Err(AuthError::RateLimitExceeded);
+        }
+        Ok(())
+    }
+
+    pub fn record_sso_failed_attempt(
+        &self,
+        subject_key: &str,
+        client_scope: Option<&str>,
+    ) -> Result<(), AuthError> {
+        let scope = client_scope
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 128)
+            // fail-open-ok: absent or invalid caller scope shares a fixed restrictive rate-limit bucket.
+            .unwrap_or("default");
+        let rl_key = scoped_id_rate_limit_key(scope, &subject_key.trim().to_ascii_lowercase());
+        let snapshot = {
+            let mut guard = self.write_state()?;
+            let now = Utc::now();
+            if Self::is_rate_limited_locked(&mut guard, &rl_key, now) {
+                return Err(AuthError::RateLimitExceeded);
+            }
+            Self::record_failed_login_locked(&mut guard, rl_key, now);
+            self.maybe_snapshot(guard)
+        };
+        self.persist_snapshot(snapshot)
+    }
+
     pub fn login_with_sso_assertion(
         &self,
         input: SsoAssertionLoginInput,

@@ -271,6 +271,7 @@ fn bench_materialize_agent_worktree() {
         git(&repo_dir, &["commit", "-q", "-m", "bench"]);
 
         let engine = GitEngine::new(&repo_dir);
+        let _service_lock = engine.lock_worktree_service().expect("service lock");
         let mut samples = Vec::new();
         for run in 0..5 {
             let m = materialize(&engine, &format!("agent/bench/r{run}")).expect("materialize");

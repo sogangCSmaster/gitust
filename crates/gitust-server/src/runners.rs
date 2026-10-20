@@ -24,6 +24,9 @@ use uuid::Uuid;
 use crate::{
     auth::{extract_principal, extract_principal_async},
     repository_reads::{id as parse_repo_id, response},
+    runners_dispatch::{
+        CompleteRemoteJobInput, CompletedRemoteJob, RemoteDispatchStore, RemoteJobView,
+    },
     state::{check_repo_bola, internal_err, map_auth_err, AppState},
     workflow_cache_artifacts::{evict_shared_cache, list_shared_caches},
     workflows::{bad_req, unavailable, ApiError},
@@ -36,11 +39,9 @@ const BUILTIN_LOCAL_UUID: u128 = 1;
 fn not_found(msg: impl Into<String>) -> ApiError {
     (StatusCode::NOT_FOUND, msg.into())
 }
-
 fn conflict(msg: impl Into<String>) -> ApiError {
     (StatusCode::CONFLICT, msg.into())
 }
-
 fn is_valid_runner_ident(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 64
@@ -57,6 +58,8 @@ pub(crate) struct RegisterRunnerInput {
     pub(crate) supported_tiers: Vec<IsolationTier>,
     #[serde(default)]
     pub(crate) max_concurrency: Option<u32>,
+    #[serde(default)]
+    pub(crate) remote_dispatch: bool,
 }
 
 #[derive(Deserialize)]
@@ -68,6 +71,7 @@ pub(crate) struct HeartbeatRunnerInput {
 
 pub struct RunnerFleetRegistry {
     nodes: RwLock<BTreeMap<RunnerNodeId, RunnerNodeRecord>>,
+    dispatch: RemoteDispatchStore,
 }
 
 impl Default for RunnerFleetRegistry {
@@ -80,10 +84,18 @@ pub(crate) struct RunnerLeaseGuard {
     fleet: Arc<RunnerFleetRegistry>,
     pub(crate) runner_id: RunnerNodeId,
     pub(crate) runner_name: String,
+    pub(crate) is_remote: bool,
+    pub(crate) in_flight_job_id: Option<Uuid>,
 }
 
 impl Drop for RunnerLeaseGuard {
     fn drop(&mut self) {
+        if let Some(job_id) = self.in_flight_job_id.take() {
+            if let Some((cur_id, cur_name)) = self.fleet.dispatch.cancel_job(job_id) {
+                self.runner_id = cur_id;
+                self.runner_name = cur_name;
+            }
+        }
         let mut guard = self.fleet.nodes.write();
         if let Some(node) = guard.get_mut(&self.runner_id) {
             node.active_leases = node.active_leases.saturating_sub(1);
@@ -111,6 +123,7 @@ impl RunnerFleetRegistry {
         map.insert(id, local);
         Self {
             nodes: RwLock::new(map),
+            dispatch: RemoteDispatchStore::default(),
         }
     }
 
@@ -170,6 +183,10 @@ impl RunnerFleetRegistry {
             last_heartbeat_at: now,
         };
         guard.insert(id, record.clone());
+        drop(guard);
+        if input.remote_dispatch {
+            self.dispatch.enable_remote_worker(id);
+        }
         Ok(record)
     }
 
@@ -186,7 +203,15 @@ impl RunnerFleetRegistry {
             node.status = st;
         }
         node.last_heartbeat_at = Utc::now().to_rfc3339();
-        Ok(node.clone())
+        let snapshot = node.clone();
+        if snapshot.status == RunnerStatus::Offline {
+            self.dispatch
+                .failover_jobs_from_runner(id, &mut guard, BUILTIN_LOCAL_UUID);
+        }
+        match guard.get(&id).cloned() {
+            Some(updated) => Ok(updated),
+            None => Ok(snapshot),
+        }
     }
 
     pub(crate) fn deregister(&self, id: RunnerNodeId) -> Result<(), ApiError> {
@@ -201,6 +226,7 @@ impl RunnerFleetRegistry {
             return Err(conflict("runner has active workflow leases"));
         }
         guard.remove(&id);
+        self.dispatch.disable_remote_worker(id);
         Ok(())
     }
 
@@ -217,10 +243,10 @@ impl RunnerFleetRegistry {
         }
         let mut guard = self.nodes.write();
         let mut matching_online = false;
-        let mut selected_id: Option<(RunnerNodeId, u32)> = None;
+        let mut selected_id: Option<(RunnerNodeId, u32, String)> = None;
         for (id, node) in guard.iter() {
-            // Registered nodes are inventory only until a remote execution transport exists.
-            if id.0.as_u128() != BUILTIN_LOCAL_UUID {
+            let is_local = id.0.as_u128() == BUILTIN_LOCAL_UUID;
+            if !is_local && !self.dispatch.is_remote_worker_enabled(*id) {
                 continue;
             }
             if node.status != RunnerStatus::Online {
@@ -234,9 +260,12 @@ impl RunnerFleetRegistry {
             matching_online = true;
             if node.active_leases < node.max_concurrency {
                 match selected_id {
-                    None => selected_id = Some((*id, node.active_leases)),
-                    Some((_, best_leases)) if node.active_leases < best_leases => {
-                        selected_id = Some((*id, node.active_leases));
+                    None => selected_id = Some((*id, node.active_leases, node.name.clone())),
+                    Some((best_id, best_leases, ref best_name))
+                        if (node.active_leases, node.name.as_str(), *id)
+                            < (best_leases, best_name.as_str(), best_id) =>
+                    {
+                        selected_id = Some((*id, node.active_leases, node.name.clone()));
                     }
                     Some(_) => {}
                 }
@@ -244,10 +273,10 @@ impl RunnerFleetRegistry {
         }
         if !matching_online {
             return Err(conflict(format!(
-                "no local runner available for label '{required_label}' and isolation tier '{required_tier}'; remote runner execution is not implemented"
+                "no online runner available for label '{required_label}' and isolation tier '{required_tier}'"
             )));
         }
-        let Some((chosen_id, _)) = selected_id else {
+        let Some((chosen_id, _, _)) = selected_id else {
             return Err(conflict(
                 "all matching online runners are at max concurrency",
             ));
@@ -260,10 +289,74 @@ impl RunnerFleetRegistry {
             fleet: Arc::clone(self),
             runner_id: chosen_id,
             runner_name: node.name.clone(),
+            is_remote: chosen_id.0.as_u128() != BUILTIN_LOCAL_UUID,
+            in_flight_job_id: None,
         })
     }
-}
 
+    pub(crate) fn enqueue_remote_job(
+        &self,
+        lease: &mut RunnerLeaseGuard,
+        exp_job: &gitust_git::ExpandedWorkflowJob,
+        commands: Vec<String>,
+    ) -> tokio::sync::oneshot::Receiver<Result<CompletedRemoteJob, (RunnerNodeId, String, String)>>
+    {
+        let (art_name, art_paths) = match exp_job.artifacts {
+            Some(ref a) => (Some(a.name.clone()), a.paths.clone()),
+            None => (None, Vec::new()),
+        };
+        let (job_run_id, rx) = self.dispatch.enqueue_job(
+            lease.runner_id,
+            lease.runner_name.clone(),
+            exp_job.job_id.clone(),
+            exp_job.display_name.clone(),
+            exp_job.runs_on.clone(),
+            exp_job.isolation_tier,
+            commands,
+            art_name,
+            art_paths,
+        );
+        lease.in_flight_job_id = Some(job_run_id);
+        rx
+    }
+
+    pub(crate) fn cancel_lease_remote_job(&self, lease: &mut RunnerLeaseGuard) {
+        if let Some(job_run_id) = lease.in_flight_job_id.take() {
+            if let Some((cur_id, cur_name)) = self.dispatch.cancel_job(job_run_id) {
+                lease.runner_id = cur_id;
+                lease.runner_name = cur_name;
+            }
+        }
+    }
+
+    pub(crate) fn poll_remote_job(
+        &self,
+        runner_id: RunnerNodeId,
+    ) -> Result<Option<RemoteJobView>, ApiError> {
+        let mut guard = self.nodes.write();
+        let node = guard
+            .get_mut(&runner_id)
+            .ok_or_else(|| not_found("runner node not found"))?;
+        if node.status != RunnerStatus::Online {
+            return Ok(None);
+        }
+        node.last_heartbeat_at = Utc::now().to_rfc3339();
+        drop(guard);
+        Ok(self.dispatch.poll_next_for_runner(runner_id))
+    }
+
+    pub(crate) fn complete_remote_job(
+        &self,
+        runner_id: RunnerNodeId,
+        job_run_id: Uuid,
+        input: CompleteRemoteJobInput,
+    ) -> Result<RunnerNodeId, ApiError> {
+        if !self.nodes.read().contains_key(&runner_id) {
+            return Err(not_found("runner node not found"));
+        }
+        self.dispatch.complete_job(runner_id, job_run_id, input)
+    }
+}
 fn parse_runner_id(raw: &str) -> Result<RunnerNodeId, ApiError> {
     Uuid::parse_str(raw.trim())
         .map(RunnerNodeId)

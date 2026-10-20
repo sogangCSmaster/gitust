@@ -293,8 +293,8 @@ pub(crate) fn save_workflow_run(
             return Err("workflow history checkpoint is missing".into());
         }
         conn.execute(
-            "INSERT INTO workflow_runs (run_id, repo_id, payload_json)
-             VALUES (?1, ?2, ?3);",
+            "INSERT OR REPLACE INTO workflow_runs (seq, run_id, repo_id, payload_json)
+             VALUES ((SELECT seq FROM workflow_runs WHERE run_id = ?1), ?1, ?2, ?3);",
             &[
                 SqlValue::Text(run.run_id.clone()),
                 SqlValue::Text(repo_id_str),
@@ -315,6 +315,7 @@ pub(crate) fn save_workflow_run(
     .map_err(unavailable)?;
 
     let mut mirror_runs = existing_runs;
+    mirror_runs.retain(|r| r.run_id != run.run_id);
     mirror_runs.insert(0, run.clone());
     mirror_runs.truncate(JSON_MIRROR_WINDOW_RUNS);
     let runs_env = StoredRunsEnvelope {

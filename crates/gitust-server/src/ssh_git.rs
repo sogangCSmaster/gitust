@@ -38,7 +38,24 @@ impl Listener {
             keys: vec![key],
             methods: MethodSet::from(&[MethodKind::PublicKey][..]),
             preferred: russh::Preferred {
-                key: Cow::Owned(vec![Algorithm::Ed25519]),
+                key: Cow::Owned(vec![
+                    Algorithm::Ed25519,
+                    Algorithm::Ecdsa {
+                        curve: russh::keys::EcdsaCurve::NistP256,
+                    },
+                    Algorithm::Ecdsa {
+                        curve: russh::keys::EcdsaCurve::NistP384,
+                    },
+                    Algorithm::Ecdsa {
+                        curve: russh::keys::EcdsaCurve::NistP521,
+                    },
+                    Algorithm::Rsa {
+                        hash: Some(russh::keys::HashAlg::Sha512),
+                    },
+                    Algorithm::Rsa {
+                        hash: Some(russh::keys::HashAlg::Sha256),
+                    },
+                ]),
                 ..Default::default()
             },
             max_auth_attempts: 3,

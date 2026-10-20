@@ -121,4 +121,74 @@ impl AuthStore {
         let snapshot = self.maybe_snapshot(guard);
         self.persist_snapshot(snapshot)
     }
+
+    pub fn rotate_master_secret_key_with_credential(
+        &self,
+        credential: &str,
+        original_user: gitust_core::UserId,
+        new_key_bytes: [u8; 32],
+        revoke_existing_credentials: bool,
+    ) -> Result<usize, AuthError> {
+        let new_key = SecretKey::supplied(new_key_bytes);
+        let caller_token_hash = crate::crypto::hash_token_sha256(credential);
+        let (rotated_count, prev_key, snapshot) = {
+            let mut guard = self.write_state()?;
+            let admin_id =
+                crate::mutation_authority::MutationAuthority::Credential(credential, original_user)
+                    .verify(&guard)?;
+            let mut count = 0usize;
+            for (repo, list) in &mut guard.workflow_secrets {
+                for item in list {
+                    let ctx = format!("workflow:{}:{}", repo.0, item.name);
+                    let plain = zeroize::Zeroizing::new(self.secret_key.open(&ctx, &item.secret)?);
+                    item.secret = new_key.seal(&ctx, &plain)?;
+                    count = count.saturating_add(1);
+                }
+            }
+            for (user, item) in &mut guard.totp_enrollments {
+                let ctx = format!("totp:{}", user.0);
+                let plain = zeroize::Zeroizing::new(self.secret_key.open(&ctx, &item.secret)?);
+                item.secret = new_key.seal(&ctx, &plain)?;
+                count = count.saturating_add(1);
+            }
+            for item in &mut guard.sso_providers {
+                let ctx = format!("sso:{}", item.record.id);
+                let plain = zeroize::Zeroizing::new(self.secret_key.open(&ctx, &item.secret)?);
+                item.secret = new_key.seal(&ctx, &plain)?;
+                count = count.saturating_add(1);
+            }
+            if revoke_existing_credentials {
+                for (hash, session) in &mut guard.sessions_by_hash {
+                    if *hash != caller_token_hash {
+                        session.revoked = true;
+                    }
+                }
+                for pat in guard.pats_by_id.values_mut() {
+                    if pat.token_sha256 != caller_token_hash {
+                        pat.revoked = true;
+                    }
+                }
+            }
+            let admin_username = guard
+                .users
+                .get(&admin_id)
+                .map(|u| u.username.clone())
+                // fail-open-ok: verified active admin exists in guard.users.
+                .unwrap_or_default();
+            crate::sso_audit::append_audit_event_locked(
+                &mut guard,
+                Some(admin_id),
+                &admin_username,
+                "security.secrets.rotate",
+                &format!("rotated:{count}:revoke:{revoke_existing_credentials}"),
+            );
+            let prev_key = self.secret_key.replace_supplied(new_key_bytes);
+            (count, prev_key, self.maybe_snapshot(guard))
+        };
+        if let Err(err) = self.persist_snapshot(snapshot) {
+            self.secret_key.restore_supplied(prev_key);
+            return Err(err);
+        }
+        Ok(rotated_count)
+    }
 }

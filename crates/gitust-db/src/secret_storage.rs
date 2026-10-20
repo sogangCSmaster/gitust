@@ -11,8 +11,10 @@ use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
+type SharedSecretKeyBytes = Arc<Zeroizing<[u8; 32]>>;
+
 #[derive(Clone)]
-pub(crate) struct SecretKey(Option<Arc<Zeroizing<[u8; 32]>>>);
+pub(crate) struct SecretKey(Arc<parking_lot::RwLock<Option<SharedSecretKeyBytes>>>);
 impl std::fmt::Debug for SecretKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("SecretKey([redacted])")
@@ -45,10 +47,18 @@ fn invalid() -> AuthError {
 impl SecretKey {
     #[cfg(test)]
     pub(crate) fn absent() -> Self {
-        Self(None)
+        Self(Arc::new(parking_lot::RwLock::new(None)))
     }
     pub(crate) fn supplied(key: [u8; 32]) -> Self {
-        Self(Some(Arc::new(Zeroizing::new(key))))
+        Self(Arc::new(parking_lot::RwLock::new(Some(Arc::new(
+            Zeroizing::new(key),
+        )))))
+    }
+    pub(crate) fn replace_supplied(&self, key: [u8; 32]) -> Option<SharedSecretKeyBytes> {
+        self.0.write().replace(Arc::new(Zeroizing::new(key)))
+    }
+    pub(crate) fn restore_supplied(&self, prev: Option<SharedSecretKeyBytes>) {
+        *self.0.write() = prev;
     }
     pub(crate) fn ephemeral() -> Self {
         let mut key = [0; 32];
@@ -64,14 +74,19 @@ impl SecretKey {
                 }
                 let mut key = Zeroizing::new([0; 32]);
                 hex::decode_to_slice(raw.as_bytes(), key.as_mut()).map_err(|_| invalid())?;
-                Ok(Self(Some(Arc::new(key))))
+                Ok(Self(Arc::new(parking_lot::RwLock::new(Some(Arc::new(
+                    key,
+                ))))))
             }
-            Err(std::env::VarError::NotPresent) => Ok(Self(None)),
+            Err(std::env::VarError::NotPresent) => {
+                Ok(Self(Arc::new(parking_lot::RwLock::new(None))))
+            }
             Err(_) => Err(invalid()),
         }
     }
     fn cipher(&self) -> Result<Aes256Gcm, AuthError> {
-        let key = self.0.as_ref().ok_or_else(|| {
+        let guard = self.0.read();
+        let key = guard.as_ref().ok_or_else(|| {
             AuthError::StorageError(
                 "GITUST_SECRET_KEY (64 hex characters) is required for persistent secrets".into(),
             )

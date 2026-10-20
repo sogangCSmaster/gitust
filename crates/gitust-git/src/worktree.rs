@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use chrono::Utc;
 use gitust_core::{AgentKind, AgentWorktree, CommitSha, RepoId, WorktreeId, WorktreeStatus};
-use gix::refs::transaction::{Change, PreviousValue, RefEdit, RefLog};
+use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
 use gix::refs::{FullName, Target};
 use serde::{Deserialize, Serialize};
 
@@ -74,12 +74,13 @@ impl GitEngine {
             )));
         }
         let start = Instant::now();
-        let _service = self.lock_worktree_service()?;
+        let mut repo = self.acquire_repo()?;
+        let common_git_dir = Self::common_git_dir(&repo);
+        let _service =
+            self.lock_worktree_service_path(&common_git_dir.join("gitust-worktree-service.lock"))?;
         let clean_branch = Self::validate_agent_branch_name(branch)?;
         let clean_base = Self::validate_branch_name(base_branch)?;
 
-        let mut repo = self.acquire_repo()?;
-        let common_git_dir = Self::common_git_dir(&repo);
         crate::config_guard::reject_replacement_refs(&repo)?;
         reject_credentials_in_config(&common_git_dir)?;
         ensure_reflog_identity(&mut repo)?;
@@ -93,6 +94,10 @@ impl GitEngine {
             .detach();
 
         let full_branch = format!("refs/heads/{clean_branch}");
+        let loose_branch_path = common_git_dir.join(&full_branch);
+        if fs::symlink_metadata(&loose_branch_path).is_ok() {
+            return Err(GitEngineError::BranchAlreadyExists(clean_branch));
+        }
         let branch_exists = repo
             .try_find_reference(full_branch.as_str())
             .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?
@@ -100,24 +105,92 @@ impl GitEngine {
         if branch_exists {
             return Err(GitEngineError::BranchAlreadyExists(clean_branch));
         }
-        if let Err(e) = crate::ref_transaction::update(
-            &repo,
-            full_branch.as_str(),
-            base_id,
-            PreviousValue::MustNotExist,
-            format!("gitust: create agent branch from {clean_base}"),
-        ) {
-            if matches!(repo.try_find_reference(full_branch.as_str()), Ok(Some(_))) {
-                return Err(GitEngineError::BranchAlreadyExists(clean_branch));
-            }
-            return Err(GitEngineError::RefTransaction(e.to_string()));
+        let full_branch_name: FullName = full_branch
+            .as_str()
+            .try_into()
+            .map_err(|_| GitEngineError::InvalidBranchName(clean_branch.clone()))?;
+        let lock_wait = gix::lock::acquire::Fail::AfterDurationWithBackoff(
+            std::time::Duration::from_millis(150),
+        );
+        let prepared = repo
+            .refs
+            .transaction()
+            .prepare(
+                vec![RefEdit {
+                    change: Change::Update {
+                        log: LogChange {
+                            mode: RefLog::AndReference,
+                            force_create_reflog: false,
+                            message: format!("gitust: create agent branch from {clean_base}")
+                                .into(),
+                        },
+                        expected: PreviousValue::MustNotExist,
+                        new: Target::Object(base_id),
+                    },
+                    name: full_branch_name,
+                    deref: false,
+                }],
+                lock_wait,
+                lock_wait,
+            )
+            .map_err(|e| {
+                if fs::symlink_metadata(&loose_branch_path).is_ok()
+                    || matches!(repo.try_find_reference(full_branch.as_str()), Ok(Some(_)))
+                {
+                    GitEngineError::BranchAlreadyExists(clean_branch.clone())
+                } else {
+                    GitEngineError::RefTransaction(e.to_string())
+                }
+            })?;
+        if fs::symlink_metadata(&loose_branch_path).is_ok() {
+            drop(prepared);
+            return Err(GitEngineError::BranchAlreadyExists(clean_branch));
         }
+        let committer = repo
+            .committer()
+            .transpose()
+            .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?
+            .ok_or_else(|| GitEngineError::RefTransaction("missing committer".into()))?;
+        prepared
+            .commit(committer)
+            .map_err(|e| GitEngineError::RefTransaction(e.to_string()))?;
 
-        let worktrees_base = self.worktrees_base(&repo, &common_git_dir);
+        let main_workdir = repo.work_dir().map(|w| {
+            if w.is_absolute() && fs::symlink_metadata(w).is_ok_and(|m| !m.file_type().is_symlink())
+            {
+                w.to_path_buf()
+            } else {
+                // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
+                fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf())
+            }
+        });
+        let worktrees_base = if let Some(custom) = &self.worktree_base_dir {
+            custom.clone()
+        } else {
+            main_workdir
+                .as_ref()
+                .and_then(|w| {
+                    let name = w.file_name()?.to_string_lossy().into_owned();
+                    Some(w.parent()?.join(format!(".{name}.gitust-worktrees")))
+                })
+                // fail-open-ok: bare repositories intentionally store managed checkouts beneath their common Git directory.
+                .unwrap_or_else(|| common_git_dir.join(crate::WORKTREES_DIR_NAME))
+        };
         let worktree_dir = worktrees_base.join(worktree_id.0.to_string());
-        let checkout = fs::create_dir_all(&worktrees_base)
-            .map_err(|e| io_err(&worktrees_base, &e))
-            .and_then(|()| {
+        let checkout = crate::worktree_cow::try_materialize_cow_worktree(
+            &repo,
+            &common_git_dir,
+            &worktrees_base,
+            worktree_id,
+            &clean_branch,
+            &clean_base,
+            base_id,
+            &prompt_summary,
+        )
+        .and_then(|cow_opt| match cow_opt {
+            Some(paths) => Ok(paths),
+            None => {
+                fs::create_dir_all(&worktrees_base).map_err(|e| io_err(&worktrees_base, &e))?;
                 run_git(
                     &self.repo_path,
                     [
@@ -127,10 +200,8 @@ impl GitEngine {
                         worktree_dir.as_os_str(),
                         OsStr::new(clean_branch.as_str()),
                     ],
-                )
-            })
-            .and_then(|_| read_worktree_admin_dir(&worktree_dir, &common_git_dir))
-            .and_then(|admin| {
+                )?;
+                let admin = read_worktree_admin_dir(&worktree_dir, &common_git_dir)?;
                 crate::worktree_origin::persist(
                     &admin,
                     worktree_id,
@@ -139,10 +210,23 @@ impl GitEngine {
                     &CommitSha(base_id.to_string()),
                     Some(&prompt_summary),
                 )?;
-                Ok(admin)
-            });
-        let worktree_admin_dir = match checkout {
-            Ok(dir) => dir,
+                // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
+                let worktree_dir = fs::canonicalize(&worktree_dir).unwrap_or(worktree_dir.clone());
+                // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
+                let base_dir = fs::canonicalize(&worktrees_base).unwrap_or(worktrees_base.clone());
+                Ok(crate::worktree_cow::CowWorktreePaths {
+                    worktree_dir,
+                    worktree_admin_dir: admin,
+                    worktrees_base: base_dir,
+                })
+            }
+        });
+        let crate::worktree_cow::CowWorktreePaths {
+            worktree_dir,
+            worktree_admin_dir,
+            worktrees_base,
+        } = match checkout {
+            Ok(paths) => paths,
             Err(e) => {
                 // fail-open-ok: best-effort rollback cleanup after `git worktree add` failure before returning `Err(e)`.
                 let _ = run_git(
@@ -171,14 +255,6 @@ impl GitEngine {
             }
         };
 
-        // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
-        let worktree_dir = fs::canonicalize(&worktree_dir).unwrap_or(worktree_dir);
-        // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
-        let worktrees_base = fs::canonicalize(&worktrees_base).unwrap_or(worktrees_base);
-        let main_workdir = repo
-            .work_dir()
-            // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
-            .map(|w| fs::canonicalize(w).unwrap_or_else(|_| w.to_path_buf()));
         // fail-open-ok: saturating telemetry conversion; does not authorize access or alter Git state.
         let materialize_micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
 

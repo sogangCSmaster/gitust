@@ -3,7 +3,7 @@ use gitust_db::AuthenticatedSshKey;
 use gitust_git::{SshUploadPack, SshUploadPackCancel};
 use parking_lot::Mutex;
 use russh::{
-    keys::{Algorithm, PublicKey},
+    keys::PublicKey,
     server::{self, Auth, Handler, Session},
     Channel, ChannelId, ChannelStream,
 };
@@ -108,17 +108,18 @@ impl GitSession {
         }
     }
     fn allowed_key(&self, user: &str, key: &PublicKey) -> bool {
-        user == "git"
-            && matches!(
-                key.algorithm(),
-                Algorithm::Ed25519
-                    | Algorithm::Ecdsa {
-                        curve: russh::keys::EcdsaCurve::NistP256
-                            | russh::keys::EcdsaCurve::NistP384
-                            | russh::keys::EcdsaCurve::NistP521
-                    }
-            )
-            && !self.control.closing.load(Ordering::Acquire)
+        let supported_key = match key.key_data() {
+            russh::keys::ssh_key::public::KeyData::Ed25519(_) => true,
+            russh::keys::ssh_key::public::KeyData::Ecdsa(ecdsa) => matches!(
+                ecdsa.curve(),
+                russh::keys::EcdsaCurve::NistP256
+                    | russh::keys::EcdsaCurve::NistP384
+                    | russh::keys::EcdsaCurve::NistP521
+            ),
+            russh::keys::ssh_key::public::KeyData::Rsa(rsa) => rsa.key_size() >= 2048,
+            _ => false,
+        };
+        user == "git" && supported_key && !self.control.closing.load(Ordering::Acquire)
     }
     fn refused(channel: ChannelId, session: &mut Session) -> Result<(), russh::Error> {
         session.channel_failure(channel)?;
@@ -164,7 +165,7 @@ impl Handler for GitSession {
         }
     }
     // Certificates, passwords, keyboard interaction and forwarded channels retain the
-    // library's rejecting defaults. Only plain Ed25519 or ECDSA public keys reach the callback above.
+    // library's rejecting defaults. Only plain Ed25519, ECDSA, or >=2048-bit RSA public keys reach the callback above.
     async fn channel_open_session(
         &mut self,
         channel: Channel<server::Msg>,

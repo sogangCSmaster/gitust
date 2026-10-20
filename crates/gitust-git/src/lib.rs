@@ -57,12 +57,15 @@ mod tests_repository_identity;
 mod tests_repository_registration;
 #[cfg(test)]
 mod tests_search;
+#[cfg(test)]
+mod tests_worktree_cow;
 mod verification;
 mod worktree;
 mod worktree_commit;
 mod worktree_commit_index;
 mod worktree_commit_normalize;
 mod worktree_commit_paths;
+mod worktree_cow;
 mod worktree_metadata;
 mod worktree_origin;
 mod worktree_recovery;
@@ -110,9 +113,9 @@ pub use worktree::{ManagedWorktreeEntry, MaterializedWorktree};
 pub use worktree_commit::{PreparedWorktreeCommit, WorktreeCommit};
 mod workflows;
 pub use workflows::{
-    validate_secret_name_syntax, validate_workflow_relative_path, ExpandedWorkflowJob,
-    WorkflowArtifactSpec, WorkflowCacheSpec, WorkflowDefinition, WorkflowJobDefinition,
-    WorkflowStepDefinition,
+    parse_safe_workflow_yaml, validate_secret_name_syntax, validate_workflow_relative_path,
+    ExpandedWorkflowJob, WorkflowArtifactDownloadSpec, WorkflowArtifactSpec, WorkflowCacheSpec,
+    WorkflowDefinition, WorkflowJobDefinition, WorkflowStepDefinition,
 };
 
 /// Every branch created on behalf of an agent lives under this namespace. The sync engine keeps
@@ -270,7 +273,7 @@ impl GitEngine {
         let path = repo_path.as_ref().to_path_buf();
         let lock = OnceLock::new();
         // fail-open-ok: eager warm-up only; `acquire_repo()` fails closed with `OpenRepo` if the repository is not yet initialized.
-        if let Ok(repo) = gix::ThreadSafeRepository::open(&path) {
+        if let Ok(repo) = open_shared_repo(&path) {
             // fail-open-ok: freshly created `OnceLock` has no concurrent writer.
             let _ = lock.set(repo);
         }
@@ -321,11 +324,9 @@ impl GitEngine {
         if let Some(shared) = self.shared_repo.get() {
             return Ok(shared.to_thread_local());
         }
-        let opened = gix::ThreadSafeRepository::open(&self.repo_path).map_err(|e| {
-            GitEngineError::OpenRepo {
-                path: self.repo_path.display().to_string(),
-                message: e.to_string(),
-            }
+        let opened = open_shared_repo(&self.repo_path).map_err(|e| GitEngineError::OpenRepo {
+            path: self.repo_path.display().to_string(),
+            message: e.to_string(),
         })?;
         let local = opened.to_thread_local();
         // fail-open-ok: benign `OnceLock::set` race when two threads initialize the cache simultaneously; `local` is already opened.
@@ -469,6 +470,11 @@ impl GitEngine {
 
     pub(crate) fn common_git_dir(repo: &gix::Repository) -> PathBuf {
         let common = repo.common_dir();
+        if common.is_absolute()
+            && fs::symlink_metadata(common).is_ok_and(|m| !m.file_type().is_symlink())
+        {
+            return common.to_path_buf();
+        }
         // fail-open-ok: path normalization only; the gix repository remains the source of the locator and filesystem operations reject inaccessible paths.
         fs::canonicalize(common).unwrap_or_else(|_| common.to_path_buf())
     }
@@ -538,6 +544,21 @@ pub(crate) fn io_err(path: &Path, e: &std::io::Error) -> GitEngineError {
         path: path.display().to_string(),
         message: e.to_string(),
     }
+}
+
+#[allow(clippy::result_large_err)]
+fn open_shared_repo(path: &Path) -> Result<gix::ThreadSafeRepository, gix::open::Error> {
+    let open_target = if fs::symlink_metadata(path).is_ok_and(|m| !m.file_type().is_symlink()) {
+        // fail-open-ok: canonicalizes parent symlink prefixes (such as macOS /var -> /private/var) while preserving leaf symlink rejection.
+        fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    };
+    let opened = gix::ThreadSafeRepository::open(open_target)?;
+    let mut local = opened.to_thread_local();
+    // fail-open-ok: pre-populates default committer identity in the cached snapshot; callers still call `ensure_reflog_identity`.
+    let _ = ensure_reflog_identity(&mut local);
+    Ok(local.into_sync())
 }
 
 /// Ensures a committer identity exists for reflog entries, without touching any config on disk.

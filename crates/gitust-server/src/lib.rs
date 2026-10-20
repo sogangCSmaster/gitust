@@ -35,6 +35,7 @@ mod local_checks_automatic_worker;
 pub mod local_checks_history;
 pub mod mcp;
 pub mod oauth;
+pub mod oidc_ldap;
 mod outbound;
 mod pull_requests;
 mod pull_requests_merge;
@@ -57,6 +58,7 @@ mod repository_summary;
 mod repository_visibility;
 mod run_history;
 pub mod runners;
+pub(crate) mod runners_dispatch;
 mod sandbox_policy;
 mod source_of_truth_sync;
 mod ssh_git;
@@ -72,6 +74,7 @@ mod state_errors;
 mod state_oauth;
 mod transports;
 pub mod webui;
+pub(crate) mod workflow_artifacts_api;
 pub(crate) mod workflow_cache_artifacts;
 mod workflow_exec;
 mod workflow_store;
@@ -234,6 +237,14 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/auth/sso/login",
             post(enterprise_security::sso_login_handler),
         )
+        .route(
+            "/api/v1/auth/sso/oidc/login",
+            post(oidc_ldap::oidc_login_handler),
+        )
+        .route(
+            "/api/v1/auth/sso/ldap/login",
+            post(oidc_ldap::ldap_login_handler),
+        )
         // SiteAdmin Routes (BFLA protected)
         .route(
             "/api/v1/admin/sso/providers",
@@ -247,6 +258,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/admin/audit-log",
             get(enterprise_security::audit_log_handler),
+        )
+        .route(
+            "/api/v1/admin/security/rotate-secrets",
+            post(enterprise_security::rotate_secrets_handler),
         )
         .route(
             "/api/v1/admin/invites",
@@ -363,6 +378,14 @@ pub fn build_router(state: AppState) -> Router {
             get(workflows::list_run_artifacts),
         )
         .route(
+            "/api/v1/repos/{id}/workflow-runs/{run_id}/artifacts/{name}",
+            axum::routing::put(workflow_artifacts_api::upload_run_artifact),
+        )
+        .route(
+            "/api/v1/repos/{id}/workflow-runs/{run_id}/artifacts/{name}/download",
+            get(workflow_artifacts_api::download_run_artifact),
+        )
+        .route(
             "/api/v1/repos/{id}/workflow-secrets",
             get(workflows::list_secrets),
         )
@@ -376,7 +399,9 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/repos/{id}/caches/{key}",
-            delete(runners::evict_repo_cache_handler),
+            get(workflow_artifacts_api::get_shared_cache_bundle)
+                .put(workflow_artifacts_api::put_shared_cache_bundle)
+                .delete(runners::evict_repo_cache_handler),
         )
         .route(
             "/api/v1/admin/runners",
@@ -385,6 +410,14 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/admin/runners/{runner_id}/heartbeat",
             post(runners::heartbeat_runner_handler),
+        )
+        .route(
+            "/api/v1/admin/runners/{runner_id}/jobs/poll",
+            post(runners_dispatch::poll_runner_job_handler),
+        )
+        .route(
+            "/api/v1/admin/runners/{runner_id}/jobs/{job_run_id}/complete",
+            post(runners_dispatch::complete_runner_job_handler),
         )
         .route(
             "/api/v1/admin/runners/{runner_id}",

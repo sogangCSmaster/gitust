@@ -38,6 +38,8 @@ pub struct WorkflowArtifactEntry {
     pub path: String,
     pub size_bytes: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_preview: Option<String>,
 }
 
@@ -113,7 +115,7 @@ pub(crate) fn bad_req(msg: impl Into<String>) -> ApiError {
     (StatusCode::BAD_REQUEST, msg.into())
 }
 
-fn no_store_json<T: Serialize>(res: Result<T, ApiError>) -> Response {
+pub(crate) fn no_store_json<T: Serialize>(res: Result<T, ApiError>) -> Response {
     match res {
         Ok(payload) => ([(header::CACHE_CONTROL, "no-store")], Json(payload)).into_response(),
         Err(err) => response::<()>(Err(err)),
@@ -177,7 +179,7 @@ pub(crate) fn substitute_secrets_in_command(
     Ok(out)
 }
 
-fn with_admin_repo_read<T, F>(
+pub(crate) fn with_admin_repo_read<T, F>(
     state: &AppState,
     raw_id: &str,
     headers: &HeaderMap,
@@ -223,7 +225,7 @@ where
     Ok(result)
 }
 
-fn with_admin_repo_write<T, F>(
+pub(crate) fn with_admin_repo_write<T, F>(
     state: &AppState,
     raw_id: &str,
     headers: &HeaderMap,

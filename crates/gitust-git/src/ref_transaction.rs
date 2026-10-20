@@ -31,16 +31,6 @@ fn failed() -> GitEngineError {
     )
 }
 
-pub(crate) fn update(
-    repo: &gix::Repository,
-    name: &str,
-    target: gix::ObjectId,
-    expected: PreviousValue,
-    message: impl Into<gix::bstr::BString>,
-) -> Result<(), GitEngineError> {
-    update_with_gate(repo, name, target, expected, message, || Ok(()))
-}
-
 pub(crate) fn update_with_gate(
     repo: &gix::Repository,
     name: &str,
@@ -343,7 +333,7 @@ impl PreparedProcess {
                     break status;
                 }
                 Ok(None) if self.started.elapsed() < DEADLINE => {
-                    std::thread::sleep(Duration::from_millis(5))
+                    std::thread::sleep(Duration::from_micros(200))
                 }
                 _ => return Err(failed()),
             }

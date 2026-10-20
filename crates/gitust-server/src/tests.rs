@@ -12,6 +12,8 @@ mod tests_repository_group_invite_auth;
 #[path = "tests_repository_group_invites.rs"]
 mod tests_repository_group_invites;
 
+#[path = "tests_alpha_live_rehearsal.rs"]
+mod tests_alpha_live_rehearsal;
 #[path = "tests_approval_target.rs"]
 mod tests_approval_target;
 #[path = "tests_auth.rs"]
@@ -40,8 +42,14 @@ mod tests_mcp_commit_stdio;
 mod tests_mcp_discard;
 #[path = "tests_oauth.rs"]
 mod tests_oauth;
+#[path = "tests_oidc_ldap.rs"]
+mod tests_oidc_ldap;
 #[path = "tests_outbound.rs"]
 mod tests_outbound;
+#[path = "tests_perf_budget.rs"]
+mod tests_perf_budget;
+#[path = "tests_remote_runners.rs"]
+mod tests_remote_runners;
 #[path = "tests_repository_default.rs"]
 mod tests_repository_default;
 #[path = "tests_repository_summary.rs"]
@@ -60,6 +68,8 @@ mod tests_source_of_truth_sync;
 mod tests_verification;
 #[path = "tests_workflows.rs"]
 mod tests_workflows;
+#[path = "tests_workflows_yaml_uses_artifacts.rs"]
+mod tests_workflows_yaml_uses_artifacts;
 #[path = "tests_worktree_labels.rs"]
 mod tests_worktree_labels;
 

@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::GitEngineError;
 
 use super::{
-    invalid, validate_secret_name_syntax, ExpandedWorkflowJob, WorkflowDefinition,
-    WorkflowStepDefinition,
+    invalid, validate_secret_name_syntax, ExpandedWorkflowJob, WorkflowArtifactDownloadSpec,
+    WorkflowDefinition, WorkflowStepDefinition,
 };
 
 pub(super) fn parse_and_validate_template_tokens(
@@ -117,6 +117,14 @@ impl WorkflowDefinition {
                 if let Some(ref mut a) = artifacts {
                     a.name = sub(&a.name);
                 }
+                let download_artifacts = job
+                    .download_artifacts
+                    .iter()
+                    .map(|d| WorkflowArtifactDownloadSpec {
+                        name: sub(&d.name),
+                        path: d.path.clone(),
+                    })
+                    .collect();
                 expanded.push(ExpandedWorkflowJob {
                     job_id: job.id.clone(),
                     display_name,
@@ -127,6 +135,7 @@ impl WorkflowDefinition {
                     secrets: job.secrets.clone(),
                     cache,
                     artifacts,
+                    download_artifacts,
                     steps,
                 });
             }

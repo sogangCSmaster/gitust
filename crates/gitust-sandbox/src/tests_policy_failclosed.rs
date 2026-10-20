@@ -36,6 +36,9 @@ fn linked_worktree_policy_hides_gitust_search_directory() {
     assert!(spec.rules.iter().any(|rule| {
         rule.path == common.join("gitust-search") && rule.access == PathAccess::Hidden
     }));
+    assert!(spec.rules.iter().any(|rule| {
+        rule.path == common.join("gitust-cow-templates") && rule.access == PathAccess::Hidden
+    }));
 }
 
 #[test]

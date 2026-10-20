@@ -218,6 +218,7 @@ impl SandboxSpec {
             "gitust-sync",
             "gitust-workflows",
             "gitust-search",
+            "gitust-cow-templates",
             ".gitust",
         ] {
             rules.push(PathRule::new(

@@ -19,11 +19,11 @@ use crate::workflows::{
     unavailable, workflows_storage_root, ApiError, WorkflowArtifactEntry, CACHES_DIR_NAME,
 };
 
-const MAX_CACHE_TOTAL_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_ARTIFACT_TOTAL_BYTES: u64 = 1024 * 1024;
+pub(crate) const MAX_CACHE_TOTAL_BYTES: u64 = 4 * 1024 * 1024;
+pub(crate) const MAX_ARTIFACT_TOTAL_BYTES: u64 = 1024 * 1024;
 const MAX_CACHE_FILES: usize = 128;
-const MAX_ARTIFACT_PREVIEW_CHARS: usize = 4096;
-const MAX_SHARED_CACHE_ENTRIES: usize = 32;
+pub(crate) const MAX_ARTIFACT_PREVIEW_CHARS: usize = 4096;
+pub(crate) const MAX_SHARED_CACHE_ENTRIES: usize = 32;
 const MAX_CACHE_DIR_SCAN_ENTRIES: usize = 128;
 
 #[derive(Serialize, Deserialize)]
@@ -207,27 +207,42 @@ pub(crate) fn save_job_cache(
 }
 
 pub(crate) fn collect_job_artifacts(
+    common_git_dir: &Path,
+    run_id: &str,
     wt_dir: &Path,
     spec: &WorkflowArtifactSpec,
     secret_values: &[String],
 ) -> Result<Vec<WorkflowArtifactEntry>, String> {
     let mut out = Vec::new();
     for (path, bytes) in collect_paths(wt_dir, &spec.paths, MAX_ARTIFACT_TOTAL_BYTES, false)? {
+        let name = redact_secrets(&spec.name, secret_values);
+        let rel_path = redact_secrets(&path, secret_values);
+        let digest: [u8; 32] = Sha256::digest(&bytes).into();
+        let sha256_hex = hex::encode(digest);
+        crate::workflow_artifacts_api::save_artifact_blob(
+            common_git_dir,
+            run_id,
+            &name,
+            &rel_path,
+            &bytes,
+        )
+        .map_err(|(_, m)| m)?;
         let raw: String = String::from_utf8_lossy(&bytes)
             .chars()
             .take(MAX_ARTIFACT_PREVIEW_CHARS)
             .collect();
         out.push(WorkflowArtifactEntry {
-            name: redact_secrets(&spec.name, secret_values),
-            path: redact_secrets(&path, secret_values),
+            name,
+            path: rel_path,
             size_bytes: bytes.len() as u64,
+            sha256: Some(sha256_hex),
             content_preview: Some(redact_secrets(&raw, secret_values)),
         });
     }
     Ok(out)
 }
 
-fn scan_shared_caches(common_git_dir: &Path) -> Result<Vec<SharedCacheEntry>, ApiError> {
+pub(crate) fn scan_shared_caches(common_git_dir: &Path) -> Result<Vec<SharedCacheEntry>, ApiError> {
     let caches_dir = workflows_storage_root(common_git_dir)?.join(CACHES_DIR_NAME);
     if !caches_dir.exists() && fs::symlink_metadata(&caches_dir).is_err() {
         return Ok(Vec::new());
